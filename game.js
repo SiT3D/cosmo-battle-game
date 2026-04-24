@@ -36,6 +36,7 @@ const GRID_CELLS = 8;
 const HOOK_RANGE_CELLS = 2;
 const HOOK_SPEED = 1180;
 const HOOK_PULL_DURATION = 0.18;
+const TELEPORT_CHARGE_TIME = 2;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.3;
@@ -95,6 +96,11 @@ const abilities = {
     name: "Хук",
     hint: "Click",
   },
+  teleport: {
+    key: "teleport",
+    name: "Телепорт",
+    hint: "Click",
+  },
   laser: {
     key: "laser",
     name: "Лазер",
@@ -128,8 +134,9 @@ let currentAbility = abilities.hook;
 let currentAbilityCharges = null;
 let reserveAbility = null;
 let reserveAbilityCharges = null;
-let abilityMode = "hook";
+let abilityMode = "teleport";
 let activeHook = null;
+let activePlayerTeleport = null;
 let activePlayerLaser = null;
 let activePlayerSpray = null;
 let activePlayerShield = null;
@@ -201,6 +208,7 @@ function isSimulationActive() {
   return (
     player.moving ||
     Boolean(activeHook) ||
+    Boolean(activePlayerTeleport) ||
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSpray)
   );
@@ -247,20 +255,24 @@ function endDrag() {
 }
 
 function canSwitchAbilities() {
-  return !player.dead && !player.moving && !activeHook && !activePlayerLaser && !activePlayerSpray;
+  return !player.dead && !player.moving && !activeHook && !activePlayerTeleport && !activePlayerLaser && !activePlayerSpray;
 }
 
-function cycleAbilitySelection() {
-  if (!canSwitchAbilities()) return;
-
-  const modes = ["hook"];
+function getSelectableAbilityModes() {
+  const modes = ["teleport", "hook"];
   if (currentAbility.key !== abilities.hook.key) {
     modes.push("primary");
   }
   if (reserveAbility) {
     modes.push("secondary");
   }
+  return modes;
+}
 
+function cycleAbilitySelection() {
+  if (!canSwitchAbilities()) return;
+
+  const modes = getSelectableAbilityModes();
   const currentIndex = Math.max(0, modes.indexOf(abilityMode));
   abilityMode = modes[(currentIndex + 1) % modes.length];
 }
@@ -310,6 +322,7 @@ function update(dt) {
     updatePlayerMotion(simDt);
   }
   updateHook(simDt);
+  updatePlayerTeleport(simDt);
   updatePlayerLaser(simDt);
   updatePlayerSpray(simDt);
   updateEnemySpawns(simDt);
@@ -696,8 +709,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "spray_charge") {
-      enemy.aimX = player.x;
-      enemy.aimY = player.y;
+      // Lock spray aim when the warning lines appear so the attack does not keep rotating.
       enemy.phaseTimer -= dt;
       if (enemy.phaseTimer <= 0) {
         enemy.phase = "spray_fire";
@@ -707,8 +719,6 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "spray_fire") {
-      enemy.aimX = player.x;
-      enemy.aimY = player.y;
       enemy.shotTimer -= dt;
       while (enemy.phase === "spray_fire" && enemy.shotTimer <= 0 && enemy.shotsRemaining > 0) {
         fireEnemySprayShot(enemy);
@@ -933,16 +943,26 @@ function findFreePoint(padding) {
 function setCurrentAbility(ability, charges = null) {
   currentAbility = ability;
   currentAbilityCharges = charges;
-  abilityMode = ability.key === abilities.hook.key ? "hook" : "primary";
+  abilityMode = ability.key === abilities.hook.key ? "teleport" : "primary";
 }
 
 function resetToHook() {
-  setCurrentAbility(abilities.hook);
+  currentAbility = abilities.hook;
+  currentAbilityCharges = null;
+  abilityMode = "teleport";
   reserveAbility = null;
   reserveAbilityCharges = null;
 }
 
 function getSelectedAbilityState() {
+  if (abilityMode === "teleport") {
+    return {
+      slot: "teleport",
+      ability: abilities.teleport,
+      charges: null,
+    };
+  }
+
   if (abilityMode === "secondary" && reserveAbility) {
     return {
       slot: "secondary",
@@ -989,7 +1009,7 @@ function consumeAbilityCharge(slot = "primary") {
       reserveAbilityCharges = null;
       playerAbilityCapacity = 1;
       if (abilityMode === "secondary") {
-        abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "hook";
+        abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "teleport";
       }
     }
     return;
@@ -1094,6 +1114,22 @@ function useHookAbility(targetPoint = aimPoint) {
   };
 }
 
+function useTeleportAbility(targetPoint = aimPoint) {
+  const half = player.size * 0.5;
+  const targetX = clamp(targetPoint.x, ARENA.x + half, ARENA.x + ARENA.width - half);
+  const targetY = clamp(targetPoint.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+  const distance = Math.hypot(targetX - player.x, targetY - player.y);
+  if (distance < 2) return false;
+
+  activePlayerTeleport = {
+    targetX,
+    targetY,
+    timer: TELEPORT_CHARGE_TIME,
+    duration: TELEPORT_CHARGE_TIME,
+  };
+  return true;
+}
+
 function activatePlayerMinePassive() {
   playerMinePassive = {
     remaining: PLAYER_MINE_PASSIVE_TOTAL,
@@ -1136,7 +1172,7 @@ function updatePlayerMinePassive(dt) {
 
 function tryUseAbilityFromClick(point) {
   if (player.dead) return false;
-  if (player.moving || activeHook || activePlayerLaser || activePlayerSpray || player.dragging) return false;
+  if (player.moving || activeHook || activePlayerTeleport || activePlayerLaser || activePlayerSpray || player.dragging) return false;
 
   const distanceToPlayer = Math.hypot(point.x - player.x, point.y - player.y);
   if (distanceToPlayer <= player.size * 0.5) return false;
@@ -1160,6 +1196,10 @@ function tryUseAbilityFromClick(point) {
     return true;
   }
 
+  if (selectedAbility.key === abilities.teleport.key) {
+    return useTeleportAbility(point);
+  }
+
   if (selectedAbility.key === abilities.laser.key) {
     useLaserAbility(point);
     return true;
@@ -1178,7 +1218,15 @@ function tryUseAbilityFromClick(point) {
 }
 
 function canStartKeyboardMove() {
-  return !player.dead && !player.moving && !activeHook && !activePlayerLaser && !activePlayerSpray && !player.dragging;
+  return (
+    !player.dead &&
+    !player.moving &&
+    !activeHook &&
+    !activePlayerTeleport &&
+    !activePlayerLaser &&
+    !activePlayerSpray &&
+    !player.dragging
+  );
 }
 
 function launchPlayerTowardPoint(point) {
@@ -1296,6 +1344,45 @@ function updateHook(dt) {
     activeHook = null;
     return;
   }
+}
+
+function updatePlayerTeleport(dt) {
+  if (!activePlayerTeleport) return;
+
+  activePlayerTeleport.timer -= dt;
+  if (activePlayerTeleport.timer > 0) return;
+
+  spawnImpactBurst(player.x, player.y, {
+    count: 14,
+    speedMin: 120,
+    speedMax: 260,
+    lifeMin: 0.14,
+    lifeMax: 0.32,
+    sizeMin: 3,
+    sizeMax: 7,
+  });
+
+  player.x = activePlayerTeleport.targetX;
+  player.y = activePlayerTeleport.targetY;
+  player.vx = 0;
+  player.vy = 0;
+  player.moving = false;
+  player.moveTarget = null;
+  player.launched = true;
+  moveMarker = null;
+  trail.length = 0;
+
+  spawnImpactBurst(player.x, player.y, {
+    count: 18,
+    speedMin: 140,
+    speedMax: 300,
+    lifeMin: 0.18,
+    lifeMax: 0.36,
+    sizeMin: 4,
+    sizeMax: 8,
+  });
+
+  activePlayerTeleport = null;
 }
 
 function updatePlayerLaser(dt) {
@@ -1637,6 +1724,7 @@ function startDeathSequence() {
   player.moveTarget = null;
   player.hitInvuln = 0;
   activeHook = null;
+  activePlayerTeleport = null;
   activePlayerLaser = null;
   activePlayerSpray = null;
   activePlayerShield = null;
@@ -1644,7 +1732,7 @@ function startDeathSequence() {
   playerAbilityCapacity = 1;
   reserveAbility = null;
   reserveAbilityCharges = null;
-  abilityMode = "hook";
+  abilityMode = "teleport";
   moveMarker = null;
   trail.length = 0;
   laserProjectiles.length = 0;
@@ -1702,6 +1790,7 @@ function resetGame() {
   player.dead = false;
 
   activeHook = null;
+  activePlayerTeleport = null;
   activePlayerLaser = null;
   activePlayerSpray = null;
   activePlayerShield = null;
@@ -1709,7 +1798,7 @@ function resetGame() {
   playerAbilityCapacity = 1;
   reserveAbility = null;
   reserveAbilityCharges = null;
-  abilityMode = "hook";
+  abilityMode = "teleport";
   playerShieldCooldown = 0;
   resetToHook();
   moveMarker = null;
@@ -1795,6 +1884,8 @@ function updateUi() {
     selected.charges !== null
       ? `${selectedAbility.name} x${selected.charges}`
       : selectedAbility.name;
+  const selectableModes = getSelectableAbilityModes();
+  const switchHint = selectableModes.length > 1 ? " | Q/Wheel" : "";
   if (selectedAbility.key === abilities.shield.key) {
     if (activePlayerShield) {
       abilityHintEl.textContent = `${activePlayerShield.timer.toFixed(1)}s`;
@@ -1803,11 +1894,15 @@ function updateUi() {
     } else {
       abilityHintEl.textContent = "Ready";
     }
+  } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
+    abilityHintEl.textContent = `${activePlayerTeleport.timer.toFixed(1)}s`;
   } else {
-    abilityHintEl.textContent = playerAbilityCapacity > 1 && currentAbility.key !== abilities.hook.key ? "Click | Q/Wheel" : "Click";
+    abilityHintEl.textContent = `Click${switchHint}`;
   }
   abilityIconEl.textContent =
-    selectedAbility.key === abilities.hook.key
+    selectedAbility.key === abilities.teleport.key
+      ? "T"
+      : selectedAbility.key === abilities.hook.key
       ? "H"
       : selectedAbility.key === abilities.shield.key
         ? "S"
@@ -2105,6 +2200,9 @@ function drawMoveMarker() {
 
 function drawAbilityRange() {
   const selectedAbility = getSelectedAbilityState().ability;
+  if (selectedAbility.key === abilities.teleport.key) {
+    return;
+  }
   const range =
     selectedAbility.key === abilities.hook.key
       ? getHookRange()
@@ -2369,6 +2467,45 @@ function drawLaserEffects() {
     ctx.beginPath();
     ctx.arc(activeHook.tipX, activeHook.tipY, 6, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  }
+
+  if (activePlayerTeleport) {
+    const progress = 1 - clamp(activePlayerTeleport.timer / activePlayerTeleport.duration, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 9);
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(118, 244, 255, ${0.24 + progress * 0.42})`;
+    ctx.lineWidth = 2 + progress * 2;
+    ctx.setLineDash([12, 10]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(activePlayerTeleport.targetX, activePlayerTeleport.targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = `rgba(212, 252, 255, ${0.35 + progress * 0.4})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(
+      activePlayerTeleport.targetX,
+      activePlayerTeleport.targetY,
+      15 + progress * 10 + pulse * 5,
+      0,
+      Math.PI * 2
+    );
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(118, 244, 255, ${0.3 + progress * 0.3})`;
+    ctx.arc(
+      activePlayerTeleport.targetX,
+      activePlayerTeleport.targetY,
+      26 + (1 - progress) * 8,
+      -Math.PI * 0.5,
+      -Math.PI * 0.5 + Math.PI * 2 * progress
+    );
+    ctx.stroke();
     ctx.restore();
   }
 
