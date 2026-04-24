@@ -58,6 +58,7 @@ const ENEMY_MINE_INTERVAL_MIN = 10;
 const ENEMY_MINE_INTERVAL_MAX = 20;
 const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
+const HOOK_COOLDOWN = 3;
 const SHIELD_RADIUS = 84;
 const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
@@ -144,6 +145,7 @@ let activePlayerShield = null;
 let playerMinePassive = null;
 let playerAbilityCapacity = 1;
 let playerShieldCooldown = 0;
+let playerHookCooldown = 0;
 let aimPoint = { x: 0, y: 0 };
 let moveMarker = null;
 let deathResetTimer = 0;
@@ -335,6 +337,7 @@ function update(dt) {
   updateLaserProjectiles(simDt);
   updateMines(simDt);
   playerShieldCooldown = Math.max(0, playerShieldCooldown - simDt);
+  playerHookCooldown = Math.max(0, playerHookCooldown - simDt);
   simulationWasActive = startedActive;
 
   player.hitInvuln = Math.max(0, player.hitInvuln - simDt);
@@ -949,6 +952,24 @@ function getAbilityIconKey(abilityKey) {
   return "L";
 }
 
+function getAbilityCooldownState(abilityKey) {
+  if (abilityKey === abilities.hook.key && playerHookCooldown > 0) {
+    return {
+      remaining: playerHookCooldown,
+      duration: HOOK_COOLDOWN,
+    };
+  }
+
+  if (abilityKey === abilities.shield.key && playerShieldCooldown > 0) {
+    return {
+      remaining: playerShieldCooldown,
+      duration: SHIELD_COOLDOWN,
+    };
+  }
+
+  return null;
+}
+
 function setCurrentAbility(ability, charges = null) {
   currentAbility = ability;
   currentAbilityCharges = charges;
@@ -1108,10 +1129,12 @@ function useShieldAbility() {
 }
 
 function useHookAbility(targetPoint = aimPoint) {
+  if (playerHookCooldown > 0) return false;
+
   const dx = targetPoint.x - player.x;
   const dy = targetPoint.y - player.y;
   const distance = Math.hypot(dx, dy);
-  if (distance < 1) return;
+  if (distance < 1) return false;
 
   activeHook = {
     enemyId: null,
@@ -1124,6 +1147,8 @@ function useHookAbility(targetPoint = aimPoint) {
     traveled: 0,
     pullTime: 0,
   };
+  playerHookCooldown = HOOK_COOLDOWN;
+  return true;
 }
 
 function useTeleportAbility(targetPoint = aimPoint) {
@@ -1203,8 +1228,7 @@ function tryUseAbilityFromClick(point) {
   if (
     selectedAbility.key === abilities.hook.key
   ) {
-    useHookAbility(point);
-    return true;
+    return useHookAbility(point);
   }
 
   if (selectedAbility.key === abilities.teleport.key) {
@@ -1744,6 +1768,7 @@ function startDeathSequence() {
   reserveAbility = null;
   reserveAbilityCharges = null;
   abilityMode = "hook";
+  playerHookCooldown = 0;
   moveMarker = null;
   trail.length = 0;
   laserProjectiles.length = 0;
@@ -1811,6 +1836,7 @@ function resetGame() {
   reserveAbilityCharges = null;
   abilityMode = "hook";
   playerShieldCooldown = 0;
+  playerHookCooldown = 0;
   resetToHook();
   moveMarker = null;
 
@@ -1910,6 +1936,8 @@ function updateUi() {
     } else {
       abilityHintEl.textContent = "Ready";
     }
+  } else if (selectedAbility.key === abilities.hook.key) {
+    abilityHintEl.textContent = playerHookCooldown > 0 ? `CD ${playerHookCooldown.toFixed(1)}s` : `Click${switchHint}`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
     abilityHintEl.textContent = `${activePlayerTeleport.timer.toFixed(1)}s`;
   } else {
@@ -1924,6 +1952,7 @@ function updateUi() {
   const abilityTiles = [
     {
       mode: "teleport",
+      abilityKey: abilities.teleport.key,
       slot: "База",
       icon: getAbilityIconKey(abilities.teleport.key),
       name: abilities.teleport.name,
@@ -1933,6 +1962,7 @@ function updateUi() {
     },
     {
       mode: "hook",
+      abilityKey: abilities.hook.key,
       slot: "База",
       icon: getAbilityIconKey(abilities.hook.key),
       name: abilities.hook.name,
@@ -1945,6 +1975,7 @@ function updateUi() {
   if (currentAbility.key !== abilities.hook.key) {
     abilityTiles.push({
       mode: "primary",
+      abilityKey: currentAbility.key,
       slot: "Слот 1",
       icon: getAbilityIconKey(currentAbility.key),
       name: currentAbilityCharges === null ? currentAbility.name : `${currentAbility.name} x${currentAbilityCharges}`,
@@ -1958,6 +1989,7 @@ function updateUi() {
     if (reserveAbility) {
       abilityTiles.push({
         mode: "secondary",
+        abilityKey: reserveAbility.key,
         slot: "Слот 2",
         icon: getAbilityIconKey(reserveAbility.key),
         name: reserveAbilityCharges === null ? reserveAbility.name : `${reserveAbility.name} x${reserveAbilityCharges}`,
@@ -1968,6 +2000,7 @@ function updateUi() {
     } else {
       abilityTiles.push({
         mode: "secondary",
+        abilityKey: null,
         slot: "Слот 2",
         icon: "+",
         name: "Пусто",
@@ -1980,8 +2013,12 @@ function updateUi() {
 
   abilityTilesEl.innerHTML = abilityTiles
     .map(
-      (tile) =>
-        `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}" data-mode="${tile.mode}"><div class="ability-tile__top"><span class="ability-tile__icon">${tile.icon}</span><span class="ability-tile__slot">${tile.slot}</span></div><span class="ability-tile__name">${tile.name}</span><span class="ability-tile__hint">${tile.hint}</span></div>`
+      (tile) => {
+        const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
+        const cooldownRatio = cooldown ? clamp(cooldown.remaining / cooldown.duration, 0, 1) : 0;
+        const readyRatio = cooldown ? 1 - cooldownRatio : 0;
+        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"><div class="ability-tile__top"><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span>${cooldown ? `<span class="ability-tile__icon-cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__icon-bar" style="transform:scaleX(${readyRatio.toFixed(3)})"></span>` : ""}</span><span class="ability-tile__slot">${tile.slot}</span></div><span class="ability-tile__name">${tile.name}</span><span class="ability-tile__hint">${tile.hint}</span></div>`;
+      }
     )
     .join("");
 
