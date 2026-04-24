@@ -305,7 +305,6 @@ function isSimulationActive() {
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
     Boolean(activePlayerDecoy) ||
-    baseProjectiles.length > 0 ||
     beamEffects.length > 0 ||
     enemySeeds.length > 0 ||
     homingMissiles.length > 0
@@ -376,25 +375,43 @@ function getSelectableAbilityModes() {
   return modes;
 }
 
-function cycleAbilitySelection() {
+function cycleAbilitySelection(direction = 1) {
   if (!canSwitchAbilities()) return;
 
   const modes = getSelectableAbilityModes();
   const currentIndex = Math.max(0, modes.indexOf(abilityMode));
-  abilityMode = modes[(currentIndex + 1) % modes.length];
+  const nextIndex = (currentIndex + direction + modes.length) % modes.length;
+  abilityMode = modes[nextIndex];
+}
+
+function selectAbilityModeByIndex(index) {
+  if (!canSwitchAbilities()) return false;
+
+  const modes = getSelectableAbilityModes();
+  if (index < 0 || index >= modes.length) return false;
+  abilityMode = modes[index];
+  return true;
 }
 
 function handleKeyDown(event) {
-  if (event.code !== "KeyQ") return;
+  if (event.code === "KeyQ") {
+    event.preventDefault();
+    cycleAbilitySelection(1);
+    return;
+  }
+
+  const digitMatch = event.code.match(/^(Digit|Numpad)([1-9])$/u);
+  if (!digitMatch) return;
+
   event.preventDefault();
-  cycleAbilitySelection();
+  selectAbilityModeByIndex(Number(digitMatch[2]) - 1);
 }
 
 function handleWheel(event) {
   if (Math.abs(event.deltaY) < 2) return;
   if (!canSwitchAbilities()) return;
   event.preventDefault();
-  cycleAbilitySelection();
+  cycleAbilitySelection(event.deltaY > 0 ? 1 : -1);
 }
 
 function moveToward(current, target, maxDelta) {
@@ -2838,7 +2855,7 @@ function updateUi() {
       ? `${selectedAbility.name} x${selected.charges}`
       : selectedAbility.name;
   const selectableModes = getSelectableAbilityModes();
-  const switchHint = selectableModes.length > 1 ? " | Q/Wheel" : "";
+  const switchHint = selectableModes.length > 1 ? " | Q/Wheel/1-9" : "";
   if (selectedAbility.key === abilities.shield.key) {
     if (activePlayerShield) {
       abilityHintEl.textContent = `${activePlayerShield.timer.toFixed(1)}s`;
@@ -2928,10 +2945,10 @@ function updateUi() {
 
   abilityTilesEl.innerHTML = abilityTiles
     .map(
-      (tile) => {
+      (tile, index) => {
         const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
         const cooldownRatio = cooldown ? clamp(cooldown.remaining / cooldown.duration, 0, 1) : 0;
-        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
+        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__hotkey">${index + 1}</span><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
       }
     )
     .join("");

@@ -198,6 +198,26 @@ body {
   z-index: 2;
 }
 
+.ability-tile__hotkey {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 2;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(9, 15, 27, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(236, 243, 255, 0.92);
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
 .ability-tile__charges {
   position: absolute;
   right: 5px;
@@ -351,6 +371,14 @@ body {
     min-width: 14px;
     height: 14px;
     font-size: 0.46rem;
+  }
+
+  .ability-tile__hotkey {
+    top: 4px;
+    left: 4px;
+    min-width: 13px;
+    height: 13px;
+    font-size: 0.44rem;
   }
 
   .ability-tile__cooldown-label {
