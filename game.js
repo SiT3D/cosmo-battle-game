@@ -1938,20 +1938,16 @@ function updateUi() {
     {
       mode: "teleport",
       abilityKey: abilities.teleport.key,
-      slot: "База",
       icon: getAbilityIconKey(abilities.teleport.key),
-      name: abilities.teleport.name,
-      hint: "Движение",
+      charges: null,
       active: abilityMode === "teleport",
       empty: false,
     },
     {
       mode: "hook",
       abilityKey: abilities.hook.key,
-      slot: "База",
       icon: getAbilityIconKey(abilities.hook.key),
-      name: abilities.hook.name,
-      hint: "Q/Wheel",
+      charges: null,
       active: abilityMode === "hook",
       empty: false,
     },
@@ -1961,10 +1957,8 @@ function updateUi() {
     abilityTiles.push({
       mode: "primary",
       abilityKey: currentAbility.key,
-      slot: "Слот 1",
       icon: getAbilityIconKey(currentAbility.key),
-      name: currentAbilityCharges === null ? currentAbility.name : `${currentAbility.name} x${currentAbilityCharges}`,
-      hint: "Украдено",
+      charges: currentAbilityCharges,
       active: abilityMode === "primary",
       empty: false,
     });
@@ -1975,10 +1969,8 @@ function updateUi() {
       abilityTiles.push({
         mode: "secondary",
         abilityKey: reserveAbility.key,
-        slot: "Слот 2",
         icon: getAbilityIconKey(reserveAbility.key),
-        name: reserveAbilityCharges === null ? reserveAbility.name : `${reserveAbility.name} x${reserveAbilityCharges}`,
-        hint: "Украдено",
+        charges: reserveAbilityCharges,
         active: abilityMode === "secondary",
         empty: false,
       });
@@ -1986,10 +1978,8 @@ function updateUi() {
       abilityTiles.push({
         mode: "secondary",
         abilityKey: null,
-        slot: "Слот 2",
         icon: "+",
-        name: "Пусто",
-        hint: "Ждёт лут",
+        charges: null,
         active: false,
         empty: true,
       });
@@ -2001,8 +1991,7 @@ function updateUi() {
       (tile) => {
         const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
         const cooldownRatio = cooldown ? clamp(cooldown.remaining / cooldown.duration, 0, 1) : 0;
-        const readyRatio = cooldown ? 1 - cooldownRatio : 0;
-        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"><div class="ability-tile__top"><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span>${cooldown ? `<span class="ability-tile__icon-cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__icon-bar" style="transform:scaleX(${readyRatio.toFixed(3)})"></span>` : ""}</span><span class="ability-tile__slot">${tile.slot}</span></div><span class="ability-tile__name">${tile.name}</span><span class="ability-tile__hint">${tile.hint}</span></div>`;
+        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span>` : ""}<span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
       }
     )
     .join("");

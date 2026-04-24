@@ -118,8 +118,10 @@ body {
   width: 62px;
   height: 62px;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
   padding: 7px;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(16, 25, 40, 0.96), rgba(8, 14, 24, 0.94));
@@ -151,27 +153,30 @@ body {
   color: rgba(177, 190, 218, 0.8);
 }
 
-.ability-tile__top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 4px;
+.ability-tile__cooldown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(96, 104, 116, 0.16), rgba(96, 104, 116, 0.74));
 }
 
 .ability-tile__icon {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  overflow: hidden;
-  border-radius: 8px;
+  z-index: 2;
+  border-radius: 9px;
   background: linear-gradient(180deg, rgba(223, 238, 255, 0.98), rgba(135, 173, 255, 0.88));
   color: #0c1732;
-  font-size: 0.68rem;
+  font-size: 0.88rem;
   font-weight: 900;
   letter-spacing: 0.04em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 .ability-tile__icon-glyph {
@@ -179,58 +184,54 @@ body {
   z-index: 2;
 }
 
-.ability-tile__icon-cooldown {
+.ability-tile__charges {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1;
-  background: linear-gradient(180deg, rgba(55, 61, 72, 0.18), rgba(55, 61, 72, 0.72));
-}
-
-.ability-tile__icon-bar {
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  bottom: 2px;
-  height: 2px;
-  z-index: 3;
-  transform-origin: left center;
-  background: rgba(255, 233, 178, 0.96);
+  right: 5px;
+  bottom: 5px;
+  z-index: 2;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  box-shadow: 0 0 6px rgba(255, 196, 92, 0.4);
-}
-
-.ability-tile.is-cooling .ability-tile__icon {
-  color: rgba(12, 23, 50, 0.92);
-}
-
-.ability-tile.is-active .ability-tile__icon {
-  background: linear-gradient(180deg, rgba(255, 247, 214, 1), rgba(255, 177, 72, 0.94));
-  color: #291605;
-}
-
-.ability-tile__slot {
-  font-size: 0.5rem;
+  background: rgba(9, 15, 27, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(240, 246, 255, 0.95);
+  font-size: 0.52rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.72;
+  letter-spacing: 0.04em;
 }
 
-.ability-tile__name {
-  font-size: 0.62rem;
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: 0.02em;
+.ability-tile[data-ability="teleport"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(222, 244, 255, 1), rgba(120, 194, 255, 0.92));
+  color: #0d2542;
 }
 
-.ability-tile__hint {
-  font-size: 0.5rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.72;
+.ability-tile[data-ability="hook"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(255, 245, 198, 1), rgba(255, 188, 78, 0.94));
+  color: #2d1907;
+}
+
+.ability-tile[data-ability="laser"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(219, 248, 255, 1), rgba(111, 226, 255, 0.92));
+  color: #082637;
+}
+
+.ability-tile[data-ability="spray"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(246, 221, 255, 1), rgba(204, 106, 255, 0.92));
+  color: #2b0d44;
+}
+
+.ability-tile[data-ability="shield"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(255, 244, 186, 1), rgba(255, 205, 89, 0.94));
+  color: #392305;
+}
+
+.ability-tile.is-empty .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(192, 201, 216, 0.18), rgba(120, 133, 158, 0.22));
+  color: rgba(214, 224, 242, 0.86);
 }
 
 .ability-icon {
@@ -299,24 +300,17 @@ body {
   }
 
   .ability-tile__icon {
-    width: 20px;
-    height: 20px;
-    border-radius: 7px;
-    font-size: 0.62rem;
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    font-size: 0.76rem;
   }
 
-  .ability-tile__icon-bar {
-    left: 2px;
-    right: 2px;
-    bottom: 2px;
-  }
-
-  .ability-tile__name {
-    font-size: 0.56rem;
-  }
-
-  .ability-tile__hint,
-  .ability-tile__slot {
+  .ability-tile__charges {
+    right: 4px;
+    bottom: 4px;
+    min-width: 14px;
+    height: 14px;
     font-size: 0.46rem;
   }
 }
