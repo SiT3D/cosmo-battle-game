@@ -30,6 +30,8 @@ const ENEMY_DASH_MAX_DISTANCE = 420;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
+const SPROUTLING_CHASE_SPEED = 206;
+const SPROUTLING_CHASE_ACCELERATION = 520;
 const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const ENEMY_MAX_COUNT = 8;
@@ -40,11 +42,20 @@ const HOOK_RANGE_CELLS = 4;
 const HOOK_SPEED = 1180;
 const HOOK_PULL_SPEED_CELLS = 2 / 1.1;
 const TELEPORT_CHARGE_TIME = 2;
+const DECOY_RANGE_CELLS = 4;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
+const SNIPER_CHARGE_TIME = 1.35;
+const PLAYER_SNIPER_CHARGE_TIME = 0.22;
 const SPRAY_CHARGE_TIME = 1;
 const PLAYER_SPRAY_CHARGE_TIME = 0.7;
+const PLAYER_MISSILE_SPEED = 232;
+const PLAYER_MISSILE_ACCELERATION = 760;
+const PLAYER_MISSILE_TURN_RATE = 7.4;
+const PLAYER_MISSILE_LIFETIME = 3.8;
+const PLAYER_MISSILE_COUNT = 3;
+const PLAYER_MISSILE_SPAWN_SPREAD = Math.PI * 0.18;
 const SPRAY_PROJECTILE_COUNT = 10;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
@@ -67,6 +78,12 @@ const SLOW_ENEMY_HOLD_DISTANCE = 54;
 const ENEMY_SHIELD_UP_TIME = 1.2;
 const ENEMY_MINE_INTERVAL_MIN = 10;
 const ENEMY_MINE_INTERVAL_MAX = 20;
+const GROWER_SEED_INTERVAL_MIN = 4.8;
+const GROWER_SEED_INTERVAL_MAX = 7.2;
+const GROWER_SEED_HATCH_TIME = 2.9;
+const GROWER_SEED_RADIUS = 10;
+const GROWER_SEED_MAX_COUNT = 7;
+const GROWER_HATCHLING_LIMIT = 5;
 const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
 const HOOK_COOLDOWN = 8;
@@ -75,9 +92,14 @@ const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
 const STOLEN_BLAST_CHARGES = 4;
+const STOLEN_SNIPER_CHARGES = 1;
+const STOLEN_DECOY_CHARGES = 3;
+const STOLEN_MISSILE_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
-const BLAST_MAX_RADIUS = 222;
+const BLAST_MAX_RADIUS = 311;
 const BLAST_EXPAND_SPEED = 44;
+const DECOY_DURATION = 5;
+const DECOY_SIZE = 24;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
@@ -85,6 +107,8 @@ const MINE_LIFETIME = 30;
 const MINE_RADIUS = 12;
 const REPLICATOR_CLONE_TIME = 10;
 const REPLICATOR_HOP_DELAY = 0.28;
+const TRICKSTER_ILLUSION_LIFETIME = 8;
+const TRICKSTER_ILLUSION_LIMIT = 4;
 const DEATH_RESET_DELAY = 0.8;
 
 const player = {
@@ -133,6 +157,21 @@ const abilities = {
     name: "Щит",
     hint: "Click",
   },
+  sniper: {
+    key: "sniper",
+    name: "Снайпер",
+    hint: "Click",
+  },
+  decoy: {
+    key: "decoy",
+    name: "Приманка",
+    hint: "Click",
+  },
+  missiles: {
+    key: "missiles",
+    name: "Ракеты",
+    hint: "Click",
+  },
   blast: {
     key: "blast",
     name: "Взрыв",
@@ -149,6 +188,9 @@ const enemies = [];
 const spawnMarkers = [];
 const laserProjectiles = [];
 const blastWaves = [];
+const beamEffects = [];
+const enemySeeds = [];
+const homingMissiles = [];
 const mines = [];
 let enemyId = 0;
 let mineId = 0;
@@ -161,8 +203,10 @@ let abilityMode = "hook";
 let activeHook = null;
 let activePlayerTeleport = null;
 let activePlayerLaser = null;
+let activePlayerSniper = null;
 let activePlayerSpray = null;
 let activePlayerShield = null;
+let activePlayerDecoy = null;
 let playerMinePassive = null;
 let playerAbilityCapacity = 1;
 let playerShieldCooldown = 0;
@@ -228,6 +272,10 @@ function getBlastRange() {
   return getCellSize() * BLAST_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.16);
 }
 
+function getDecoyRange() {
+  return getCellSize() * DECOY_RANGE_CELLS;
+}
+
 function getArenaProjectileReach() {
   return Math.hypot(ARENA.width, ARENA.height) + 120;
 }
@@ -242,8 +290,12 @@ function isSimulationActive() {
     Boolean(activeHook) ||
     Boolean(activePlayerTeleport) ||
     Boolean(activePlayerLaser) ||
+    Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
-    blastWaves.length > 0
+    Boolean(activePlayerDecoy) ||
+    beamEffects.length > 0 ||
+    enemySeeds.length > 0 ||
+    homingMissiles.length > 0
   );
 }
 
@@ -288,7 +340,15 @@ function endDrag() {
 }
 
 function canSwitchAbilities() {
-  return !player.dead && !player.moving && !activeHook && !activePlayerTeleport && !activePlayerLaser && !activePlayerSpray;
+  return (
+    !player.dead &&
+    !player.moving &&
+    !activeHook &&
+    !activePlayerTeleport &&
+    !activePlayerLaser &&
+    !activePlayerSniper &&
+    !activePlayerSpray
+  );
 }
 
 function getSelectableAbilityModes() {
@@ -357,12 +417,17 @@ function update(dt) {
   updateHook(simDt);
   updatePlayerTeleport(simDt);
   updatePlayerLaser(simDt);
+  updatePlayerSniper(simDt);
   updatePlayerSpray(simDt);
   updateEnemySpawns(simDt);
   updateEnemies(simDt);
+  updateEnemySeeds(simDt);
   updatePlayerMinePassive(simDt);
   updatePlayerShield(simDt);
+  updatePlayerDecoy(simDt);
   updateBlastWaves(simDt);
+  updateBeamEffects(simDt);
+  updateHomingMissiles(simDt);
   updateShieldAuras(simDt);
   resolveEnemyCollisions();
   updateLaserProjectiles(simDt);
@@ -487,6 +552,22 @@ function getPlayerSlowMultiplier() {
   }
 
   return multiplier;
+}
+
+function getEnemyAggroTarget() {
+  if (activePlayerDecoy) {
+    return {
+      x: activePlayerDecoy.x,
+      y: activePlayerDecoy.y,
+      type: "decoy",
+    };
+  }
+
+  return {
+    x: player.x,
+    y: player.y,
+    type: "player",
+  };
 }
 
 function updateEnemyMotion(enemy, dt) {
@@ -709,8 +790,21 @@ function updateEnemySpawns(dt) {
 
 function updateEnemies(dt) {
   for (const enemy of enemies) {
+    if (enemy.isIllusion) {
+      enemy.illusionTimer -= dt;
+      if (enemy.illusionTimer <= 0) {
+        removeEnemy(enemy.id);
+      }
+      continue;
+    }
+
     if (enemy.kind === "brute") {
       updateBruteEnemy(enemy, dt);
+      continue;
+    }
+
+    if (enemy.kind === "sproutling") {
+      updateSproutlingEnemy(enemy, dt);
       continue;
     }
 
@@ -735,14 +829,23 @@ function updateEnemies(dt) {
       }
     }
 
+    if (enemy.kind === "grower") {
+      enemy.seedTimer -= dt;
+      if (enemy.seedTimer <= 0) {
+        spawnGrowerSeed(enemy.x, enemy.y);
+        enemy.seedTimer = randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX);
+      }
+    }
+
     if (enemy.phase === "turn_wait") {
       continue;
     }
 
     if (enemy.moving) {
       if (enemy.kind === "laser" && !enemy.turnShotLocked) {
-        enemy.aimX = player.x;
-        enemy.aimY = player.y;
+        const target = getEnemyAggroTarget();
+        enemy.aimX = target.x;
+        enemy.aimY = target.y;
         enemy.phaseTimer -= dt;
         if (enemy.phaseTimer <= 0) {
           fireEnemyLaser(enemy);
@@ -756,9 +859,16 @@ function updateEnemies(dt) {
         if (enemy.kind === "shield") {
           enemy.phase = "shield_up";
           enemy.phaseTimer = ENEMY_SHIELD_UP_TIME;
+        } else if (enemy.kind === "trickster") {
+          spawnTricksterIllusions(enemy);
+          enemy.phase = "recover";
+          enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
         } else if (enemy.kind === "replicator") {
           enemy.phase = "recover";
           enemy.phaseTimer = REPLICATOR_HOP_DELAY;
+        } else if (enemy.kind === "grower") {
+          enemy.phase = "recover";
+          enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
         } else if (enemy.kind === "mine") {
           enemy.phase = "recover";
           enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
@@ -766,12 +876,19 @@ function updateEnemies(dt) {
           enemy.phase = "recover";
           enemy.phaseTimer = SLOW_ENEMY_RECOVER_DELAY;
         } else if (enemy.kind === "spray") {
+          const target = getEnemyAggroTarget();
           enemy.phase = "spray_charge";
           enemy.phaseTimer = SPRAY_CHARGE_TIME;
-          enemy.aimX = player.x;
-          enemy.aimY = player.y;
+          enemy.aimX = target.x;
+          enemy.aimY = target.y;
           enemy.shotsRemaining = SPRAY_PROJECTILE_COUNT;
           enemy.shotTimer = 0;
+        } else if (enemy.kind === "sniper") {
+          const target = getEnemyAggroTarget();
+          enemy.phase = "sniper_charge";
+          enemy.phaseTimer = SNIPER_CHARGE_TIME;
+          enemy.aimX = target.x;
+          enemy.aimY = target.y;
         } else if (enemy.kind === "laser") {
           if (enemy.turnShotLocked) {
             enemy.phase = "turn_wait";
@@ -781,10 +898,11 @@ function updateEnemies(dt) {
             enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
           }
         } else {
+          const target = getEnemyAggroTarget();
           enemy.phase = "charge";
           enemy.phaseTimer = LASER_CHARGE_TIME;
-          enemy.aimX = player.x;
-          enemy.aimY = player.y;
+          enemy.aimX = target.x;
+          enemy.aimY = target.y;
         }
       }
 
@@ -792,11 +910,26 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "charge") {
-      enemy.aimX = player.x;
-      enemy.aimY = player.y;
+      const target = getEnemyAggroTarget();
+      enemy.aimX = target.x;
+      enemy.aimY = target.y;
       enemy.phaseTimer -= dt;
       if (enemy.phaseTimer <= 0) {
         fireEnemyLaser(enemy);
+        enemy.phase = "turn_wait";
+        enemy.phaseTimer = 0;
+        enemy.turnShotLocked = true;
+      }
+      continue;
+    }
+
+    if (enemy.phase === "sniper_charge") {
+      const target = getEnemyAggroTarget();
+      enemy.aimX = target.x;
+      enemy.aimY = target.y;
+      enemy.phaseTimer -= dt;
+      if (enemy.phaseTimer <= 0) {
+        fireEnemySniper(enemy);
         enemy.phase = "turn_wait";
         enemy.phaseTimer = 0;
         enemy.turnShotLocked = true;
@@ -849,8 +982,9 @@ function updateEnemies(dt) {
 }
 
 function updateBruteEnemy(enemy, dt) {
-  const dx = player.x - enemy.x;
-  const dy = player.y - enemy.y;
+  const target = getEnemyAggroTarget();
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
   const distance = Math.hypot(dx, dy);
   if (distance <= 0.001) {
     enemy.vx = 0;
@@ -872,9 +1006,35 @@ function updateBruteEnemy(enemy, dt) {
   handleWallBounce(enemy);
 }
 
+function updateSproutlingEnemy(enemy, dt) {
+  const target = getEnemyAggroTarget();
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= 0.001) {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    return;
+  }
+
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const currentSpeed = Math.hypot(enemy.vx, enemy.vy);
+  const nextSpeed = Math.min(SPROUTLING_CHASE_SPEED, currentSpeed + SPROUTLING_CHASE_ACCELERATION * dt);
+  const step = Math.min(nextSpeed * dt, Math.max(0, distance));
+
+  enemy.vx = dirX * nextSpeed;
+  enemy.vy = dirY * nextSpeed;
+  enemy.x += dirX * step;
+  enemy.y += dirY * step;
+
+  handleWallBounce(enemy);
+}
+
 function updateSlowEnemy(enemy, dt) {
-  const dx = player.x - enemy.x;
-  const dy = player.y - enemy.y;
+  const target = getEnemyAggroTarget();
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
   const distance = Math.hypot(dx, dy);
 
   if (distance <= 0.001) {
@@ -917,12 +1077,23 @@ function launchEnemy(enemy) {
   let dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE, ENEMY_DASH_MAX_DISTANCE);
 
   if (enemy.kind === "shield") {
-    const dx = player.x - enemy.x;
-    const dy = player.y - enemy.y;
+    const target = getEnemyAggroTarget();
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
     const distance = Math.hypot(dx, dy);
     if (distance > 1) {
       direction = { x: dx / distance, y: dy / distance };
       dashDistance = Math.min(distance, ENEMY_DASH_MAX_DISTANCE);
+    }
+  } else if (enemy.kind === "trickster") {
+    const target = getEnemyAggroTarget();
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 1) {
+      const angle = Math.atan2(dy, dx) + randomRange(-0.55, 0.55);
+      direction = { x: Math.cos(angle), y: Math.sin(angle) };
+      dashDistance = clamp(distance * 0.9, ENEMY_DASH_MIN_DISTANCE * 0.8, ENEMY_DASH_MAX_DISTANCE);
     }
   }
 
@@ -941,28 +1112,35 @@ function launchEnemy(enemy) {
 
 function createEnemy(kind, x, y) {
   const isBrute = kind === "brute";
+  const isSproutling = kind === "sproutling";
   const enemy = {
     id: enemyId += 1,
     x,
     y,
     vx: 0,
     vy: 0,
-    size: isBrute ? ENEMY_SIZE * 1.18 : ENEMY_SIZE,
+    size: isBrute ? ENEMY_SIZE * 1.18 : isSproutling ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
     hp: isBrute ? BRUTE_CONTACT_HP : 1,
     maxHp: isBrute ? BRUTE_CONTACT_HP : 1,
-    renderWidth: isBrute ? ENEMY_SIZE * 1.85 : ENEMY_SIZE,
-    renderHeight: isBrute ? ENEMY_SIZE * 1.1 : ENEMY_SIZE,
+    renderWidth: isBrute ? ENEMY_SIZE * 1.85 : isSproutling ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isBrute ? ENEMY_SIZE * 1.1 : isSproutling ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
         : kind === "laser"
           ? abilities.laser
+          : kind === "sniper"
+            ? abilities.sniper
           : kind === "spray"
             ? abilities.spray
+            : kind === "grower"
+              ? abilities.missiles
+            : kind === "trickster"
+              ? abilities.decoy
             : kind === "slow"
               ? abilities.blast
               : null,
@@ -971,8 +1149,14 @@ function createEnemy(kind, x, y) {
         ? STOLEN_SHIELD_CHARGES
         : kind === "laser"
           ? STOLEN_LASER_CHARGES
+          : kind === "sniper"
+            ? STOLEN_SNIPER_CHARGES
           : kind === "spray"
             ? STOLEN_ABILITY_CHARGES
+            : kind === "grower"
+              ? STOLEN_MISSILE_CHARGES
+            : kind === "trickster"
+              ? STOLEN_DECOY_CHARGES
             : kind === "slow"
               ? STOLEN_BLAST_CHARGES
             : null,
@@ -982,6 +1166,7 @@ function createEnemy(kind, x, y) {
     aimY: y,
     moveTarget: null,
     mineTimer: randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX),
+    seedTimer: randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX),
     replicateTimer: REPLICATOR_CLONE_TIME,
     turnShotLocked: false,
   };
@@ -996,17 +1181,23 @@ function spawnEnemy(x, y) {
       ? "replicator"
       : roll < 0.06
         ? "heal"
-        : roll < 0.11
+        : roll < 0.1
           ? "slow"
-        : roll < 0.21
-          ? "brute"
-          : roll < 0.41
-            ? "mine"
-            : roll < 0.6
-              ? "shield"
-              : roll < 0.8
-                ? "spray"
-                : "laser";
+        : roll < 0.15
+          ? "grower"
+          : roll < 0.2
+            ? "trickster"
+            : roll < 0.25
+              ? "sniper"
+              : roll < 0.34
+              ? "brute"
+              : roll < 0.48
+                ? "mine"
+                : roll < 0.63
+                  ? "shield"
+                  : roll < 0.82
+                    ? "spray"
+                    : "laser";
   const enemy = createEnemy(kind, x, y);
 
   enemies.push(enemy);
@@ -1015,6 +1206,64 @@ function spawnEnemy(x, y) {
   } else {
     launchEnemy(enemy);
   }
+}
+
+function spawnTricksterIllusions(source) {
+  const illusionCount = enemies.filter((enemy) => enemy.isIllusion).length;
+  const availableSlots = Math.max(0, TRICKSTER_ILLUSION_LIMIT - illusionCount);
+  const count = Math.min(availableSlots, Math.random() < 0.5 ? 1 : 2);
+  if (count <= 0) return;
+
+  for (let spawned = 0; spawned < count; spawned += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = randomRange(32, 68);
+      const half = ENEMY_SIZE * 0.5;
+      const x = clamp(source.x + Math.cos(angle) * distance, ARENA.x + half, ARENA.x + ARENA.width - half);
+      const y = clamp(source.y + Math.sin(angle) * distance, ARENA.y + half, ARENA.y + ARENA.height - half);
+      const overlaps = enemies.some((enemy) => Math.hypot(x - enemy.x, y - enemy.y) < ENEMY_SIZE * 1.1);
+      if (overlaps) continue;
+
+      enemies.push({
+        ...createEnemy("trickster", x, y),
+        isIllusion: true,
+        ability: null,
+        abilityCharges: null,
+        illusionTimer: TRICKSTER_ILLUSION_LIFETIME,
+        turnShotLocked: true,
+      });
+      break;
+    }
+  }
+}
+
+function spawnGrowerSeed(x, y) {
+  if (enemySeeds.length >= GROWER_SEED_MAX_COUNT) return false;
+
+  const minX = ARENA.x + GROWER_SEED_RADIUS;
+  const maxX = ARENA.x + ARENA.width - GROWER_SEED_RADIUS;
+  const minY = ARENA.y + GROWER_SEED_RADIUS;
+  const maxY = ARENA.y + ARENA.height - GROWER_SEED_RADIUS;
+
+  enemySeeds.push({
+    x: clamp(x, minX, maxX),
+    y: clamp(y, minY, maxY),
+    timer: GROWER_SEED_HATCH_TIME,
+    duration: GROWER_SEED_HATCH_TIME,
+    radius: GROWER_SEED_RADIUS,
+    pulseSeed: Math.random() * Math.PI * 2,
+  });
+  return true;
+}
+
+function spawnSproutling(x, y) {
+  const sproutlingCount = enemies.filter((enemy) => enemy.kind === "sproutling").length;
+  if (sproutlingCount >= GROWER_HATCHLING_LIMIT) return false;
+
+  const sproutling = createEnemy("sproutling", x, y);
+  sproutling.moving = true;
+  enemies.push(sproutling);
+  return true;
 }
 
 function spawnReplicatorClone(source) {
@@ -1108,6 +1357,9 @@ function getAbilityIconKey(abilityKey) {
   if (abilityKey === abilities.teleport.key) return "T";
   if (abilityKey === abilities.hook.key) return "H";
   if (abilityKey === abilities.shield.key) return "S";
+  if (abilityKey === abilities.sniper.key) return "N";
+  if (abilityKey === abilities.decoy.key) return "D";
+  if (abilityKey === abilities.missiles.key) return "R";
   if (abilityKey === abilities.spray.key) return "V";
   if (abilityKey === abilities.blast.key) return "B";
   return "L";
@@ -1217,6 +1469,11 @@ function consumeAbilityCharge(slot = "primary") {
 }
 
 function stealEnemyAbility(enemy) {
+  if (enemy.isIllusion) {
+    removeEnemy(enemy.id);
+    return;
+  }
+
   player.power = clamp(player.power + enemy.power * 0.35, 1, 4);
   if (enemy.kind === "heal") {
     player.hp = Math.min(player.maxHp, player.hp + 1);
@@ -1254,6 +1511,25 @@ function useLaserAbility(targetPoint = aimPoint) {
     duration: PLAYER_LASER_CHARGE_TIME,
     slot: selected.slot,
   };
+}
+
+function useSniperAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  activePlayerSniper = {
+    targetX: targetPoint.x,
+    targetY: targetPoint.y,
+    dirX: dx / distance,
+    dirY: dy / distance,
+    timer: PLAYER_SNIPER_CHARGE_TIME,
+    duration: PLAYER_SNIPER_CHARGE_TIME,
+    slot: selected.slot,
+  };
+  return true;
 }
 
 function useSprayAbility(targetPoint = aimPoint) {
@@ -1311,6 +1587,80 @@ function useBlastAbility(targetPoint = aimPoint) {
     hitEnemyIds: new Set(),
     hitPlayer: false,
   });
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function useDecoyAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const range = getDecoyRange();
+  const travel = Math.min(distance, range);
+  const targetX = player.x + (dx / distance) * travel;
+  const targetY = player.y + (dy / distance) * travel;
+
+  activePlayerDecoy = {
+    x: targetX,
+    y: targetY,
+    timer: DECOY_DURATION,
+    duration: DECOY_DURATION,
+    size: DECOY_SIZE,
+  };
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function findMissileTargets(targetPoint, count) {
+  const candidates = enemies
+    .filter((enemy) => !enemy.isIllusion)
+    .map((enemy) => ({
+      enemy,
+      distance: Math.hypot(enemy.x - targetPoint.x, enemy.y - targetPoint.y),
+    }))
+    .sort((left, right) => left.distance - right.distance)
+    .map((entry) => entry.enemy);
+
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const targets = [];
+  for (let index = 0; index < count; index += 1) {
+    targets.push(candidates[index % candidates.length]);
+  }
+  return targets;
+}
+
+function useMissilesAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const targets = findMissileTargets(targetPoint, PLAYER_MISSILE_COUNT);
+  if (targets.length === 0) return false;
+
+  const baseAngle = Math.atan2(targetPoint.y - player.y, targetPoint.x - player.x);
+  for (let index = 0; index < PLAYER_MISSILE_COUNT; index += 1) {
+    const target = targets[index];
+    const spreadT = PLAYER_MISSILE_COUNT === 1 ? 0 : index / (PLAYER_MISSILE_COUNT - 1);
+    const angle = baseAngle + (spreadT - 0.5) * PLAYER_MISSILE_SPAWN_SPREAD;
+    homingMissiles.push({
+      x: player.x,
+      y: player.y,
+      vx: Math.cos(angle) * PLAYER_MISSILE_SPEED,
+      vy: Math.sin(angle) * PLAYER_MISSILE_SPEED,
+      speed: PLAYER_MISSILE_SPEED,
+      ttl: PLAYER_MISSILE_LIFETIME,
+      life: PLAYER_MISSILE_LIFETIME,
+      radius: 7,
+      owner: "player",
+      targetId: target?.id ?? null,
+      color: "rgba(186, 255, 108, 0.96)",
+      innerColor: "rgba(247, 255, 214, 0.96)",
+    });
+  }
+
   consumeAbilityCharge(selected.slot);
   return true;
 }
@@ -1395,7 +1745,17 @@ function updatePlayerMinePassive(dt) {
 
 function tryUseAbilityFromClick(point) {
   if (player.dead) return false;
-  if (player.moving || activeHook || activePlayerTeleport || activePlayerLaser || activePlayerSpray || player.dragging) return false;
+  if (
+    player.moving ||
+    activeHook ||
+    activePlayerTeleport ||
+    activePlayerLaser ||
+    activePlayerSniper ||
+    activePlayerSpray ||
+    player.dragging
+  ) {
+    return false;
+  }
   const selected = getSelectedAbilityState();
   const selectedAbility = selected.ability;
 
@@ -1414,9 +1774,21 @@ function tryUseAbilityFromClick(point) {
     return useBlastAbility(point);
   }
 
+  if (selectedAbility.key === abilities.decoy.key) {
+    return useDecoyAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.missiles.key) {
+    return useMissilesAbility(point);
+  }
+
   if (selectedAbility.key === abilities.laser.key) {
     useLaserAbility(point);
     return true;
+  }
+
+  if (selectedAbility.key === abilities.sniper.key) {
+    return useSniperAbility(point);
   }
 
   if (selectedAbility.key === abilities.spray.key) {
@@ -1438,6 +1810,7 @@ function canStartKeyboardMove() {
     !activeHook &&
     !activePlayerTeleport &&
     !activePlayerLaser &&
+    !activePlayerSniper &&
     !activePlayerSpray &&
     !player.dragging
   );
@@ -1553,6 +1926,16 @@ function updatePlayerLaser(dt) {
   activePlayerLaser = null;
 }
 
+function updatePlayerSniper(dt) {
+  if (!activePlayerSniper) return;
+
+  activePlayerSniper.timer -= dt;
+  if (activePlayerSniper.timer > 0) return;
+
+  firePlayerSniper(activePlayerSniper);
+  activePlayerSniper = null;
+}
+
 function updatePlayerSpray(dt) {
   if (!activePlayerSpray) return;
 
@@ -1586,6 +1969,15 @@ function updatePlayerShield(dt) {
   }
 }
 
+function updatePlayerDecoy(dt) {
+  if (!activePlayerDecoy) return;
+
+  activePlayerDecoy.timer -= dt;
+  if (activePlayerDecoy.timer <= 0) {
+    activePlayerDecoy = null;
+  }
+}
+
 function updateBlastWaves(dt) {
   for (let index = blastWaves.length - 1; index >= 0; index -= 1) {
     const blast = blastWaves[index];
@@ -1611,6 +2003,126 @@ function updateBlastWaves(dt) {
     if (blast.radius >= blast.maxRadius) {
       blastWaves.splice(index, 1);
     }
+  }
+}
+
+function updateBeamEffects(dt) {
+  for (let index = beamEffects.length - 1; index >= 0; index -= 1) {
+    const beam = beamEffects[index];
+    beam.ttl -= dt;
+    if (beam.ttl <= 0) {
+      beamEffects.splice(index, 1);
+    }
+  }
+}
+
+function updateEnemySeeds(dt) {
+  for (let index = enemySeeds.length - 1; index >= 0; index -= 1) {
+    const seed = enemySeeds[index];
+    seed.timer -= dt;
+    if (seed.timer > 0) continue;
+
+    spawnImpactBurst(seed.x, seed.y, {
+      count: 10,
+      speedMin: 70,
+      speedMax: 160,
+      lifeMin: 0.12,
+      lifeMax: 0.26,
+      sizeMin: 2,
+      sizeMax: 5,
+    });
+
+    spawnSproutling(seed.x, seed.y);
+    enemySeeds.splice(index, 1);
+  }
+}
+
+function findNearestMissileTarget(x, y) {
+  let bestTarget = null;
+  let bestDistance = Infinity;
+
+  for (const enemy of enemies) {
+    if (enemy.isIllusion) continue;
+    const distance = Math.hypot(enemy.x - x, enemy.y - y);
+    if (distance >= bestDistance) continue;
+    bestDistance = distance;
+    bestTarget = enemy;
+  }
+
+  return bestTarget;
+}
+
+function updateHomingMissiles(dt) {
+  for (let index = homingMissiles.length - 1; index >= 0; index -= 1) {
+    const missile = homingMissiles[index];
+    missile.ttl -= dt;
+    if (missile.ttl <= 0) {
+      homingMissiles.splice(index, 1);
+      continue;
+    }
+
+    let target = enemies.find((enemy) => enemy.id === missile.targetId);
+    if (!target) {
+      target = findNearestMissileTarget(missile.x, missile.y);
+      missile.targetId = target?.id ?? null;
+    }
+
+    if (target) {
+      const dx = target.x - missile.x;
+      const dy = target.y - missile.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const desiredX = dx / distance;
+      const desiredY = dy / distance;
+      const currentAngle = Math.atan2(missile.vy, missile.vx);
+      const desiredAngle = Math.atan2(desiredY, desiredX);
+      let delta = desiredAngle - currentAngle;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      const nextAngle = currentAngle + clamp(delta, -PLAYER_MISSILE_TURN_RATE * dt, PLAYER_MISSILE_TURN_RATE * dt);
+
+      missile.speed = Math.min(
+        PLAYER_MISSILE_SPEED * 1.5,
+        missile.speed + PLAYER_MISSILE_ACCELERATION * dt
+      );
+      missile.vx = Math.cos(nextAngle) * missile.speed;
+      missile.vy = Math.sin(nextAngle) * missile.speed;
+    }
+
+    missile.x += missile.vx * dt;
+    missile.y += missile.vy * dt;
+
+    if (
+      missile.x < ARENA.x - 40 ||
+      missile.x > ARENA.x + ARENA.width + 40 ||
+      missile.y < ARENA.y - 40 ||
+      missile.y > ARENA.y + ARENA.height + 40
+    ) {
+      homingMissiles.splice(index, 1);
+      continue;
+    }
+
+    let hitEnemy = null;
+    for (const enemy of enemies) {
+      if (enemy.isIllusion) continue;
+      const distance = Math.hypot(enemy.x - missile.x, enemy.y - missile.y);
+      if (distance > enemy.size * 0.65 + missile.radius) continue;
+      hitEnemy = enemy;
+      break;
+    }
+
+    if (!hitEnemy) continue;
+
+    damageEnemy(hitEnemy, 1);
+    spawnImpactBurst(missile.x, missile.y, {
+      count: 12,
+      speedMin: 80,
+      speedMax: 220,
+      lifeMin: 0.14,
+      lifeMax: 0.3,
+      sizeMin: 2,
+      sizeMax: 6,
+    });
+    homingMissiles.splice(index, 1);
   }
 }
 
@@ -1692,6 +2204,7 @@ function resolveEnemyCollisions() {
     const enemy = enemies[index];
     if (activeHook && activeHook.enemyId === enemy.id) continue;
     if (enemy.kind === "slow") continue;
+    if (enemy.isIllusion) continue;
 
     const collisionDistance = player.size * 0.5 + enemy.size * 0.6;
     const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
@@ -1754,6 +2267,31 @@ function firePlayerLaser(config) {
   consumeAbilityCharge(config.slot);
 }
 
+function firePlayerSniper(config) {
+  const reach = getArenaProjectileReach();
+  const endX = player.x + config.dirX * reach;
+  const endY = player.y + config.dirY * reach;
+
+  beamEffects.push({
+    fromX: player.x,
+    fromY: player.y,
+    toX: endX,
+    toY: endY,
+    color: "rgba(150, 24, 40, 0.94)",
+    innerColor: "rgba(255, 240, 244, 0.95)",
+    width: 8,
+    ttl: 0.14,
+    life: 0.14,
+  });
+
+  const hits = findEnemiesOnBeam(player.x, player.y, endX, endY);
+  for (const hit of hits) {
+    damageEnemy(hit.enemy, 1);
+  }
+
+  consumeAbilityCharge(config.slot);
+}
+
 function firePlayerSprayShot(config) {
   spawnSprayProjectile({
     owner: "player",
@@ -1784,6 +2322,41 @@ function fireEnemyLaser(enemy) {
     color: "rgba(255, 86, 104, 0.94)",
     width: LASER_PROJECTILE_WIDTH - 1,
   });
+}
+
+function fireEnemySniper(enemy) {
+  const dx = enemy.aimX - enemy.x;
+  const dy = enemy.aimY - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const reach = getArenaProjectileReach();
+  const endX = enemy.x + dirX * reach;
+  const endY = enemy.y + dirY * reach;
+
+  beamEffects.push({
+    fromX: enemy.x,
+    fromY: enemy.y,
+    toX: endX,
+    toY: endY,
+    color: "rgba(132, 12, 28, 0.96)",
+    innerColor: "rgba(255, 228, 236, 0.96)",
+    width: 7,
+    ttl: 0.14,
+    life: 0.14,
+  });
+
+  if (activePlayerDecoy) {
+    const decoyHit = getSegmentCircleHit(enemy.x, enemy.y, endX, endY, activePlayerDecoy.x, activePlayerDecoy.y, activePlayerDecoy.size * 0.65);
+    if (decoyHit) {
+      activePlayerDecoy = null;
+    }
+  }
+
+  const playerHit = getSegmentCircleHit(enemy.x, enemy.y, endX, endY, player.x, player.y, player.size * 0.55);
+  if (playerHit) {
+    applyPlayerHit();
+  }
 }
 
 function fireEnemySprayShot(enemy) {
@@ -1852,7 +2425,7 @@ function updateLaserProjectiles(dt) {
     projectile.y += projectile.dirY * step;
     projectile.traveled += step;
 
-    const hit = projectile.owner === "player" ? hitEnemyWithProjectile(projectile) : hitPlayerWithProjectile(projectile);
+    const hit = projectile.owner === "player" ? hitEnemyWithProjectile(projectile) : hitEnemyProjectileTarget(projectile);
     if (hit || projectile.traveled >= projectile.range + projectile.length || isProjectileOutOfArena(projectile)) {
       laserProjectiles.splice(index, 1);
     }
@@ -1868,8 +2441,25 @@ function hitEnemyWithProjectile(projectile) {
   return true;
 }
 
-function hitPlayerWithProjectile(projectile) {
+function hitEnemyProjectileTarget(projectile) {
   const tail = getProjectileTail(projectile);
+  let bestTarget = null;
+
+  if (activePlayerDecoy) {
+    const hitDecoy = getSegmentCircleHit(
+      tail.x,
+      tail.y,
+      projectile.x,
+      projectile.y,
+      activePlayerDecoy.x,
+      activePlayerDecoy.y,
+      activePlayerDecoy.size * 0.65
+    );
+    if (hitDecoy) {
+      bestTarget = { type: "decoy", t: hitDecoy.t };
+    }
+  }
+
   const hitPlayer = getSegmentCircleHit(
     tail.x,
     tail.y,
@@ -1879,7 +2469,15 @@ function hitPlayerWithProjectile(projectile) {
     player.y,
     player.size * 0.55
   );
-  if (!hitPlayer) return false;
+  if (hitPlayer && (!bestTarget || hitPlayer.t < bestTarget.t)) {
+    bestTarget = { type: "player", t: hitPlayer.t };
+  }
+
+  if (!bestTarget) return false;
+  if (bestTarget.type === "decoy") {
+    activePlayerDecoy = null;
+    return true;
+  }
 
   applyPlayerHit();
   return true;
@@ -1914,9 +2512,14 @@ function startDeathSequence() {
   activeHook = null;
   activePlayerTeleport = null;
   activePlayerLaser = null;
+  activePlayerSniper = null;
   activePlayerSpray = null;
   activePlayerShield = null;
+  activePlayerDecoy = null;
   blastWaves.length = 0;
+  beamEffects.length = 0;
+  enemySeeds.length = 0;
+  homingMissiles.length = 0;
   playerMinePassive = null;
   playerAbilityCapacity = 1;
   reserveAbility = null;
@@ -1982,9 +2585,14 @@ function resetGame() {
   activeHook = null;
   activePlayerTeleport = null;
   activePlayerLaser = null;
+  activePlayerSniper = null;
   activePlayerSpray = null;
   activePlayerShield = null;
+  activePlayerDecoy = null;
   blastWaves.length = 0;
+  beamEffects.length = 0;
+  enemySeeds.length = 0;
+  homingMissiles.length = 0;
   playerMinePassive = null;
   playerAbilityCapacity = 1;
   reserveAbility = null;
@@ -2039,6 +2647,20 @@ function findFirstEnemyOnBeam(fromX, fromY, toX, toY, maxRange, predicate = null
   return bestHit;
 }
 
+function findEnemiesOnBeam(fromX, fromY, toX, toY, predicate = null) {
+  const hits = [];
+
+  for (const enemy of enemies) {
+    if (predicate && !predicate(enemy)) continue;
+    const hit = getSegmentCircleHit(fromX, fromY, toX, toY, enemy.x, enemy.y, enemy.size * 0.75);
+    if (!hit) continue;
+    hits.push({ enemy, t: hit.t });
+  }
+
+  hits.sort((left, right) => left.t - right.t);
+  return hits;
+}
+
 function getSegmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -2064,6 +2686,11 @@ function damageEnemy(enemy, amount = 1) {
   // A hooked target must reach the player to be consumed reliably.
   if (activeHook && activeHook.enemyId === enemy.id) {
     return false;
+  }
+
+  if (enemy.isIllusion) {
+    removeEnemy(enemy.id);
+    return true;
   }
 
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
@@ -2093,6 +2720,8 @@ function updateUi() {
     }
   } else if (selectedAbility.key === abilities.hook.key) {
     abilityHintEl.textContent = playerHookCooldown > 0 ? `CD ${playerHookCooldown.toFixed(1)}s` : `Click${switchHint}`;
+  } else if (selectedAbility.key === abilities.sniper.key && activePlayerSniper) {
+    abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
     abilityHintEl.textContent = `${activePlayerTeleport.timer.toFixed(1)}s`;
   } else {
@@ -2209,6 +2838,7 @@ function draw() {
   drawSpawnMarkers();
   drawTrail();
   drawMines();
+  drawEnemySeeds();
   if (!player.dead) {
     drawAbilityRange();
     drawHookTargetPreview();
@@ -2449,12 +3079,19 @@ function drawMoveMarker() {
 
 function drawAbilityRange() {
   const selectedAbility = getSelectedAbilityState().ability;
-  if (selectedAbility.key === abilities.teleport.key || selectedAbility.key === abilities.spray.key) {
+  if (
+    selectedAbility.key === abilities.teleport.key ||
+    selectedAbility.key === abilities.spray.key ||
+    selectedAbility.key === abilities.sniper.key ||
+    selectedAbility.key === abilities.missiles.key
+  ) {
     return;
   }
   const range =
     selectedAbility.key === abilities.hook.key
       ? getHookRange()
+      : selectedAbility.key === abilities.decoy.key
+        ? getDecoyRange()
       : selectedAbility.key === abilities.blast.key
         ? getBlastRange()
       : selectedAbility.key === abilities.shield.key
@@ -2464,6 +3101,8 @@ function drawAbilityRange() {
   ctx.strokeStyle =
     selectedAbility.key === abilities.hook.key
       ? "rgba(255, 210, 120, 0.18)"
+      : selectedAbility.key === abilities.decoy.key
+        ? "rgba(255, 178, 218, 0.24)"
       : selectedAbility.key === abilities.blast.key
         ? "rgba(245, 244, 222, 0.22)"
       : selectedAbility.key === abilities.shield.key
@@ -2542,6 +3181,9 @@ function drawEnemy(enemy) {
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
   ctx.rotate(enemy.moving ? angle : Math.PI * 0.25);
+  if (enemy.isIllusion) {
+    ctx.globalAlpha = 0.48;
+  }
 
   const gradient = ctx.createLinearGradient(-half, -half, half, half);
   if (enemy.kind === "brute") {
@@ -2564,6 +3206,18 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#ffffff");
     gradient.addColorStop(0.45, "#e7edf7");
     gradient.addColorStop(1, "#7f92b1");
+  } else if (enemy.kind === "grower" || enemy.kind === "sproutling") {
+    gradient.addColorStop(0, "#efffd2");
+    gradient.addColorStop(0.45, "#9aea44");
+    gradient.addColorStop(1, "#3d7b0f");
+  } else if (enemy.kind === "sniper") {
+    gradient.addColorStop(0, "#ffccd4");
+    gradient.addColorStop(0.45, "#a71d32");
+    gradient.addColorStop(1, "#46010d");
+  } else if (enemy.kind === "trickster") {
+    gradient.addColorStop(0, "#ffd2f0");
+    gradient.addColorStop(0.45, "#ff74ca");
+    gradient.addColorStop(1, "#7b1457");
   } else if (enemy.kind === "spray") {
     gradient.addColorStop(0, "#e7bbff");
     gradient.addColorStop(0.45, "#b758ff");
@@ -2589,6 +3243,12 @@ function drawEnemy(enemy) {
       ? "rgba(255, 212, 92, 0.45)"
       : enemy.kind === "slow"
         ? "rgba(245, 248, 255, 0.45)"
+      : enemy.kind === "grower" || enemy.kind === "sproutling"
+        ? "rgba(166, 255, 92, 0.46)"
+      : enemy.kind === "sniper"
+        ? "rgba(156, 18, 42, 0.48)"
+      : enemy.kind === "trickster"
+        ? "rgba(255, 116, 202, 0.45)"
       : enemy.kind === "spray"
         ? "rgba(203, 100, 255, 0.45)"
         : enemy.kind === "mine"
@@ -2659,6 +3319,44 @@ function drawEnemy(enemy) {
     ctx.moveTo(0, -8);
     ctx.lineTo(0, 8);
     ctx.stroke();
+  } else if (enemy.kind === "grower") {
+    ctx.strokeStyle = "rgba(238, 255, 224, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.moveTo(-7, 3);
+    ctx.lineTo(0, -7);
+    ctx.lineTo(7, 3);
+    ctx.stroke();
+  } else if (enemy.kind === "sproutling") {
+    ctx.strokeStyle = "rgba(238, 255, 224, 0.88)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, 2);
+    ctx.lineTo(0, -4);
+    ctx.lineTo(4, 2);
+    ctx.stroke();
+  } else if (enemy.kind === "sniper") {
+    ctx.strokeStyle = "rgba(255, 228, 236, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, -2);
+    ctx.lineTo(8, -2);
+    ctx.moveTo(-8, 2);
+    ctx.lineTo(8, 2);
+    ctx.moveTo(0, -7);
+    ctx.lineTo(0, 7);
+    ctx.stroke();
+  } else if (enemy.kind === "trickster") {
+    ctx.strokeStyle = "rgba(255, 228, 246, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-7, 0);
+    ctx.lineTo(0, -7);
+    ctx.lineTo(7, 0);
+    ctx.lineTo(0, 7);
+    ctx.closePath();
+    ctx.stroke();
   } else if (enemy.kind === "spray") {
     ctx.strokeStyle = "rgba(248, 224, 255, 0.86)";
     ctx.lineWidth = 2;
@@ -2687,6 +3385,13 @@ function drawEnemy(enemy) {
     const charge = 1 - clamp(enemy.phaseTimer / SPRAY_CHARGE_TIME, 0, 1);
     ctx.beginPath();
     ctx.strokeStyle = `rgba(226, 168, 255, ${0.42 + charge * 0.28})`;
+    ctx.lineWidth = 3;
+    ctx.arc(0, 0, half + 10, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
+    ctx.stroke();
+  } else if (enemy.phase === "sniper_charge") {
+    const charge = 1 - clamp(enemy.phaseTimer / SNIPER_CHARGE_TIME, 0, 1);
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(255, 214, 226, ${0.38 + charge * 0.34})`;
     ctx.lineWidth = 3;
     ctx.arc(0, 0, half + 10, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
     ctx.stroke();
@@ -2732,6 +3437,36 @@ function drawMines() {
     ctx.beginPath();
     ctx.arc(-radius * 0.28, -radius * 0.28, radius * 0.34, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawEnemySeeds() {
+  for (const seed of enemySeeds) {
+    const progress = 1 - clamp(seed.timer / seed.duration, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 6 + seed.pulseSeed);
+    const outerRadius = seed.radius + 4 + pulse * 2 + progress * 2;
+
+    ctx.save();
+    ctx.translate(seed.x, seed.y);
+    ctx.strokeStyle = `rgba(166, 255, 92, ${0.22 + progress * 0.28})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "#9aea44";
+    ctx.beginPath();
+    ctx.arc(0, 0, seed.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(242, 255, 232, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-4, 2);
+    ctx.lineTo(0, -5);
+    ctx.lineTo(4, 2);
+    ctx.stroke();
     ctx.restore();
   }
 }
@@ -2841,6 +3576,23 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
+  if (activePlayerSniper) {
+    const progress = 1 - clamp(activePlayerSniper.timer / activePlayerSniper.duration, 0, 1);
+    const previewX = player.x + activePlayerSniper.dirX * getArenaProjectileReach();
+    const previewY = player.y + activePlayerSniper.dirY * getArenaProjectileReach();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(184, 32, 56, ${0.24 + progress * 0.42})`;
+    ctx.lineWidth = 3 + progress * 2;
+    ctx.setLineDash([16, 10]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(previewX, previewY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   if (activePlayerSpray) {
     const chargeTimer = activePlayerSpray.phase === "charge" ? activePlayerSpray.timer : 0;
     const progress = activePlayerSpray.phase === "charge" ? 1 - clamp(chargeTimer / PLAYER_SPRAY_CHARGE_TIME, 0, 1) : 1;
@@ -2858,6 +3610,38 @@ function drawLaserEffects() {
     ctx.lineTo(player.x + Math.cos(centerAngle) * range, player.y + Math.sin(centerAngle) * range);
     ctx.moveTo(player.x, player.y);
     ctx.lineTo(player.x + Math.cos(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range, player.y + Math.sin(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  if (activePlayerDecoy) {
+    const life = clamp(activePlayerDecoy.timer / activePlayerDecoy.duration, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8);
+    const radius = activePlayerDecoy.size * (0.72 + pulse * 0.12);
+
+    ctx.save();
+    ctx.translate(activePlayerDecoy.x, activePlayerDecoy.y);
+    ctx.rotate(Math.PI * 0.25);
+    ctx.globalAlpha = 0.82;
+
+    const gradient = ctx.createLinearGradient(-12, -12, 12, 12);
+    gradient.addColorStop(0, "#ffe3f6");
+    gradient.addColorStop(0.45, "#ff7fcf");
+    gradient.addColorStop(1, "#7b1457");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 240, 248, 0.9)";
+    ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 166, 220, ${0.16 + life * 0.22})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.arc(activePlayerDecoy.x, activePlayerDecoy.y, activePlayerDecoy.size + 8 + pulse * 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
@@ -2881,14 +3665,24 @@ function drawLaserEffects() {
   }
 
   for (const enemy of enemies) {
-    if (enemy.phase !== "charge" && enemy.phase !== "spray_charge" && enemy.phase !== "spray_fire") continue;
+    if (
+      enemy.phase !== "charge" &&
+      enemy.phase !== "sniper_charge" &&
+      enemy.phase !== "spray_charge" &&
+      enemy.phase !== "spray_fire"
+    ) {
+      continue;
+    }
     const isSpray = enemy.phase === "spray_charge" || enemy.phase === "spray_fire";
-    const progress = 1 - clamp(enemy.phaseTimer / (isSpray ? SPRAY_CHARGE_TIME : LASER_CHARGE_TIME), 0, 1);
+    const isSniper = enemy.phase === "sniper_charge";
+    const progress = 1 - clamp(enemy.phaseTimer / (isSpray ? SPRAY_CHARGE_TIME : isSniper ? SNIPER_CHARGE_TIME : LASER_CHARGE_TIME), 0, 1);
 
     ctx.save();
     ctx.strokeStyle = isSpray
       ? `rgba(216, 120, 255, ${0.18 + progress * 0.3})`
-      : `rgba(255, 120, 132, ${0.18 + progress * 0.3})`;
+      : isSniper
+        ? `rgba(172, 22, 46, ${0.2 + progress * 0.34})`
+        : `rgba(255, 120, 132, ${0.18 + progress * 0.3})`;
     ctx.lineWidth = 2 + progress * 2;
     ctx.setLineDash([12, 10]);
     ctx.beginPath();
@@ -2901,12 +3695,59 @@ function drawLaserEffects() {
       ctx.lineTo(enemy.x + Math.cos(centerAngle) * range, enemy.y + Math.sin(centerAngle) * range);
       ctx.moveTo(enemy.x, enemy.y);
       ctx.lineTo(enemy.x + Math.cos(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range, enemy.y + Math.sin(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range);
+    } else if (isSniper) {
+      const angle = Math.atan2(enemy.aimY - enemy.y, enemy.aimX - enemy.x);
+      const reach = getArenaProjectileReach();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.x + Math.cos(angle) * reach, enemy.y + Math.sin(angle) * reach);
     } else {
       ctx.moveTo(enemy.x, enemy.y);
       ctx.lineTo(enemy.aimX, enemy.aimY);
     }
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  for (const beam of beamEffects) {
+    const life = clamp(beam.ttl / beam.life, 0, 1);
+    ctx.save();
+    ctx.strokeStyle = beam.color.replace(/[\d.]+\)$/u, `${0.12 + life * 0.88})`);
+    ctx.lineWidth = beam.width + (1 - life) * 6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(beam.fromX, beam.fromY);
+    ctx.lineTo(beam.toX, beam.toY);
+    ctx.stroke();
+
+    ctx.strokeStyle = beam.innerColor.replace(/[\d.]+\)$/u, `${0.18 + life * 0.82})`);
+    ctx.lineWidth = Math.max(2, beam.width * 0.34);
+    ctx.beginPath();
+    ctx.moveTo(beam.fromX, beam.fromY);
+    ctx.lineTo(beam.toX, beam.toY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  for (const missile of homingMissiles) {
+    const life = clamp(missile.ttl / missile.life, 0, 1);
+    const angle = Math.atan2(missile.vy, missile.vx);
+    ctx.save();
+    ctx.translate(missile.x, missile.y);
+    ctx.rotate(angle);
+
+    ctx.strokeStyle = missile.color.replace(/[\d.]+\)$/u, `${0.24 + life * 0.54})`);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-12, 0);
+    ctx.lineTo(-22, 0);
+    ctx.stroke();
+
+    ctx.fillStyle = missile.color.replace(/[\d.]+\)$/u, `${0.24 + life * 0.66})`);
+    ctx.fillRect(-10, -4, 16, 8);
+
+    ctx.fillStyle = missile.innerColor.replace(/[\d.]+\)$/u, `${0.28 + life * 0.68})`);
+    ctx.fillRect(-1, -2, 9, 4);
     ctx.restore();
   }
 

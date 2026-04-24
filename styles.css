@@ -243,6 +243,21 @@ body {
   color: #392305;
 }
 
+.ability-tile[data-ability="sniper"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(255, 224, 232, 1), rgba(164, 28, 52, 0.94));
+  color: #fff1f4;
+}
+
+.ability-tile[data-ability="decoy"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(255, 228, 244, 1), rgba(255, 116, 202, 0.94));
+  color: #4f1037;
+}
+
+.ability-tile[data-ability="missiles"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(240, 255, 214, 1), rgba(154, 234, 68, 0.94));
+  color: #29480b;
+}
+
 .ability-tile[data-ability="blast"] .ability-tile__icon {
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(220, 228, 242, 0.94));
   color: #243246;
