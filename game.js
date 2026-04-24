@@ -44,6 +44,7 @@ const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
 const SPRAY_CHARGE_TIME = 1;
+const PLAYER_SPRAY_CHARGE_TIME = 0.7;
 const SPRAY_PROJECTILE_COUNT = 10;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
@@ -1268,7 +1269,7 @@ function useSprayAbility(targetPoint = aimPoint) {
     targetY: targetPoint.y,
     dirX: dx / distance,
     dirY: dy / distance,
-    timer: SPRAY_CHARGE_TIME,
+    timer: PLAYER_SPRAY_CHARGE_TIME,
     shotsRemaining: SPRAY_PROJECTILE_COUNT,
     shotTimer: 0,
     slot: selected.slot,
@@ -2842,7 +2843,7 @@ function drawLaserEffects() {
 
   if (activePlayerSpray) {
     const chargeTimer = activePlayerSpray.phase === "charge" ? activePlayerSpray.timer : 0;
-    const progress = activePlayerSpray.phase === "charge" ? 1 - clamp(chargeTimer / SPRAY_CHARGE_TIME, 0, 1) : 1;
+    const progress = activePlayerSpray.phase === "charge" ? 1 - clamp(chargeTimer / PLAYER_SPRAY_CHARGE_TIME, 0, 1) : 1;
     const centerAngle = Math.atan2(activePlayerSpray.dirY, activePlayerSpray.dirX);
     const range = getArenaProjectileReach();
 
