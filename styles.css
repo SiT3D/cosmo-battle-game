@@ -162,6 +162,20 @@ body {
   background: linear-gradient(180deg, rgba(96, 104, 116, 0.16), rgba(96, 104, 116, 0.74));
 }
 
+.ability-tile__cooldown-label {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(244, 248, 255, 0.96);
+  font-size: 0.9rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 6px rgba(5, 10, 18, 0.9);
+}
+
 .ability-tile__icon {
   width: 28px;
   height: 28px;
@@ -317,5 +331,9 @@ body {
     min-width: 14px;
     height: 14px;
     font-size: 0.46rem;
+  }
+
+  .ability-tile__cooldown-label {
+    font-size: 0.78rem;
   }
 }

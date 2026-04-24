@@ -34,7 +34,7 @@ const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
-const ENEMY_SPAWN_INTERVAL = [1.4, 3.2];
+const ENEMY_SPAWN_INTERVAL = [1.54, 3.52];
 const GRID_CELLS = 8;
 const HOOK_RANGE_CELLS = 4;
 const HOOK_SPEED = 1180;
@@ -42,19 +42,19 @@ const HOOK_PULL_SPEED_CELLS = 2 / 1.1;
 const TELEPORT_CHARGE_TIME = 2;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
-const PLAYER_LASER_CHARGE_TIME = 0.3;
+const PLAYER_LASER_CHARGE_TIME = 0.05;
 const SPRAY_CHARGE_TIME = 1;
 const SPRAY_PROJECTILE_COUNT = 10;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
 const LASER_PROJECTILE_SPEED = 460;
-const PLAYER_STOLEN_LASER_SPEED_MULTIPLIER = 1.5;
+const PLAYER_STOLEN_LASER_SPEED_MULTIPLIER = 1.4;
 const LASER_PROJECTILE_LENGTH = 58;
 const LASER_PROJECTILE_WIDTH = 8;
 const ENEMY_DASH_DELAY_AFTER_SHOT = 0.14;
-const LASER_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED / 3;
-const LASER_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION / 3;
-const LASER_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE / 3;
+const LASER_ENEMY_DASH_SPEED = (ENEMY_DASH_SPEED / 3) * 0.6;
+const LASER_ENEMY_MOVE_ACCELERATION = (ENEMY_MOVE_ACCELERATION / 3) * 0.6;
+const LASER_ENEMY_MOVE_BRAKE = (ENEMY_MOVE_BRAKE / 3) * 0.6;
 const SPRAY_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED * 0.5;
 const SPRAY_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION * 0.5;
 const SPRAY_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE * 0.5;
@@ -62,20 +62,21 @@ const SPRAY_ENEMY_RECOVER_DELAY = 0.8;
 const SLOW_FIELD_RADIUS = 92;
 const SLOW_FIELD_SPEED_MULTIPLIER = 0.38;
 const SLOW_ENEMY_RECOVER_DELAY = 0.4;
+const SLOW_ENEMY_HOLD_DISTANCE = 54;
 const ENEMY_SHIELD_UP_TIME = 1.2;
 const ENEMY_MINE_INTERVAL_MIN = 10;
 const ENEMY_MINE_INTERVAL_MAX = 20;
 const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
-const HOOK_COOLDOWN = 10;
+const HOOK_COOLDOWN = 8;
 const SHIELD_RADIUS = 84;
 const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
 const STOLEN_BLAST_CHARGES = 4;
 const BLAST_RANGE_CELLS = 4;
-const BLAST_MAX_RADIUS = 74;
-const BLAST_EXPAND_SPEED = 220;
+const BLAST_MAX_RADIUS = 222;
+const BLAST_EXPAND_SPEED = 44;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
@@ -224,6 +225,10 @@ function getLaserRange() {
 
 function getBlastRange() {
   return getCellSize() * BLAST_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.16);
+}
+
+function getArenaProjectileReach() {
+  return Math.hypot(ARENA.width, ARENA.height) + 120;
 }
 
 function getShieldRadius() {
@@ -878,17 +883,26 @@ function updateSlowEnemy(enemy, dt) {
     return;
   }
 
+  const distanceDelta = distance - SLOW_ENEMY_HOLD_DISTANCE;
   const dirX = dx / distance;
   const dirY = dy / distance;
   const currentSpeed = Math.hypot(enemy.vx, enemy.vy);
   const nextSpeed = Math.min(SLOW_ENEMY_CHASE_SPEED, currentSpeed + SLOW_ENEMY_CHASE_ACCELERATION * dt);
-  const step = Math.min(nextSpeed * dt, Math.max(0, distance));
+  const step = Math.min(nextSpeed * dt, Math.abs(distanceDelta));
 
-  enemy.vx = dirX * nextSpeed;
-  enemy.vy = dirY * nextSpeed;
-  enemy.x += dirX * step;
-  enemy.y += dirY * step;
-  enemy.moving = true;
+  if (Math.abs(distanceDelta) <= 2) {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.moving = false;
+  } else {
+    const moveSign = distanceDelta > 0 ? 1 : -1;
+    enemy.vx = dirX * nextSpeed * moveSign;
+    enemy.vy = dirY * nextSpeed * moveSign;
+    enemy.x += dirX * step * moveSign;
+    enemy.y += dirY * step * moveSign;
+    enemy.moving = true;
+  }
+
   enemy.phase = null;
   enemy.phaseTimer = 0;
   enemy.moveTarget = null;
@@ -1746,7 +1760,7 @@ function firePlayerSprayShot(config) {
     y: player.y,
     dirX: config.dirX,
     dirY: config.dirY,
-    range: getLaserRange(),
+    range: Infinity,
     color: "rgba(198, 118, 255, 0.96)",
     width: LASER_PROJECTILE_WIDTH - 1,
   });
@@ -1777,14 +1791,13 @@ function fireEnemySprayShot(enemy) {
   const distance = Math.hypot(dx, dy) || 1;
   const dirX = dx / distance;
   const dirY = dy / distance;
-  const enemyLaserRange = getCellSize() * LASER_RANGE_CELLS;
   spawnSprayProjectile({
     owner: "enemy",
     x: enemy.x,
     y: enemy.y,
     dirX,
     dirY,
-    range: enemyLaserRange,
+    range: Infinity,
     color: "rgba(198, 96, 255, 0.94)",
     width: LASER_PROJECTILE_WIDTH - 2,
   });
@@ -2147,7 +2160,7 @@ function updateUi() {
       (tile) => {
         const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
         const cooldownRatio = cooldown ? clamp(cooldown.remaining / cooldown.duration, 0, 1) : 0;
-        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span>` : ""}<span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
+        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
       }
     )
     .join("");
@@ -2435,7 +2448,7 @@ function drawMoveMarker() {
 
 function drawAbilityRange() {
   const selectedAbility = getSelectedAbilityState().ability;
-  if (selectedAbility.key === abilities.teleport.key) {
+  if (selectedAbility.key === abilities.teleport.key || selectedAbility.key === abilities.spray.key) {
     return;
   }
   const range =
@@ -2831,7 +2844,7 @@ function drawLaserEffects() {
     const chargeTimer = activePlayerSpray.phase === "charge" ? activePlayerSpray.timer : 0;
     const progress = activePlayerSpray.phase === "charge" ? 1 - clamp(chargeTimer / SPRAY_CHARGE_TIME, 0, 1) : 1;
     const centerAngle = Math.atan2(activePlayerSpray.dirY, activePlayerSpray.dirX);
-    const range = getLaserRange();
+    const range = getArenaProjectileReach();
 
     ctx.save();
     ctx.strokeStyle = `rgba(212, 122, 255, ${0.24 + progress * 0.34})`;
@@ -2880,7 +2893,7 @@ function drawLaserEffects() {
     ctx.beginPath();
     if (isSpray) {
       const centerAngle = Math.atan2(enemy.aimY - enemy.y, enemy.aimX - enemy.x);
-      const range = getCellSize() * LASER_RANGE_CELLS;
+      const range = getArenaProjectileReach();
       ctx.moveTo(enemy.x, enemy.y);
       ctx.lineTo(enemy.x + Math.cos(centerAngle - SPRAY_RANDOM_SPREAD * 0.5) * range, enemy.y + Math.sin(centerAngle - SPRAY_RANDOM_SPREAD * 0.5) * range);
       ctx.moveTo(enemy.x, enemy.y);
