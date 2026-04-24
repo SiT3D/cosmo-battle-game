@@ -34,9 +34,9 @@ const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.4, 3.2];
 const GRID_CELLS = 8;
-const HOOK_RANGE_CELLS = 2;
+const HOOK_RANGE_CELLS = 4;
 const HOOK_SPEED = 1180;
-const HOOK_PULL_DURATION = 1.1;
+const HOOK_PULL_SPEED_CELLS = 2 / 1.1;
 const TELEPORT_CHARGE_TIME = 2;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
@@ -61,7 +61,7 @@ const ENEMY_MINE_INTERVAL_MIN = 10;
 const ENEMY_MINE_INTERVAL_MAX = 20;
 const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
-const HOOK_COOLDOWN = 3;
+const HOOK_COOLDOWN = 10;
 const SHIELD_RADIUS = 84;
 const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
@@ -1191,9 +1191,6 @@ function useHookAbility() {
     phase: "pull",
     tipX: target.x,
     tipY: target.y,
-    pullTime: 0,
-    pullStartX: target.x,
-    pullStartY: target.y,
   };
   target.moving = false;
   target.vx = 0;
@@ -1348,16 +1345,21 @@ function updateHook(dt) {
     return;
   }
 
-  activeHook.pullTime += dt;
-  const progress = clamp(activeHook.pullTime / HOOK_PULL_DURATION, 0, 1);
-  const eased = 1 - (1 - progress) * (1 - progress);
+  const dx = player.x - target.x;
+  const dy = player.y - target.y;
+  const distance = Math.hypot(dx, dy);
+  const pullSpeed = getCellSize() * HOOK_PULL_SPEED_CELLS;
+  const step = Math.min(distance, pullSpeed * dt);
 
-  target.x = activeHook.pullStartX + (player.x - activeHook.pullStartX) * eased;
-  target.y = activeHook.pullStartY + (player.y - activeHook.pullStartY) * eased;
+  if (distance > 0.001) {
+    target.x += (dx / distance) * step;
+    target.y += (dy / distance) * step;
+  }
+
   activeHook.tipX = target.x;
   activeHook.tipY = target.y;
 
-  if (progress >= 1) {
+  if (distance <= player.size * 0.45 + target.size * 0.35) {
     stealEnemyAbility(target);
     activeHook = null;
     return;
