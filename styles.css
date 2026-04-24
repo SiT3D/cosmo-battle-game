@@ -228,6 +228,11 @@ body {
   color: #2d1907;
 }
 
+.ability-tile[data-ability="sidearm"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(255, 240, 204, 1), rgba(255, 178, 84, 0.94));
+  color: #3d2106;
+}
+
 .ability-tile[data-ability="laser"] .ability-tile__icon {
   background: linear-gradient(180deg, rgba(219, 248, 255, 1), rgba(111, 226, 255, 0.92));
   color: #082637;

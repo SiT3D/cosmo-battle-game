@@ -36,13 +36,18 @@ const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
-const ENEMY_SPAWN_INTERVAL = [2.31, 5.28];
+const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
 const GRID_CELLS = 8;
 const HOOK_RANGE_CELLS = 4;
 const HOOK_SPEED = 1180;
 const HOOK_PULL_SPEED_CELLS = 2 / 1.1;
 const TELEPORT_CHARGE_TIME = 2;
 const DECOY_RANGE_CELLS = 4;
+const BASE_GUN_PROJECTILE_SPEED = 560;
+const BASE_GUN_PROJECTILE_RADIUS = 7;
+const BASE_GUN_PROJECTILE_LIFETIME = 2.2;
+const BASE_GUN_COOLDOWN = 10;
+const BASE_GUN_MAX_CHARGES = 3;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
@@ -88,7 +93,7 @@ const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
 const HOOK_COOLDOWN = 8;
 const SHIELD_RADIUS = 84;
-const STOLEN_LASER_CHARGES = 7;
+const STOLEN_LASER_CHARGES = 3;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
 const STOLEN_BLAST_CHARGES = 4;
@@ -142,6 +147,11 @@ const abilities = {
     name: "Телепорт",
     hint: "Click",
   },
+  sidearm: {
+    key: "sidearm",
+    name: "Пушка",
+    hint: "Click",
+  },
   laser: {
     key: "laser",
     name: "Лазер",
@@ -187,6 +197,7 @@ const impactBursts = [];
 const enemies = [];
 const spawnMarkers = [];
 const laserProjectiles = [];
+const baseProjectiles = [];
 const blastWaves = [];
 const beamEffects = [];
 const enemySeeds = [];
@@ -211,6 +222,7 @@ let playerMinePassive = null;
 let playerAbilityCapacity = 1;
 let playerShieldCooldown = 0;
 let playerHookCooldown = 0;
+let playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
 let aimPoint = { x: 0, y: 0 };
 let moveMarker = null;
 let deathResetTimer = 0;
@@ -293,6 +305,7 @@ function isSimulationActive() {
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
     Boolean(activePlayerDecoy) ||
+    baseProjectiles.length > 0 ||
     beamEffects.length > 0 ||
     enemySeeds.length > 0 ||
     homingMissiles.length > 0
@@ -353,6 +366,7 @@ function canSwitchAbilities() {
 
 function getSelectableAbilityModes() {
   const modes = ["teleport", "hook"];
+  modes.push("base");
   if (currentAbility.key !== abilities.hook.key) {
     modes.push("primary");
   }
@@ -419,6 +433,7 @@ function update(dt) {
   updatePlayerLaser(simDt);
   updatePlayerSniper(simDt);
   updatePlayerSpray(simDt);
+  updateBaseProjectiles(simDt);
   updateEnemySpawns(simDt);
   updateEnemies(simDt);
   updateEnemySeeds(simDt);
@@ -434,6 +449,7 @@ function update(dt) {
   updateMines(simDt);
   playerShieldCooldown = Math.max(0, playerShieldCooldown - simDt);
   playerHookCooldown = Math.max(0, playerHookCooldown - simDt);
+  playerBaseGunCooldowns = playerBaseGunCooldowns.map((cooldown) => Math.max(0, cooldown - simDt));
   simulationWasActive = startedActive;
 
   player.hitInvuln = Math.max(0, player.hitInvuln - simDt);
@@ -1356,6 +1372,7 @@ function findNearestHookTarget() {
 function getAbilityIconKey(abilityKey) {
   if (abilityKey === abilities.teleport.key) return "T";
   if (abilityKey === abilities.hook.key) return "H";
+  if (abilityKey === abilities.sidearm.key) return "G";
   if (abilityKey === abilities.shield.key) return "S";
   if (abilityKey === abilities.sniper.key) return "N";
   if (abilityKey === abilities.decoy.key) return "D";
@@ -1383,6 +1400,28 @@ function getAbilityCooldownState(abilityKey) {
   return null;
 }
 
+function getReadyBaseGunCharges() {
+  return playerBaseGunCooldowns.filter((cooldown) => cooldown <= 0).length;
+}
+
+function getNextBaseGunCooldown() {
+  let nextCooldown = Infinity;
+
+  for (const cooldown of playerBaseGunCooldowns) {
+    if (cooldown <= 0) continue;
+    nextCooldown = Math.min(nextCooldown, cooldown);
+  }
+
+  return Number.isFinite(nextCooldown) ? nextCooldown : 0;
+}
+
+function consumeBaseGunCharge() {
+  const slotIndex = playerBaseGunCooldowns.findIndex((cooldown) => cooldown <= 0);
+  if (slotIndex === -1) return false;
+  playerBaseGunCooldowns[slotIndex] = BASE_GUN_COOLDOWN;
+  return true;
+}
+
 function setCurrentAbility(ability, charges = null) {
   currentAbility = ability;
   currentAbilityCharges = charges;
@@ -1403,6 +1442,14 @@ function getSelectedAbilityState() {
       slot: "teleport",
       ability: abilities.teleport,
       charges: null,
+    };
+  }
+
+  if (abilityMode === "base") {
+    return {
+      slot: "base",
+      ability: abilities.sidearm,
+      charges: getReadyBaseGunCharges(),
     };
   }
 
@@ -1511,6 +1558,26 @@ function useLaserAbility(targetPoint = aimPoint) {
     duration: PLAYER_LASER_CHARGE_TIME,
     slot: selected.slot,
   };
+}
+
+function useBaseGunAbility(targetPoint = aimPoint) {
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1 || !consumeBaseGunCharge()) return false;
+
+  baseProjectiles.push({
+    x: player.x,
+    y: player.y,
+    vx: (dx / distance) * BASE_GUN_PROJECTILE_SPEED,
+    vy: (dy / distance) * BASE_GUN_PROJECTILE_SPEED,
+    radius: BASE_GUN_PROJECTILE_RADIUS,
+    ttl: BASE_GUN_PROJECTILE_LIFETIME,
+    life: BASE_GUN_PROJECTILE_LIFETIME,
+    color: "rgba(255, 214, 128, 0.96)",
+    innerColor: "rgba(255, 245, 214, 0.96)",
+  });
+  return true;
 }
 
 function useSniperAbility(targetPoint = aimPoint) {
@@ -1774,6 +1841,10 @@ function tryUseAbilityFromClick(point) {
     return useBlastAbility(point);
   }
 
+  if (selectedAbility.key === abilities.sidearm.key) {
+    return useBaseGunAbility(point);
+  }
+
   if (selectedAbility.key === abilities.decoy.key) {
     return useDecoyAbility(point);
   }
@@ -1957,6 +2028,43 @@ function updatePlayerSpray(dt) {
       return;
     }
     activePlayerSpray.shotTimer += SPRAY_SHOT_INTERVAL;
+  }
+}
+
+function updateBaseProjectiles(dt) {
+  for (let index = baseProjectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = baseProjectiles[index];
+    projectile.ttl -= dt;
+    if (projectile.ttl <= 0) {
+      baseProjectiles.splice(index, 1);
+      continue;
+    }
+
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
+
+    if (
+      projectile.x < ARENA.x - 30 ||
+      projectile.x > ARENA.x + ARENA.width + 30 ||
+      projectile.y < ARENA.y - 30 ||
+      projectile.y > ARENA.y + ARENA.height + 30
+    ) {
+      baseProjectiles.splice(index, 1);
+      continue;
+    }
+
+    let hitEnemy = null;
+    for (const enemy of enemies) {
+      const distance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
+      if (distance > enemy.size * 0.7 + projectile.radius) continue;
+      hitEnemy = enemy;
+      break;
+    }
+
+    if (!hitEnemy) continue;
+
+    damageEnemy(hitEnemy, 1);
+    baseProjectiles.splice(index, 1);
   }
 }
 
@@ -2516,6 +2624,7 @@ function startDeathSequence() {
   activePlayerSpray = null;
   activePlayerShield = null;
   activePlayerDecoy = null;
+  baseProjectiles.length = 0;
   blastWaves.length = 0;
   beamEffects.length = 0;
   enemySeeds.length = 0;
@@ -2526,6 +2635,7 @@ function startDeathSequence() {
   reserveAbilityCharges = null;
   abilityMode = "hook";
   playerHookCooldown = 0;
+  playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
   moveMarker = null;
   trail.length = 0;
   laserProjectiles.length = 0;
@@ -2589,6 +2699,7 @@ function resetGame() {
   activePlayerSpray = null;
   activePlayerShield = null;
   activePlayerDecoy = null;
+  baseProjectiles.length = 0;
   blastWaves.length = 0;
   beamEffects.length = 0;
   enemySeeds.length = 0;
@@ -2600,6 +2711,7 @@ function resetGame() {
   abilityMode = "hook";
   playerShieldCooldown = 0;
   playerHookCooldown = 0;
+  playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
   resetToHook();
   moveMarker = null;
 
@@ -2737,6 +2849,10 @@ function updateUi() {
     }
   } else if (selectedAbility.key === abilities.hook.key) {
     abilityHintEl.textContent = playerHookCooldown > 0 ? `CD ${playerHookCooldown.toFixed(1)}s` : `Click${switchHint}`;
+  } else if (selectedAbility.key === abilities.sidearm.key) {
+    const readyShots = getReadyBaseGunCharges();
+    const nextCooldown = getNextBaseGunCooldown();
+    abilityHintEl.textContent = readyShots > 0 ? `${readyShots}/3 Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.sniper.key && activePlayerSniper) {
     abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
@@ -2765,6 +2881,14 @@ function updateUi() {
       icon: getAbilityIconKey(abilities.hook.key),
       charges: null,
       active: abilityMode === "hook",
+      empty: false,
+    },
+    {
+      mode: "base",
+      abilityKey: abilities.sidearm.key,
+      icon: getAbilityIconKey(abilities.sidearm.key),
+      charges: getReadyBaseGunCharges(),
+      active: abilityMode === "base",
       empty: false,
     },
   ];
@@ -3100,6 +3224,7 @@ function drawAbilityRange() {
     selectedAbility.key === abilities.teleport.key ||
     selectedAbility.key === abilities.spray.key ||
     selectedAbility.key === abilities.sniper.key ||
+    selectedAbility.key === abilities.sidearm.key ||
     selectedAbility.key === abilities.missiles.key
   ) {
     return;
@@ -3765,6 +3890,21 @@ function drawLaserEffects() {
 
     ctx.fillStyle = missile.innerColor.replace(/[\d.]+\)$/u, `${0.28 + life * 0.68})`);
     ctx.fillRect(-1, -2, 9, 4);
+    ctx.restore();
+  }
+
+  for (const projectile of baseProjectiles) {
+    const life = clamp(projectile.ttl / projectile.life, 0, 1);
+    ctx.save();
+    ctx.fillStyle = projectile.color.replace(/[\d.]+\)$/u, `${0.3 + life * 0.66})`);
+    ctx.beginPath();
+    ctx.arc(projectile.x, projectile.y, projectile.radius * (0.9 + life * 0.2), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = projectile.innerColor.replace(/[\d.]+\)$/u, `${0.38 + life * 0.58})`);
+    ctx.beginPath();
+    ctx.arc(projectile.x, projectile.y, projectile.radius * 0.48, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
