@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slide Box</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="bottom-ui">
+    <div class="ability-panel">
+      <div class="ability-panel__meta">
+        <span id="timeLabel">0.00s</span>
+        <span id="hpLabel">HP 3/3</span>
+        <span id="powerLabel">Сила x1.0</span>
+      </div>
+      <div id="passiveTray" class="passive-tray"></div>
+      <div class="ability-card">
+        <span id="abilityIcon" class="ability-icon">H</span>
+        <div class="ability-copy">
+          <span id="abilityName">Хук</span>
+          <span id="abilityHint">Click</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./game.js"></script>
+</body>
+</html>

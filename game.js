@@ -1,0 +1,2530 @@
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const abilityIconEl = document.getElementById("abilityIcon");
+const abilityNameEl = document.getElementById("abilityName");
+const abilityHintEl = document.getElementById("abilityHint");
+const hpLabelEl = document.getElementById("hpLabel");
+const powerLabelEl = document.getElementById("powerLabel");
+const timeLabelEl = document.getElementById("timeLabel");
+const passiveTrayEl = document.getElementById("passiveTray");
+
+const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+const VIEW = { width: 0, height: 0 };
+const ARENA = { x: 0, y: 0, width: 0, height: 0 };
+
+const WALL_BOUNCE = 0.94;
+const INACTIVE_TIME_SCALE = 0.1;
+const TIME_SCALE_TRANSITION = 1.2;
+const MOVE_TO_POINT_SPEED = 490;
+const MOVE_STOP_DISTANCE = 10;
+const MOVE_ACCELERATION = 380;
+const MOVE_BRAKE = 490;
+const ENEMY_SIZE = 22;
+const ENEMY_DASH_SPEED = 816;
+const ENEMY_MOVE_STOP_DISTANCE = 10;
+const ENEMY_MOVE_ACCELERATION = 632;
+const ENEMY_MOVE_BRAKE = 816;
+const ENEMY_DASH_MIN_DISTANCE = 220;
+const ENEMY_DASH_MAX_DISTANCE = 420;
+const BRUTE_CHASE_SPEED = 97;
+const BRUTE_CHASE_ACCELERATION = 260;
+const BRUTE_CONTACT_HP = 5;
+const ENEMY_MAX_COUNT = 8;
+const ENEMY_SPAWN_TELEGRAPH = 3;
+const ENEMY_SPAWN_INTERVAL = [1.4, 3.2];
+const GRID_CELLS = 8;
+const HOOK_RANGE_CELLS = 2;
+const HOOK_SPEED = 1180;
+const HOOK_PULL_DURATION = 0.18;
+const LASER_RANGE_CELLS = 4;
+const LASER_CHARGE_TIME = 0.5;
+const PLAYER_LASER_CHARGE_TIME = 0.3;
+const SPRAY_CHARGE_TIME = 1;
+const SPRAY_PROJECTILE_COUNT = 10;
+const SPRAY_SHOT_INTERVAL = 0.06;
+const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
+const LASER_PROJECTILE_SPEED = 460;
+const LASER_PROJECTILE_LENGTH = 58;
+const LASER_PROJECTILE_WIDTH = 8;
+const ENEMY_DASH_DELAY_AFTER_SHOT = 0.14;
+const SPRAY_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED * 0.5;
+const SPRAY_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION * 0.5;
+const SPRAY_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE * 0.5;
+const SPRAY_ENEMY_RECOVER_DELAY = 0.8;
+const ENEMY_SHIELD_UP_TIME = 1.2;
+const ENEMY_MINE_INTERVAL_MIN = 10;
+const ENEMY_MINE_INTERVAL_MAX = 20;
+const PLAYER_SHIELD_TIME = 5;
+const SHIELD_COOLDOWN = 5;
+const SHIELD_RADIUS = 84;
+const STOLEN_LASER_CHARGES = 7;
+const STOLEN_ABILITY_CHARGES = 3;
+const STOLEN_SHIELD_CHARGES = 2;
+const PLAYER_MINE_PASSIVE_TOTAL = 20;
+const PLAYER_MINE_PASSIVE_DURATION = 60;
+const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
+const MINE_LIFETIME = 30;
+const MINE_RADIUS = 12;
+const REPLICATOR_CLONE_TIME = 10;
+const REPLICATOR_HOP_DELAY = 0.28;
+const DEATH_RESET_DELAY = 0.8;
+
+const player = {
+  x: 0,
+  y: 0,
+  vx: 0,
+  vy: 0,
+  size: 30,
+  dragging: false,
+  moving: false,
+  launched: false,
+  restingFor: 0,
+  hp: 3,
+  maxHp: 3,
+  power: 1,
+  hitFlash: 0,
+  hitShake: 0,
+  hitInvuln: 0,
+  moveTarget: null,
+  dead: false,
+};
+
+const abilities = {
+  hook: {
+    key: "hook",
+    name: "Хук",
+    hint: "Click",
+  },
+  laser: {
+    key: "laser",
+    name: "Лазер",
+    hint: "Click",
+  },
+  spray: {
+    key: "spray",
+    name: "Спрей",
+    hint: "Click",
+  },
+  shield: {
+    key: "shield",
+    name: "Щит",
+    hint: "Click",
+  },
+};
+
+let worldTime = 0;
+let actionTime = 0;
+let lastFrame = performance.now();
+const trail = [];
+const impactBursts = [];
+const enemies = [];
+const spawnMarkers = [];
+const laserProjectiles = [];
+const mines = [];
+let enemyId = 0;
+let mineId = 0;
+let spawnClock = 0;
+let currentAbility = abilities.hook;
+let currentAbilityCharges = null;
+let reserveAbility = null;
+let reserveAbilityCharges = null;
+let abilityMode = "hook";
+let activeHook = null;
+let activePlayerLaser = null;
+let activePlayerSpray = null;
+let activePlayerShield = null;
+let playerMinePassive = null;
+let playerAbilityCapacity = 1;
+let playerShieldCooldown = 0;
+let aimPoint = { x: 0, y: 0 };
+let moveMarker = null;
+let deathResetTimer = 0;
+let deathExplosion = null;
+let simulationWasActive = false;
+let currentTimeScale = INACTIVE_TIME_SCALE;
+
+function resize() {
+  const rect = canvas.getBoundingClientRect();
+  VIEW.width = Math.round(rect.width);
+  VIEW.height = Math.round(rect.height);
+  canvas.width = Math.round(rect.width * DPR);
+  canvas.height = Math.round(rect.height * DPR);
+  ctx.setTransform(canvas.width / VIEW.width, 0, 0, canvas.height / VIEW.height, 0, 0);
+
+  const borderInset = 10;
+  ARENA.x = borderInset;
+  ARENA.y = borderInset;
+  ARENA.width = Math.max(220, VIEW.width - borderInset * 2);
+  ARENA.height = Math.max(220, VIEW.height - borderInset * 2);
+
+  const half = player.size * 0.5;
+  const wasOutside =
+    player.x < ARENA.x + half ||
+    player.x > ARENA.x + ARENA.width - half ||
+    player.y < ARENA.y + half ||
+    player.y > ARENA.y + ARENA.height - half;
+
+  if (!player.launched || wasOutside) {
+    player.x = ARENA.x + ARENA.width * 0.5;
+    player.y = ARENA.y + ARENA.height * 0.5;
+  } else {
+    player.x = clamp(player.x, ARENA.x + half, ARENA.x + ARENA.width - half);
+    player.y = clamp(player.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+  }
+
+  clampEnemiesToArena();
+  aimPoint.x = player.x;
+  aimPoint.y = player.y;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getCellSize() {
+  return Math.min(ARENA.width, ARENA.height) / GRID_CELLS;
+}
+
+function getHookRange() {
+  return getCellSize() * HOOK_RANGE_CELLS;
+}
+
+function getLaserRange() {
+  return getCellSize() * LASER_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.24);
+}
+
+function getShieldRadius() {
+  return SHIELD_RADIUS;
+}
+
+function isSimulationActive() {
+  return (
+    player.moving ||
+    Boolean(activeHook) ||
+    Boolean(activePlayerLaser) ||
+    Boolean(activePlayerSpray)
+  );
+}
+
+function randomRange(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function randomDirection() {
+  const angle = Math.random() * Math.PI * 2;
+  return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+function getCanvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * VIEW.width,
+    y: ((event.clientY - rect.top) / rect.height) * VIEW.height,
+  };
+}
+
+function startDrag(event) {
+  if (player.dead) return;
+
+  const point = getCanvasPoint(event);
+  aimPoint = point;
+  if (event.button === 2) {
+    event.preventDefault();
+    launchPlayerTowardPoint(point);
+    return;
+  }
+
+  if (event.button !== 0) return;
+  tryUseAbilityFromClick(point);
+}
+
+function movePointer(event) {
+  const point = getCanvasPoint(event);
+  aimPoint = point;
+}
+
+function endDrag() {
+}
+
+function canSwitchAbilities() {
+  return !player.dead && !player.moving && !activeHook && !activePlayerLaser && !activePlayerSpray;
+}
+
+function cycleAbilitySelection() {
+  if (!canSwitchAbilities()) return;
+
+  const modes = ["hook"];
+  if (currentAbility.key !== abilities.hook.key) {
+    modes.push("primary");
+  }
+  if (reserveAbility) {
+    modes.push("secondary");
+  }
+
+  const currentIndex = Math.max(0, modes.indexOf(abilityMode));
+  abilityMode = modes[(currentIndex + 1) % modes.length];
+}
+
+function handleKeyDown(event) {
+  if (event.code !== "KeyQ") return;
+  event.preventDefault();
+  cycleAbilitySelection();
+}
+
+function handleWheel(event) {
+  if (Math.abs(event.deltaY) < 2) return;
+  if (!canSwitchAbilities()) return;
+  event.preventDefault();
+  cycleAbilitySelection();
+}
+
+function moveToward(current, target, maxDelta) {
+  if (current < target) return Math.min(target, current + maxDelta);
+  if (current > target) return Math.max(target, current - maxDelta);
+  return current;
+}
+
+function update(dt) {
+  if (player.dead) {
+    updateImpactBursts(dt);
+    updateDeathExplosion(dt);
+    deathResetTimer = Math.max(0, deathResetTimer - dt);
+    if (deathResetTimer <= 0) {
+      resetGame();
+    }
+    updateUi();
+    return;
+  }
+
+  const startedActive = isSimulationActive();
+  if (startedActive && !simulationWasActive) {
+    beginEnemyActionCycle();
+  }
+  const targetTimeScale = startedActive ? 1 : INACTIVE_TIME_SCALE;
+  currentTimeScale = moveToward(currentTimeScale, targetTimeScale, dt / TIME_SCALE_TRANSITION);
+  const simDt = dt * currentTimeScale;
+
+  worldTime += simDt;
+  actionTime += simDt;
+  if (player.moving) {
+    updatePlayerMotion(simDt);
+  }
+  updateHook(simDt);
+  updatePlayerLaser(simDt);
+  updatePlayerSpray(simDt);
+  updateEnemySpawns(simDt);
+  updateEnemies(simDt);
+  updatePlayerMinePassive(simDt);
+  updatePlayerShield(simDt);
+  updateShieldAuras(simDt);
+  resolveEnemyCollisions();
+  updateLaserProjectiles(simDt);
+  updateMines(simDt);
+  playerShieldCooldown = Math.max(0, playerShieldCooldown - simDt);
+  simulationWasActive = startedActive;
+
+  player.hitInvuln = Math.max(0, player.hitInvuln - simDt);
+  updateTrailParticles(simDt);
+  updateImpactBursts(simDt);
+  player.hitFlash = Math.max(0, (player.hitFlash || 0) - simDt * 2.2);
+  player.hitShake = Math.max(0, (player.hitShake || 0) - simDt * 5.5);
+  updateMoveMarker(simDt);
+  updateUi();
+}
+
+function updatePlayerMotion(dt) {
+  if (player.moveTarget) {
+    const dx = player.moveTarget.x - player.x;
+    const dy = player.moveTarget.y - player.y;
+    const distance = Math.hypot(dx, dy);
+
+    if (distance <= MOVE_STOP_DISTANCE) {
+      player.x = player.moveTarget.x;
+      player.y = player.moveTarget.y;
+      settlePlayer();
+      return;
+    }
+
+    const dirX = dx / distance;
+    const dirY = dy / distance;
+    const currentSpeed = Math.hypot(player.vx, player.vy);
+    const brakingSpeed = Math.sqrt(2 * MOVE_BRAKE * Math.max(0, distance - MOVE_STOP_DISTANCE));
+    const targetSpeed = Math.min(MOVE_TO_POINT_SPEED, brakingSpeed);
+
+    let nextSpeed = currentSpeed;
+    if (currentSpeed < targetSpeed) {
+      nextSpeed = Math.min(targetSpeed, currentSpeed + MOVE_ACCELERATION * dt);
+    } else {
+      nextSpeed = Math.max(targetSpeed, currentSpeed - MOVE_BRAKE * dt);
+    }
+
+    const step = Math.min(nextSpeed * dt, distance);
+    player.vx = dirX * nextSpeed;
+    player.vy = dirY * nextSpeed;
+    player.x += dirX * step;
+    player.y += dirY * step;
+
+    handleWallBounce(player);
+    updateTrail();
+
+    if (player.x <= ARENA.x + player.size * 0.5 || player.x >= ARENA.x + ARENA.width - player.size * 0.5) {
+      player.moveTarget = null;
+    }
+    if (player.y <= ARENA.y + player.size * 0.5 || player.y >= ARENA.y + ARENA.height - player.size * 0.5) {
+      player.moveTarget = null;
+    }
+
+    if (!player.moveTarget) {
+      settlePlayer();
+    }
+    return;
+  }
+
+  settlePlayer();
+}
+
+function handleWallBounce(entity) {
+  const half = entity.size * 0.5;
+  const minX = ARENA.x + half;
+  const maxX = ARENA.x + ARENA.width - half;
+  const minY = ARENA.y + half;
+  const maxY = ARENA.y + ARENA.height - half;
+
+  if (entity.x < minX) {
+    entity.x = minX;
+    entity.vx = Math.abs(entity.vx) * WALL_BOUNCE;
+  } else if (entity.x > maxX) {
+    entity.x = maxX;
+    entity.vx = -Math.abs(entity.vx) * WALL_BOUNCE;
+  }
+
+  if (entity.y < minY) {
+    entity.y = minY;
+    entity.vy = Math.abs(entity.vy) * WALL_BOUNCE;
+  } else if (entity.y > maxY) {
+    entity.y = maxY;
+    entity.vy = -Math.abs(entity.vy) * WALL_BOUNCE;
+  }
+}
+
+function settlePlayer() {
+  player.vx = 0;
+  player.vy = 0;
+  player.moving = false;
+  player.restingFor = 0;
+  player.moveTarget = null;
+}
+
+function settleEnemyMotion(enemy) {
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.moving = false;
+  enemy.restingFor = 0;
+  enemy.moveTarget = null;
+}
+
+function updateEnemyMotion(enemy, dt) {
+  if (!enemy.moveTarget) {
+    settleEnemyMotion(enemy);
+    return 0;
+  }
+
+  const dx = enemy.moveTarget.x - enemy.x;
+  const dy = enemy.moveTarget.y - enemy.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance <= ENEMY_MOVE_STOP_DISTANCE) {
+    enemy.x = enemy.moveTarget.x;
+    enemy.y = enemy.moveTarget.y;
+    settleEnemyMotion(enemy);
+    return 0;
+  }
+
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const currentSpeed = Math.hypot(enemy.vx, enemy.vy);
+  const moveBrake = enemy.kind === "spray" ? SPRAY_ENEMY_MOVE_BRAKE : ENEMY_MOVE_BRAKE;
+  const moveAcceleration = enemy.kind === "spray" ? SPRAY_ENEMY_MOVE_ACCELERATION : ENEMY_MOVE_ACCELERATION;
+  const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - ENEMY_MOVE_STOP_DISTANCE));
+  const maxSpeed = enemy.kind === "spray" ? SPRAY_ENEMY_DASH_SPEED : ENEMY_DASH_SPEED;
+  const targetSpeed = Math.min(maxSpeed, brakingSpeed);
+
+  let nextSpeed = currentSpeed;
+  if (currentSpeed < targetSpeed) {
+    nextSpeed = Math.min(targetSpeed, currentSpeed + moveAcceleration * dt);
+  } else {
+    nextSpeed = Math.max(targetSpeed, currentSpeed - moveBrake * dt);
+  }
+
+  const step = Math.min(nextSpeed * dt, distance);
+  enemy.vx = dirX * nextSpeed;
+  enemy.vy = dirY * nextSpeed;
+  enemy.x += dirX * step;
+  enemy.y += dirY * step;
+
+  handleWallBounce(enemy);
+
+  if (enemy.x <= ARENA.x + enemy.size * 0.5 || enemy.x >= ARENA.x + ARENA.width - enemy.size * 0.5) {
+    enemy.moveTarget = null;
+  }
+  if (enemy.y <= ARENA.y + enemy.size * 0.5 || enemy.y >= ARENA.y + ARENA.height - enemy.size * 0.5) {
+    enemy.moveTarget = null;
+  }
+
+  if (!enemy.moveTarget) {
+    settleEnemyMotion(enemy);
+    return 0;
+  }
+
+  return nextSpeed;
+}
+
+function updateTrail() {
+  const speed = Math.hypot(player.vx, player.vy);
+  if (speed < 40) return;
+
+  const dirX = player.vx / speed;
+  const dirY = player.vy / speed;
+  trail.push({
+    x: player.x - dirX * player.size * 0.48 + (Math.random() - 0.5) * 5,
+    y: player.y - dirY * player.size * 0.48 + (Math.random() - 0.5) * 5,
+    vx: -dirX * (30 + Math.random() * 34) + (Math.random() - 0.5) * 14,
+    vy: -dirY * (30 + Math.random() * 34) + (Math.random() - 0.5) * 14,
+    life: 0.45 + Math.random() * 0.2,
+    ttl: 0.45 + Math.random() * 0.2,
+    size: 4 + Math.random() * 5,
+  });
+  if (trail.length > 96) {
+    trail.shift();
+  }
+}
+
+function updateTrailParticles(dt) {
+  for (let index = trail.length - 1; index >= 0; index -= 1) {
+    const particle = trail[index];
+    particle.ttl -= dt;
+    if (particle.ttl <= 0) {
+      trail.splice(index, 1);
+      continue;
+    }
+
+    particle.x += particle.vx * dt;
+    particle.y += particle.vy * dt;
+    particle.vx *= 0.94;
+    particle.vy *= 0.94;
+  }
+}
+
+function getEnemyRecoverDelay(enemy) {
+  if (enemy.kind === "replicator") return REPLICATOR_HOP_DELAY;
+  if (enemy.kind === "spray") return SPRAY_ENEMY_RECOVER_DELAY;
+  return ENEMY_DASH_DELAY_AFTER_SHOT;
+}
+
+function beginEnemyActionCycle() {
+  for (const enemy of enemies) {
+    enemy.turnShotLocked = false;
+    if (enemy.phase === "turn_wait") {
+      enemy.phase = "recover";
+      enemy.phaseTimer = getEnemyRecoverDelay(enemy);
+    }
+  }
+}
+
+function spawnImpactBurst(
+  x,
+  y,
+  {
+    count = 16,
+    speedMin = 120,
+    speedMax = 280,
+    lifeMin = 0.18,
+    lifeMax = 0.38,
+    sizeMin = 3,
+    sizeMax = 7,
+  } = {}
+) {
+  for (let index = 0; index < count; index += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = randomRange(speedMin, speedMax);
+    const life = randomRange(lifeMin, lifeMax);
+    impactBursts.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      ttl: life,
+      life,
+      size: randomRange(sizeMin, sizeMax),
+      spin: randomRange(-8, 8),
+      angle: Math.random() * Math.PI * 2,
+    });
+  }
+
+  if (impactBursts.length > 180) {
+    impactBursts.splice(0, impactBursts.length - 180);
+  }
+}
+
+function updateImpactBursts(dt) {
+  for (let index = impactBursts.length - 1; index >= 0; index -= 1) {
+    const burst = impactBursts[index];
+    burst.ttl -= dt;
+    if (burst.ttl <= 0) {
+      impactBursts.splice(index, 1);
+      continue;
+    }
+
+    burst.x += burst.vx * dt;
+    burst.y += burst.vy * dt;
+    burst.vx *= 0.92;
+    burst.vy *= 0.92;
+    burst.angle += burst.spin * dt;
+  }
+}
+
+function updateDeathExplosion(dt) {
+  if (!deathExplosion) return;
+
+  deathExplosion.ttl -= dt;
+  if (deathExplosion.ttl <= 0) {
+    deathExplosion = null;
+  }
+}
+
+function scheduleNextSpawn(initial = false) {
+  const [minDelay, maxDelay] = ENEMY_SPAWN_INTERVAL;
+  spawnClock = initial ? 0.8 : randomRange(minDelay, maxDelay);
+}
+
+function updateEnemySpawns(dt) {
+  for (let index = spawnMarkers.length - 1; index >= 0; index -= 1) {
+    const marker = spawnMarkers[index];
+    marker.elapsed += dt;
+
+    if (marker.elapsed >= ENEMY_SPAWN_TELEGRAPH) {
+      spawnEnemy(marker.x, marker.y);
+      spawnMarkers.splice(index, 1);
+    }
+  }
+
+  if (enemies.length + spawnMarkers.length >= ENEMY_MAX_COUNT) return;
+
+  spawnClock -= dt;
+  if (spawnClock > 0) return;
+
+  const point = findFreePoint(ENEMY_SIZE * 2.4);
+  if (point) {
+    spawnMarkers.push({
+      x: point.x,
+      y: point.y,
+      elapsed: 0,
+    });
+  }
+
+  scheduleNextSpawn();
+}
+
+function updateEnemies(dt) {
+  for (const enemy of enemies) {
+    if (enemy.kind === "brute") {
+      updateBruteEnemy(enemy, dt);
+      continue;
+    }
+
+    if (enemy.kind === "replicator") {
+      enemy.replicateTimer -= dt;
+      if (enemy.replicateTimer <= 0) {
+        spawnReplicatorClone(enemy);
+        enemy.replicateTimer += REPLICATOR_CLONE_TIME;
+      }
+    }
+
+    if (enemy.kind === "mine") {
+      enemy.mineTimer -= dt;
+      if (enemy.mineTimer <= 0) {
+        spawnMine(enemy.x, enemy.y, "enemy");
+        enemy.mineTimer = randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX);
+      }
+    }
+
+    if (enemy.phase === "turn_wait") {
+      continue;
+    }
+
+    if (enemy.moving) {
+      updateEnemyMotion(enemy, dt);
+      if (!enemy.moving) {
+        if (enemy.kind === "shield") {
+          enemy.phase = "shield_up";
+          enemy.phaseTimer = ENEMY_SHIELD_UP_TIME;
+        } else if (enemy.kind === "replicator") {
+          enemy.phase = "recover";
+          enemy.phaseTimer = REPLICATOR_HOP_DELAY;
+        } else if (enemy.kind === "mine") {
+          enemy.phase = "recover";
+          enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+        } else if (enemy.kind === "spray") {
+          enemy.phase = "spray_charge";
+          enemy.phaseTimer = SPRAY_CHARGE_TIME;
+          enemy.aimX = player.x;
+          enemy.aimY = player.y;
+          enemy.shotsRemaining = SPRAY_PROJECTILE_COUNT;
+          enemy.shotTimer = 0;
+        } else {
+          enemy.phase = "charge";
+          enemy.phaseTimer = LASER_CHARGE_TIME;
+          enemy.aimX = player.x;
+          enemy.aimY = player.y;
+        }
+      }
+
+      continue;
+    }
+
+    if (enemy.phase === "charge") {
+      enemy.aimX = player.x;
+      enemy.aimY = player.y;
+      enemy.phaseTimer -= dt;
+      if (enemy.phaseTimer <= 0) {
+        fireEnemyLaser(enemy);
+        enemy.phase = "turn_wait";
+        enemy.phaseTimer = 0;
+        enemy.turnShotLocked = true;
+      }
+      continue;
+    }
+
+    if (enemy.phase === "spray_charge") {
+      enemy.aimX = player.x;
+      enemy.aimY = player.y;
+      enemy.phaseTimer -= dt;
+      if (enemy.phaseTimer <= 0) {
+        enemy.phase = "spray_fire";
+        enemy.shotTimer = 0;
+      }
+      continue;
+    }
+
+    if (enemy.phase === "spray_fire") {
+      enemy.aimX = player.x;
+      enemy.aimY = player.y;
+      enemy.shotTimer -= dt;
+      while (enemy.phase === "spray_fire" && enemy.shotTimer <= 0 && enemy.shotsRemaining > 0) {
+        fireEnemySprayShot(enemy);
+        enemy.shotsRemaining -= 1;
+        if (enemy.shotsRemaining <= 0) {
+          enemy.phase = "turn_wait";
+          enemy.phaseTimer = 0;
+          enemy.turnShotLocked = true;
+          break;
+        }
+        enemy.shotTimer += SPRAY_SHOT_INTERVAL;
+      }
+      continue;
+    }
+
+    if (enemy.phase === "recover") {
+      enemy.phaseTimer -= dt;
+      if (enemy.phaseTimer <= 0) {
+        launchEnemy(enemy);
+      }
+      continue;
+    }
+
+    if (enemy.phase === "shield_up") {
+      enemy.phaseTimer -= dt;
+      if (enemy.phaseTimer <= 0) {
+        enemy.phase = "turn_wait";
+        enemy.phaseTimer = 0;
+      }
+    }
+  }
+}
+
+function updateBruteEnemy(enemy, dt) {
+  const dx = player.x - enemy.x;
+  const dy = player.y - enemy.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= 0.001) {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    return;
+  }
+
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const currentSpeed = Math.hypot(enemy.vx, enemy.vy);
+  const nextSpeed = Math.min(BRUTE_CHASE_SPEED, currentSpeed + BRUTE_CHASE_ACCELERATION * dt);
+  const step = Math.min(nextSpeed * dt, Math.max(0, distance));
+
+  enemy.vx = dirX * nextSpeed;
+  enemy.vy = dirY * nextSpeed;
+  enemy.x += dirX * step;
+  enemy.y += dirY * step;
+
+  handleWallBounce(enemy);
+}
+
+function launchEnemy(enemy) {
+  let direction = randomDirection();
+  let dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE, ENEMY_DASH_MAX_DISTANCE);
+
+  if (enemy.kind === "shield") {
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 1) {
+      direction = { x: dx / distance, y: dy / distance };
+      dashDistance = Math.min(distance, ENEMY_DASH_MAX_DISTANCE);
+    }
+  }
+
+  const half = enemy.size * 0.5;
+  const targetX = clamp(enemy.x + direction.x * dashDistance, ARENA.x + half, ARENA.x + ARENA.width - half);
+  const targetY = clamp(enemy.y + direction.y * dashDistance, ARENA.y + half, ARENA.y + ARENA.height - half);
+
+  enemy.moveTarget = { x: targetX, y: targetY };
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.moving = true;
+  enemy.restingFor = 0;
+  enemy.phase = "dash";
+  enemy.phaseTimer = 0;
+}
+
+function createEnemy(kind, x, y) {
+  const isBrute = kind === "brute";
+  const enemy = {
+    id: enemyId += 1,
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    size: isBrute ? ENEMY_SIZE * 1.18 : ENEMY_SIZE,
+    moving: false,
+    restingFor: 0,
+    power: randomRange(0.7, 1.4),
+    kind,
+    hp: isBrute ? BRUTE_CONTACT_HP : 1,
+    maxHp: isBrute ? BRUTE_CONTACT_HP : 1,
+    renderWidth: isBrute ? ENEMY_SIZE * 1.85 : ENEMY_SIZE,
+    renderHeight: isBrute ? ENEMY_SIZE * 1.1 : ENEMY_SIZE,
+    ability:
+      kind === "shield" ? abilities.shield : kind === "laser" ? abilities.laser : kind === "spray" ? abilities.spray : null,
+    abilityCharges:
+      kind === "shield"
+        ? STOLEN_SHIELD_CHARGES
+        : kind === "laser"
+          ? STOLEN_LASER_CHARGES
+          : kind === "spray"
+            ? STOLEN_ABILITY_CHARGES
+            : null,
+    phase: null,
+    phaseTimer: 0,
+    aimX: x,
+    aimY: y,
+    moveTarget: null,
+    mineTimer: randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX),
+    replicateTimer: REPLICATOR_CLONE_TIME,
+    turnShotLocked: false,
+  };
+
+  return enemy;
+}
+
+function spawnEnemy(x, y) {
+  const roll = Math.random();
+  const kind =
+    roll < 0.025
+      ? "replicator"
+      : roll < 0.06
+        ? "heal"
+        : roll < 0.18
+          ? "brute"
+          : roll < 0.38
+            ? "mine"
+            : roll < 0.58
+              ? "shield"
+              : roll < 0.79
+                ? "spray"
+                : "laser";
+  const enemy = createEnemy(kind, x, y);
+
+  enemies.push(enemy);
+  if (kind === "brute") {
+    enemy.moving = true;
+  } else {
+    launchEnemy(enemy);
+  }
+}
+
+function spawnReplicatorClone(source) {
+  if (enemies.length + spawnMarkers.length >= ENEMY_MAX_COUNT) return false;
+
+  const padding = ENEMY_SIZE * 2.1;
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = randomRange(48, 118);
+    const x = source.x + Math.cos(angle) * distance;
+    const y = source.y + Math.sin(angle) * distance;
+    const half = ENEMY_SIZE * 0.5;
+    const candidateX = clamp(x, ARENA.x + half, ARENA.x + ARENA.width - half);
+    const candidateY = clamp(y, ARENA.y + half, ARENA.y + ARENA.height - half);
+
+    const overlaps = enemies.some(
+      (enemy) => Math.hypot(candidateX - enemy.x, candidateY - enemy.y) < padding + enemy.size * 0.65
+    );
+    if (overlaps) continue;
+
+    const clone = createEnemy("replicator", candidateX, candidateY);
+    enemies.push(clone);
+    launchEnemy(clone);
+    return true;
+  }
+
+  return false;
+}
+
+function clampEnemiesToArena() {
+  for (const enemy of enemies) {
+    const half = enemy.size * 0.5;
+    enemy.x = clamp(enemy.x, ARENA.x + half, ARENA.x + ARENA.width - half);
+    enemy.y = clamp(enemy.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+  }
+
+  for (const marker of spawnMarkers) {
+    marker.x = clamp(marker.x, ARENA.x + ENEMY_SIZE, ARENA.x + ARENA.width - ENEMY_SIZE);
+    marker.y = clamp(marker.y, ARENA.y + ENEMY_SIZE, ARENA.y + ARENA.height - ENEMY_SIZE);
+  }
+}
+
+function findFreePoint(padding) {
+  const minX = ARENA.x + padding;
+  const maxX = ARENA.x + ARENA.width - padding;
+  const minY = ARENA.y + padding;
+  const maxY = ARENA.y + ARENA.height - padding;
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const candidate = {
+      x: randomRange(minX, maxX),
+      y: randomRange(minY, maxY),
+    };
+
+    const nearPlayer = Math.hypot(candidate.x - player.x, candidate.y - player.y) < player.size * 4;
+    if (nearPlayer) continue;
+
+    const overlapsEnemy = enemies.some(
+      (enemy) => Math.hypot(candidate.x - enemy.x, candidate.y - enemy.y) < padding + enemy.size
+    );
+    if (overlapsEnemy) continue;
+
+    const overlapsMarker = spawnMarkers.some(
+      (marker) => Math.hypot(candidate.x - marker.x, candidate.y - marker.y) < padding * 1.25
+    );
+    if (overlapsMarker) continue;
+
+    return candidate;
+  }
+
+  return null;
+}
+
+function setCurrentAbility(ability, charges = null) {
+  currentAbility = ability;
+  currentAbilityCharges = charges;
+  abilityMode = ability.key === abilities.hook.key ? "hook" : "primary";
+}
+
+function resetToHook() {
+  setCurrentAbility(abilities.hook);
+  reserveAbility = null;
+  reserveAbilityCharges = null;
+}
+
+function getSelectedAbilityState() {
+  if (abilityMode === "secondary" && reserveAbility) {
+    return {
+      slot: "secondary",
+      ability: reserveAbility,
+      charges: reserveAbilityCharges,
+    };
+  }
+
+  if (abilityMode === "primary" && currentAbility.key !== abilities.hook.key) {
+    return {
+      slot: "primary",
+      ability: currentAbility,
+      charges: currentAbilityCharges,
+    };
+  }
+
+  return {
+    slot: "hook",
+    ability: abilities.hook,
+    charges: null,
+  };
+}
+
+function promoteReserveAbility() {
+  if (!reserveAbility) {
+    setCurrentAbility(abilities.hook);
+    return;
+  }
+
+  currentAbility = reserveAbility;
+  currentAbilityCharges = reserveAbilityCharges;
+  reserveAbility = null;
+  reserveAbilityCharges = null;
+  playerAbilityCapacity = 1;
+  abilityMode = "primary";
+}
+
+function consumeAbilityCharge(slot = "primary") {
+  if (slot === "secondary") {
+    if (reserveAbilityCharges === null) return;
+    reserveAbilityCharges -= 1;
+    if (reserveAbilityCharges <= 0) {
+      reserveAbility = null;
+      reserveAbilityCharges = null;
+      playerAbilityCapacity = 1;
+      if (abilityMode === "secondary") {
+        abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "hook";
+      }
+    }
+    return;
+  }
+
+  if (currentAbilityCharges === null) return;
+  currentAbilityCharges -= 1;
+  if (currentAbilityCharges <= 0) {
+    promoteReserveAbility();
+  }
+}
+
+function stealEnemyAbility(enemy) {
+  player.power = clamp(player.power + enemy.power * 0.35, 1, 4);
+  if (enemy.kind === "heal") {
+    player.hp = Math.min(player.maxHp, player.hp + 1);
+  } else if (enemy.kind === "replicator") {
+    playerAbilityCapacity = 2;
+  } else if (enemy.kind === "mine") {
+    activatePlayerMinePassive();
+  } else if (enemy.ability) {
+    if (currentAbility.key === abilities.hook.key) {
+      setCurrentAbility(enemy.ability, enemy.abilityCharges);
+    } else if (playerAbilityCapacity > 1 && !reserveAbility) {
+      reserveAbility = enemy.ability;
+      reserveAbilityCharges = enemy.abilityCharges;
+    } else {
+      setCurrentAbility(enemy.ability, enemy.abilityCharges);
+    }
+  }
+  removeEnemy(enemy.id);
+}
+
+function useLaserAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return;
+
+  activePlayerLaser = {
+    targetX: targetPoint.x,
+    targetY: targetPoint.y,
+    dirX: dx / distance,
+    dirY: dy / distance,
+    timer: PLAYER_LASER_CHARGE_TIME,
+    duration: PLAYER_LASER_CHARGE_TIME,
+    slot: selected.slot,
+  };
+}
+
+function useSprayAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return;
+
+  activePlayerSpray = {
+    phase: "charge",
+    targetX: targetPoint.x,
+    targetY: targetPoint.y,
+    dirX: dx / distance,
+    dirY: dy / distance,
+    timer: SPRAY_CHARGE_TIME,
+    shotsRemaining: SPRAY_PROJECTILE_COUNT,
+    shotTimer: 0,
+    slot: selected.slot,
+  };
+}
+
+function useShieldAbility() {
+  const selected = getSelectedAbilityState();
+  if (activePlayerShield || playerShieldCooldown > 0) return false;
+
+  activePlayerShield = {
+    timer: PLAYER_SHIELD_TIME,
+    duration: PLAYER_SHIELD_TIME,
+    radius: getShieldRadius(),
+  };
+  playerShieldCooldown = SHIELD_COOLDOWN;
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function useHookAbility(targetPoint = aimPoint) {
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return;
+
+  activeHook = {
+    enemyId: null,
+    phase: "extend",
+    tipX: player.x,
+    tipY: player.y,
+    dirX: dx / distance,
+    dirY: dy / distance,
+    maxDistance: getHookRange(),
+    traveled: 0,
+    pullTime: 0,
+  };
+}
+
+function activatePlayerMinePassive() {
+  playerMinePassive = {
+    remaining: PLAYER_MINE_PASSIVE_TOTAL,
+    timer: PLAYER_MINE_PASSIVE_INTERVAL,
+    interval: PLAYER_MINE_PASSIVE_INTERVAL,
+  };
+}
+
+function spawnMine(x, y, owner) {
+  const minX = ARENA.x + MINE_RADIUS;
+  const maxX = ARENA.x + ARENA.width - MINE_RADIUS;
+  const minY = ARENA.y + MINE_RADIUS;
+  const maxY = ARENA.y + ARENA.height - MINE_RADIUS;
+
+  mines.push({
+    id: mineId += 1,
+    x: clamp(x, minX, maxX),
+    y: clamp(y, minY, maxY),
+    owner,
+    ttl: MINE_LIFETIME,
+    radius: MINE_RADIUS,
+    pulseSeed: Math.random() * Math.PI * 2,
+  });
+}
+
+function updatePlayerMinePassive(dt) {
+  if (!playerMinePassive) return;
+
+  playerMinePassive.timer -= dt;
+  while (playerMinePassive && playerMinePassive.timer <= 0 && playerMinePassive.remaining > 0) {
+    spawnMine(player.x, player.y, "player");
+    playerMinePassive.remaining -= 1;
+    if (playerMinePassive.remaining <= 0) {
+      playerMinePassive = null;
+      return;
+    }
+    playerMinePassive.timer += playerMinePassive.interval;
+  }
+}
+
+function tryUseAbilityFromClick(point) {
+  if (player.dead) return false;
+  if (player.moving || activeHook || activePlayerLaser || activePlayerSpray || player.dragging) return false;
+
+  const distanceToPlayer = Math.hypot(point.x - player.x, point.y - player.y);
+  if (distanceToPlayer <= player.size * 0.5) return false;
+
+  const hookTarget = findFirstEnemyOnBeam(
+    player.x,
+    player.y,
+    point.x,
+    point.y,
+    getHookRange(),
+    (enemy) => enemy.kind !== "brute"
+  );
+  const selected = getSelectedAbilityState();
+  const selectedAbility = selected.ability;
+
+  if (
+    selectedAbility.key === abilities.hook.key ||
+    (playerAbilityCapacity > 1 && !reserveAbility && currentAbility.key !== abilities.hook.key && Boolean(hookTarget))
+  ) {
+    useHookAbility(point);
+    return true;
+  }
+
+  if (selectedAbility.key === abilities.laser.key) {
+    useLaserAbility(point);
+    return true;
+  }
+
+  if (selectedAbility.key === abilities.spray.key) {
+    useSprayAbility(point);
+    return true;
+  }
+
+  if (selectedAbility.key === abilities.shield.key) {
+    return useShieldAbility();
+  }
+
+  return false;
+}
+
+function canStartKeyboardMove() {
+  return !player.dead && !player.moving && !activeHook && !activePlayerLaser && !activePlayerSpray && !player.dragging;
+}
+
+function launchPlayerTowardPoint(point) {
+  if (!canStartKeyboardMove()) return;
+
+  const half = player.size * 0.5;
+  const targetX = clamp(point.x, ARENA.x + half, ARENA.x + ARENA.width - half);
+  const targetY = clamp(point.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+  const distance = Math.hypot(targetX - player.x, targetY - player.y);
+  if (distance <= MOVE_STOP_DISTANCE) return;
+
+  player.moveTarget = { x: targetX, y: targetY };
+  moveMarker = {
+    x: targetX,
+    y: targetY,
+    ttl: 0.8,
+    life: 0.8,
+  };
+  player.moving = true;
+  player.launched = true;
+  player.restingFor = 0;
+  trail.length = 0;
+}
+
+function updateMoveMarker(dt) {
+  if (!moveMarker) return;
+
+  moveMarker.ttl -= dt;
+  if (moveMarker.ttl <= 0) {
+    moveMarker = null;
+  }
+}
+
+function updateHook(dt) {
+  if (!activeHook) return;
+
+  if (activeHook.phase === "extend") {
+    const remaining = activeHook.maxDistance - activeHook.traveled;
+    const step = Math.min(HOOK_SPEED * dt, remaining);
+    const fromX = activeHook.tipX;
+    const fromY = activeHook.tipY;
+    const toX = fromX + activeHook.dirX * step;
+    const toY = fromY + activeHook.dirY * step;
+    const hit = findFirstEnemyOnBeam(fromX, fromY, toX, toY, activeHook.maxDistance, (enemy) => enemy.kind !== "brute");
+    const bruteHit = findFirstEnemyOnBeam(fromX, fromY, toX, toY, activeHook.maxDistance, (enemy) => enemy.kind === "brute");
+
+    if (bruteHit && (!hit || bruteHit.t <= hit.t)) {
+      activeHook.tipX = bruteHit.x;
+      activeHook.tipY = bruteHit.y;
+      activeHook.phase = "retract";
+      return;
+    }
+
+    if (hit) {
+      activeHook.enemyId = hit.enemy.id;
+      activeHook.phase = "pull";
+      activeHook.tipX = hit.enemy.x;
+      activeHook.tipY = hit.enemy.y;
+      activeHook.pullTime = 0;
+      activeHook.pullStartX = hit.enemy.x;
+      activeHook.pullStartY = hit.enemy.y;
+      hit.enemy.moving = false;
+      hit.enemy.vx = 0;
+      hit.enemy.vy = 0;
+      hit.enemy.restingFor = 0;
+      hit.enemy.moveTarget = null;
+      hit.enemy.phase = null;
+      hit.enemy.phaseTimer = 0;
+      return;
+    }
+
+    activeHook.tipX = toX;
+    activeHook.tipY = toY;
+    activeHook.traveled += step;
+
+    if (activeHook.traveled >= activeHook.maxDistance - 0.001) {
+      activeHook.phase = "retract";
+    }
+    return;
+  }
+
+  if (activeHook.phase === "retract") {
+    const dx = player.x - activeHook.tipX;
+    const dy = player.y - activeHook.tipY;
+    const distance = Math.hypot(dx, dy);
+
+    if (distance <= HOOK_SPEED * dt) {
+      activeHook = null;
+      return;
+    }
+
+    activeHook.tipX += (dx / distance) * HOOK_SPEED * dt;
+    activeHook.tipY += (dy / distance) * HOOK_SPEED * dt;
+    return;
+  }
+
+  const target = enemies.find((enemy) => enemy.id === activeHook.enemyId);
+  if (!target) {
+    activeHook.phase = "retract";
+    activeHook.enemyId = null;
+    return;
+  }
+
+  activeHook.pullTime += dt;
+  const progress = clamp(activeHook.pullTime / HOOK_PULL_DURATION, 0, 1);
+  const eased = 1 - (1 - progress) * (1 - progress);
+
+  target.x = activeHook.pullStartX + (player.x - activeHook.pullStartX) * eased;
+  target.y = activeHook.pullStartY + (player.y - activeHook.pullStartY) * eased;
+  activeHook.tipX = target.x;
+  activeHook.tipY = target.y;
+
+  if (progress >= 1) {
+    stealEnemyAbility(target);
+    activeHook = null;
+    return;
+  }
+}
+
+function updatePlayerLaser(dt) {
+  if (!activePlayerLaser) return;
+
+  activePlayerLaser.timer -= dt;
+  if (activePlayerLaser.timer > 0) return;
+
+  firePlayerLaser(activePlayerLaser);
+  activePlayerLaser = null;
+}
+
+function updatePlayerSpray(dt) {
+  if (!activePlayerSpray) return;
+
+  if (activePlayerSpray.phase === "charge") {
+    activePlayerSpray.timer -= dt;
+    if (activePlayerSpray.timer > 0) return;
+
+    activePlayerSpray.phase = "fire";
+    activePlayerSpray.shotTimer = 0;
+  }
+
+  activePlayerSpray.shotTimer -= dt;
+  while (activePlayerSpray && activePlayerSpray.shotTimer <= 0 && activePlayerSpray.shotsRemaining > 0) {
+    firePlayerSprayShot(activePlayerSpray);
+    activePlayerSpray.shotsRemaining -= 1;
+    if (activePlayerSpray.shotsRemaining <= 0) {
+      consumeAbilityCharge(activePlayerSpray.slot);
+      activePlayerSpray = null;
+      return;
+    }
+    activePlayerSpray.shotTimer += SPRAY_SHOT_INTERVAL;
+  }
+}
+
+function updatePlayerShield(dt) {
+  if (!activePlayerShield) return;
+
+  activePlayerShield.timer -= dt;
+  if (activePlayerShield.timer <= 0) {
+    activePlayerShield = null;
+  }
+}
+
+function updateShieldAuras(dt) {
+  if (activePlayerShield) {
+    for (let index = enemies.length - 1; index >= 0; index -= 1) {
+      const enemy = enemies[index];
+      const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+      if (distance <= activePlayerShield.radius + enemy.size * 0.4) {
+        damageEnemy(enemy, enemy.hp);
+      }
+    }
+
+    for (let index = mines.length - 1; index >= 0; index -= 1) {
+      const mine = mines[index];
+      if (mine.owner !== "enemy") continue;
+      const distance = Math.hypot(mine.x - player.x, mine.y - player.y);
+      if (distance <= activePlayerShield.radius + mine.radius * 0.8) {
+        mines.splice(index, 1);
+      }
+    }
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.kind !== "shield" || enemy.phase !== "shield_up") continue;
+    const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+    if (distance <= getShieldRadius() + player.size * 0.45) {
+      applyPlayerHit();
+    }
+  }
+
+  for (let index = laserProjectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = laserProjectiles[index];
+    const tail = getProjectileTail(projectile);
+    let destroyProjectile = false;
+
+    if (activePlayerShield && projectile.owner !== "player") {
+      const hit = getSegmentCircleHit(
+        tail.x,
+        tail.y,
+        projectile.x,
+        projectile.y,
+        player.x,
+        player.y,
+        activePlayerShield.radius
+      );
+      if (hit) {
+        destroyProjectile = true;
+      }
+    }
+
+    if (!destroyProjectile) {
+      for (const enemy of enemies) {
+        if (enemy.kind !== "shield" || enemy.phase !== "shield_up") continue;
+        const hit = getSegmentCircleHit(
+          tail.x,
+          tail.y,
+          projectile.x,
+          projectile.y,
+          enemy.x,
+          enemy.y,
+          getShieldRadius()
+        );
+        if (hit) {
+          destroyProjectile = true;
+          break;
+        }
+      }
+    }
+
+    if (destroyProjectile) {
+      laserProjectiles.splice(index, 1);
+    }
+  }
+}
+
+function resolveEnemyCollisions() {
+  for (let index = enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = enemies[index];
+    if (activeHook && activeHook.enemyId === enemy.id) continue;
+
+    const collisionDistance = player.size * 0.5 + enemy.size * 0.6;
+    const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+    if (distance > collisionDistance) continue;
+
+    applyPlayerHit();
+    removeEnemy(enemy.id);
+  }
+}
+
+function updateMines(dt) {
+  for (let index = mines.length - 1; index >= 0; index -= 1) {
+    const mine = mines[index];
+    mine.ttl -= dt;
+    if (mine.ttl <= 0) {
+      mines.splice(index, 1);
+      continue;
+    }
+
+    if (mine.owner === "enemy") {
+      const hitDistance = player.size * 0.5 + mine.radius * 0.7;
+      const distanceToPlayer = Math.hypot(mine.x - player.x, mine.y - player.y);
+      if (distanceToPlayer <= hitDistance) {
+        applyPlayerHit();
+        mines.splice(index, 1);
+      }
+      continue;
+    }
+
+    let detonated = false;
+    for (const enemy of enemies) {
+      const hitDistance = enemy.size * 0.6 + mine.radius * 0.72;
+      const distanceToEnemy = Math.hypot(mine.x - enemy.x, mine.y - enemy.y);
+      if (distanceToEnemy > hitDistance) continue;
+
+      damageEnemy(enemy, 1);
+      mines.splice(index, 1);
+      detonated = true;
+      break;
+    }
+
+    if (detonated) {
+      continue;
+    }
+  }
+}
+
+function firePlayerLaser(config) {
+  spawnLaserProjectile({
+    owner: "player",
+    x: player.x,
+    y: player.y,
+    dirX: config.dirX,
+    dirY: config.dirY,
+    range: getLaserRange(),
+    color: "rgba(105, 226, 255, 0.96)",
+    width: LASER_PROJECTILE_WIDTH,
+  });
+  consumeAbilityCharge(config.slot);
+}
+
+function firePlayerSprayShot(config) {
+  spawnSprayProjectile({
+    owner: "player",
+    x: player.x,
+    y: player.y,
+    dirX: config.dirX,
+    dirY: config.dirY,
+    range: getLaserRange(),
+    color: "rgba(198, 118, 255, 0.96)",
+    width: LASER_PROJECTILE_WIDTH - 1,
+  });
+}
+
+function fireEnemyLaser(enemy) {
+  const dx = enemy.aimX - enemy.x;
+  const dy = enemy.aimY - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const enemyLaserRange = getCellSize() * LASER_RANGE_CELLS;
+  spawnLaserProjectile({
+    owner: "enemy",
+    x: enemy.x,
+    y: enemy.y,
+    dirX,
+    dirY,
+    range: enemyLaserRange,
+    color: "rgba(255, 86, 104, 0.94)",
+    width: LASER_PROJECTILE_WIDTH - 1,
+  });
+}
+
+function fireEnemySprayShot(enemy) {
+  const dx = enemy.aimX - enemy.x;
+  const dy = enemy.aimY - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const enemyLaserRange = getCellSize() * LASER_RANGE_CELLS;
+  spawnSprayProjectile({
+    owner: "enemy",
+    x: enemy.x,
+    y: enemy.y,
+    dirX,
+    dirY,
+    range: enemyLaserRange,
+    color: "rgba(198, 96, 255, 0.94)",
+    width: LASER_PROJECTILE_WIDTH - 2,
+  });
+}
+
+function spawnSprayProjectile({ owner, x, y, dirX, dirY, range, color, width }) {
+  const centerAngle = Math.atan2(dirY, dirX);
+  const randomOffset = randomRange(-SPRAY_RANDOM_SPREAD * 0.5, SPRAY_RANDOM_SPREAD * 0.5);
+  const angle = centerAngle + randomOffset;
+  spawnLaserProjectile({
+    owner,
+    x,
+    y,
+    dirX: Math.cos(angle),
+    dirY: Math.sin(angle),
+    range,
+    color,
+    width,
+  });
+}
+
+function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width }) {
+  laserProjectiles.push({
+    owner,
+    x,
+    y,
+    prevX: x,
+    prevY: y,
+    dirX,
+    dirY,
+    traveled: 0,
+    range,
+    color,
+    width,
+    length: LASER_PROJECTILE_LENGTH,
+    sourceX: x,
+    sourceY: y,
+    bounces: 0,
+  });
+}
+
+function updateLaserProjectiles(dt) {
+  for (let index = laserProjectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = laserProjectiles[index];
+    projectile.prevX = projectile.x;
+    projectile.prevY = projectile.y;
+
+    const step = LASER_PROJECTILE_SPEED * dt;
+    projectile.x += projectile.dirX * step;
+    projectile.y += projectile.dirY * step;
+    projectile.traveled += step;
+
+    const hit = projectile.owner === "player" ? hitEnemyWithProjectile(projectile) : hitPlayerWithProjectile(projectile);
+    if (hit || projectile.traveled >= projectile.range + projectile.length || isProjectileOutOfArena(projectile)) {
+      laserProjectiles.splice(index, 1);
+    }
+  }
+}
+
+function hitEnemyWithProjectile(projectile) {
+  const tail = getProjectileTail(projectile);
+  const hit = findFirstEnemyOnBeam(tail.x, tail.y, projectile.x, projectile.y, projectile.length + ENEMY_SIZE);
+  if (!hit) return false;
+
+  damageEnemy(hit.enemy, 1);
+  return true;
+}
+
+function hitPlayerWithProjectile(projectile) {
+  const tail = getProjectileTail(projectile);
+  const hitPlayer = getSegmentCircleHit(
+    tail.x,
+    tail.y,
+    projectile.x,
+    projectile.y,
+    player.x,
+    player.y,
+    player.size * 0.55
+  );
+  if (!hitPlayer) return false;
+
+  applyPlayerHit();
+  return true;
+}
+
+function applyPlayerHit() {
+  if (player.dead || player.hitInvuln > 0) return false;
+
+  player.hp = Math.max(0, player.hp - 1);
+  player.hitFlash = 0.7;
+  player.hitShake = 1;
+  player.hitInvuln = 0.18;
+  spawnImpactBurst(player.x, player.y);
+
+  if (player.hp <= 0) {
+    startDeathSequence();
+  }
+
+  return true;
+}
+
+function startDeathSequence() {
+  player.dead = true;
+  player.hp = 0;
+  player.vx = 0;
+  player.vy = 0;
+  player.moving = false;
+  player.launched = false;
+  player.restingFor = 0;
+  player.moveTarget = null;
+  player.hitInvuln = 0;
+  activeHook = null;
+  activePlayerLaser = null;
+  activePlayerSpray = null;
+  activePlayerShield = null;
+  playerMinePassive = null;
+  playerAbilityCapacity = 1;
+  reserveAbility = null;
+  reserveAbilityCharges = null;
+  abilityMode = "hook";
+  moveMarker = null;
+  trail.length = 0;
+  laserProjectiles.length = 0;
+  mines.length = 0;
+  deathExplosion = {
+    x: player.x,
+    y: player.y,
+    ttl: DEATH_RESET_DELAY,
+    life: DEATH_RESET_DELAY,
+    radius: player.size * 0.7,
+  };
+  spawnImpactBurst(player.x, player.y, {
+    count: 34,
+    speedMin: 180,
+    speedMax: 520,
+    lifeMin: 0.32,
+    lifeMax: 0.82,
+    sizeMin: 6,
+    sizeMax: 14,
+  });
+  deathResetTimer = DEATH_RESET_DELAY;
+  simulationWasActive = false;
+  currentTimeScale = INACTIVE_TIME_SCALE;
+}
+
+function resetGame() {
+  const half = player.size * 0.5;
+
+  worldTime = 0;
+  actionTime = 0;
+  deathResetTimer = 0;
+  simulationWasActive = false;
+  currentTimeScale = INACTIVE_TIME_SCALE;
+  enemyId = 0;
+  mineId = 0;
+  enemies.length = 0;
+  spawnMarkers.length = 0;
+  laserProjectiles.length = 0;
+  mines.length = 0;
+  trail.length = 0;
+  impactBursts.length = 0;
+  deathExplosion = null;
+
+  player.hp = player.maxHp;
+  player.vx = 0;
+  player.vy = 0;
+  player.moving = false;
+  player.launched = false;
+  player.restingFor = 0;
+  player.moveTarget = null;
+  player.power = 1;
+  player.hitFlash = 1;
+  player.hitShake = 1.15;
+  player.hitInvuln = 0.45;
+  player.dead = false;
+
+  activeHook = null;
+  activePlayerLaser = null;
+  activePlayerSpray = null;
+  activePlayerShield = null;
+  playerMinePassive = null;
+  playerAbilityCapacity = 1;
+  reserveAbility = null;
+  reserveAbilityCharges = null;
+  abilityMode = "hook";
+  playerShieldCooldown = 0;
+  resetToHook();
+  moveMarker = null;
+
+  player.x = clamp(ARENA.x + ARENA.width * 0.5, ARENA.x + half, ARENA.x + ARENA.width - half);
+  player.y = clamp(ARENA.y + ARENA.height * 0.5, ARENA.y + half, ARENA.y + ARENA.height - half);
+  aimPoint.x = player.x;
+  aimPoint.y = player.y;
+  scheduleNextSpawn(true);
+}
+
+function getProjectileTail(projectile) {
+  return {
+    x: projectile.x - projectile.dirX * projectile.length,
+    y: projectile.y - projectile.dirY * projectile.length,
+  };
+}
+
+function isProjectileOutOfArena(projectile) {
+  const tail = getProjectileTail(projectile);
+  const margin = 40;
+  return (
+    (projectile.x < ARENA.x - margin && tail.x < ARENA.x - margin) ||
+    (projectile.x > ARENA.x + ARENA.width + margin && tail.x > ARENA.x + ARENA.width + margin) ||
+    (projectile.y < ARENA.y - margin && tail.y < ARENA.y - margin) ||
+    (projectile.y > ARENA.y + ARENA.height + margin && tail.y > ARENA.y + ARENA.height + margin)
+  );
+}
+
+function findFirstEnemyOnBeam(fromX, fromY, toX, toY, maxRange, predicate = null) {
+  let bestHit = null;
+  let bestT = Infinity;
+
+  for (const enemy of enemies) {
+    if (predicate && !predicate(enemy)) continue;
+    const distanceToPlayer = Math.hypot(enemy.x - fromX, enemy.y - fromY);
+    if (distanceToPlayer > maxRange + enemy.size) continue;
+
+    const hit = getSegmentCircleHit(fromX, fromY, toX, toY, enemy.x, enemy.y, enemy.size * 0.75);
+    if (!hit || hit.t >= bestT) continue;
+
+    bestHit = { enemy, t: hit.t, x: hit.x, y: hit.y };
+    bestT = hit.t;
+  }
+
+  return bestHit;
+}
+
+function getSegmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return null;
+
+  const t = clamp(((cx - x1) * dx + (cy - y1) * dy) / lengthSq, 0, 1);
+  const px = x1 + dx * t;
+  const py = y1 + dy * t;
+  const distance = Math.hypot(cx - px, cy - py);
+  if (distance > radius) return null;
+
+  return { t, x: px, y: py };
+}
+
+function removeEnemy(id) {
+  const index = enemies.findIndex((enemy) => enemy.id === id);
+  if (index === -1) return;
+  enemies.splice(index, 1);
+}
+
+function damageEnemy(enemy, amount = 1) {
+  enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
+  if (enemy.hp <= 0) {
+    removeEnemy(enemy.id);
+    return true;
+  }
+  return false;
+}
+
+function updateUi() {
+  const selected = getSelectedAbilityState();
+  const selectedAbility = selected.ability;
+  abilityNameEl.textContent =
+    selected.charges !== null
+      ? `${selectedAbility.name} x${selected.charges}`
+      : selectedAbility.name;
+  if (selectedAbility.key === abilities.shield.key) {
+    if (activePlayerShield) {
+      abilityHintEl.textContent = `${activePlayerShield.timer.toFixed(1)}s`;
+    } else if (playerShieldCooldown > 0) {
+      abilityHintEl.textContent = `CD ${playerShieldCooldown.toFixed(1)}s`;
+    } else {
+      abilityHintEl.textContent = "Ready";
+    }
+  } else {
+    abilityHintEl.textContent = playerAbilityCapacity > 1 && currentAbility.key !== abilities.hook.key ? "Click | Q/Wheel" : "Click";
+  }
+  abilityIconEl.textContent =
+    selectedAbility.key === abilities.hook.key
+      ? "H"
+      : selectedAbility.key === abilities.shield.key
+        ? "S"
+        : selectedAbility.key === abilities.spray.key
+          ? "V"
+          : "L";
+  hpLabelEl.textContent = `HP ${player.hp}/${player.maxHp}`;
+  powerLabelEl.textContent = playerMinePassive
+    ? `Сила x${player.power.toFixed(1)} | Мины ${playerMinePassive.remaining}`
+    : `Сила x${player.power.toFixed(1)}`;
+  timeLabelEl.textContent = `${actionTime.toFixed(2)}s`;
+  const passiveChips = [];
+  if (playerMinePassive) {
+    passiveChips.push(
+      `<div class="passive-chip"><span class="passive-chip__icon">M</span><span class="passive-chip__text">Мины ${playerMinePassive.remaining}/20</span></div>`
+    );
+  }
+  if (playerAbilityCapacity > 1) {
+    passiveChips.push(
+      `<div class="passive-chip"><span class="passive-chip__icon">2</span><span class="passive-chip__text">2 слота</span></div>`
+    );
+  }
+  if (currentAbility.key !== abilities.hook.key) {
+    const currentIcon =
+      currentAbility.key === abilities.shield.key ? "S" : currentAbility.key === abilities.spray.key ? "V" : "L";
+    const currentLabel =
+      currentAbilityCharges === null ? currentAbility.name : `${currentAbility.name} x${currentAbilityCharges}`;
+    passiveChips.push(
+      `<div class="passive-chip"><span class="passive-chip__icon">${currentIcon}</span><span class="passive-chip__text">${abilityMode === "primary" ? "Активно" : "Слот 1"} ${currentLabel}</span></div>`
+    );
+  }
+  if (playerAbilityCapacity > 1) {
+    if (reserveAbility) {
+      const reserveIcon =
+        reserveAbility.key === abilities.shield.key ? "S" : reserveAbility.key === abilities.spray.key ? "V" : "L";
+      const reserveLabel =
+        reserveAbilityCharges === null ? reserveAbility.name : `${reserveAbility.name} x${reserveAbilityCharges}`;
+      passiveChips.push(
+        `<div class="passive-chip"><span class="passive-chip__icon">${reserveIcon}</span><span class="passive-chip__text">${abilityMode === "secondary" ? "Активно" : "Слот 2"} ${reserveLabel}</span></div>`
+      );
+    } else {
+      passiveChips.push(
+        `<div class="passive-chip"><span class="passive-chip__icon">+</span><span class="passive-chip__text">Слот 2 пусто</span></div>`
+      );
+    }
+  }
+  passiveTrayEl.innerHTML = passiveChips.join("");
+}
+
+function draw() {
+  ctx.clearRect(0, 0, VIEW.width, VIEW.height);
+  drawSky();
+  drawArenaGlow();
+  drawArena();
+  drawMoveMarker();
+  drawSpawnMarkers();
+  drawTrail();
+  drawMines();
+  if (!player.dead) {
+    drawAbilityRange();
+  }
+  drawEnemies();
+  drawLaserEffects();
+  drawDeathExplosion();
+  drawImpactBursts();
+  if (!player.dead) {
+    drawPlayer();
+  }
+  drawDragGuide();
+}
+
+function drawSky() {
+  const sun = ctx.createRadialGradient(180, 120, 10, 180, 120, 260);
+  sun.addColorStop(0, "rgba(255, 233, 154, 0.96)");
+  sun.addColorStop(0.25, "rgba(255, 188, 68, 0.24)");
+  sun.addColorStop(1, "rgba(255, 188, 68, 0)");
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, VIEW.width, VIEW.height);
+
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  for (let i = 0; i < 6; i += 1) {
+    const x = ((i * 240) + 80) % (VIEW.width + 220) - 110;
+    const y = 110 + (i % 2) * 40;
+    drawCloud(x, y, 0.9 + (i % 3) * 0.2);
+  }
+}
+
+function drawCloud(x, y, scale) {
+  ctx.beginPath();
+  ctx.arc(x, y, 24 * scale, Math.PI * 0.6, Math.PI * 1.9);
+  ctx.arc(x + 28 * scale, y - 10 * scale, 30 * scale, Math.PI, Math.PI * 2);
+  ctx.arc(x + 58 * scale, y, 24 * scale, Math.PI * 1.15, Math.PI * 0.3, true);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawArenaGlow() {
+  const glow = ctx.createRadialGradient(
+    ARENA.x + ARENA.width * 0.5,
+    ARENA.y + ARENA.height * 0.45,
+    30,
+    ARENA.x + ARENA.width * 0.5,
+    ARENA.y + ARENA.height * 0.5,
+    Math.max(ARENA.width, ARENA.height) * 0.75
+  );
+  glow.addColorStop(0, "rgba(110, 231, 255, 0.22)");
+  glow.addColorStop(0.5, "rgba(48, 124, 255, 0.09)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, VIEW.width, VIEW.height);
+}
+
+function drawArena() {
+  ctx.save();
+  ctx.translate(ARENA.x, ARENA.y);
+
+  const fill = ctx.createLinearGradient(0, 0, ARENA.width, ARENA.height);
+  fill.addColorStop(0, "rgba(8, 14, 28, 0.95)");
+  fill.addColorStop(1, "rgba(6, 8, 14, 0.98)");
+  ctx.fillStyle = fill;
+  ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+  ctx.strokeStyle = "rgba(113, 226, 255, 0.9)";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(0, 0, ARENA.width, ARENA.height);
+
+  ctx.strokeStyle = "rgba(113, 226, 255, 0.1)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 8; i += 1) {
+    const offsetX = (ARENA.width / 8) * i;
+    const offsetY = (ARENA.height / 8) * i;
+    ctx.beginPath();
+    ctx.moveTo(offsetX, 0);
+    ctx.lineTo(offsetX, ARENA.height);
+    ctx.moveTo(0, offsetY);
+    ctx.lineTo(ARENA.width, offsetY);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawTrail() {
+  for (const particle of trail) {
+    const life = clamp(particle.ttl / particle.life, 0, 1);
+    ctx.save();
+    ctx.fillStyle = `rgba(255, 183, 3, ${life * 0.34})`;
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, particle.size * (0.35 + life * 0.6), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(255, 241, 195, ${life * 0.26})`;
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, particle.size * (0.16 + life * 0.28), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawImpactBursts() {
+  for (const burst of impactBursts) {
+    const life = clamp(burst.ttl / burst.life, 0, 1);
+    ctx.save();
+    ctx.translate(burst.x, burst.y);
+    ctx.rotate(burst.angle);
+
+    ctx.fillStyle = `rgba(255, 96, 96, ${life * 0.42})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, burst.size * (0.5 + (1 - life) * 0.65), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(255, 202, 110, ${life * 0.78})`;
+    ctx.fillRect(-burst.size * 0.55, -burst.size * 0.18, burst.size * 1.1, burst.size * 0.36);
+
+    ctx.fillStyle = `rgba(255, 245, 220, ${life * 0.7})`;
+    ctx.fillRect(-burst.size * 0.24, -burst.size * 0.1, burst.size * 0.48, burst.size * 0.2);
+    ctx.restore();
+  }
+}
+
+function drawDeathExplosion() {
+  if (!deathExplosion) return;
+
+  const progress = 1 - clamp(deathExplosion.ttl / deathExplosion.life, 0, 1);
+  const fade = 1 - progress;
+  const blastRadius = deathExplosion.radius + progress * 90;
+
+  ctx.save();
+
+  ctx.fillStyle = `rgba(18, 0, 8, ${0.14 + fade * 0.22})`;
+  ctx.fillRect(0, 0, VIEW.width, VIEW.height);
+
+  const glow = ctx.createRadialGradient(
+    deathExplosion.x,
+    deathExplosion.y,
+    Math.max(2, blastRadius * 0.1),
+    deathExplosion.x,
+    deathExplosion.y,
+    blastRadius
+  );
+  glow.addColorStop(0, `rgba(255, 248, 230, ${0.9 * fade})`);
+  glow.addColorStop(0.25, `rgba(255, 176, 96, ${0.65 * fade})`);
+  glow.addColorStop(0.6, `rgba(255, 82, 112, ${0.42 * fade})`);
+  glow.addColorStop(1, "rgba(255, 82, 112, 0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(deathExplosion.x, deathExplosion.y, blastRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = `rgba(255, 248, 236, ${0.24 * fade})`;
+  ctx.beginPath();
+  ctx.arc(deathExplosion.x, deathExplosion.y, blastRadius * 0.32, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(255, 244, 220, ${0.9 * fade})`;
+  ctx.lineWidth = 3 + fade * 5;
+  ctx.beginPath();
+  ctx.arc(deathExplosion.x, deathExplosion.y, blastRadius * 0.68, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(255, 124, 150, ${0.75 * fade})`;
+  ctx.lineWidth = 2 + fade * 3;
+  ctx.beginPath();
+  ctx.arc(deathExplosion.x, deathExplosion.y, blastRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawSpawnMarkers() {
+  for (const marker of spawnMarkers) {
+    const progress = marker.elapsed / ENEMY_SPAWN_TELEGRAPH;
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8 + marker.x * 0.01);
+    const radius = 12 + pulse * 9;
+
+    ctx.save();
+    ctx.translate(marker.x, marker.y);
+
+    ctx.strokeStyle = `rgba(255, 82, 82, ${0.35 + pulse * 0.45})`;
+    ctx.lineWidth = 2 + pulse * 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(255, 130, 130, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-9, 0);
+    ctx.lineTo(9, 0);
+    ctx.moveTo(0, -9);
+    ctx.lineTo(0, 9);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(255, 210, 210, 0.95)";
+    ctx.lineWidth = 3;
+    ctx.arc(-0.01, -0.01, radius + 8, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * progress);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+function drawMoveMarker() {
+  if (!moveMarker) return;
+
+  const progress = 1 - clamp(moveMarker.ttl / moveMarker.life, 0, 1);
+  const pulse = 0.5 + 0.5 * Math.sin(worldTime * 10);
+  const radius = 14 + pulse * 7 + progress * 8;
+
+  ctx.save();
+  ctx.translate(moveMarker.x, moveMarker.y);
+
+  ctx.strokeStyle = `rgba(122, 232, 255, ${0.25 + (1 - progress) * 0.45})`;
+  ctx.lineWidth = 2 + (1 - progress) * 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(212, 247, 255, 0.9)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-8, 0);
+  ctx.lineTo(8, 0);
+  ctx.moveTo(0, -8);
+  ctx.lineTo(0, 8);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.strokeStyle = `rgba(122, 232, 255, ${0.16 + (1 - progress) * 0.28})`;
+  ctx.arc(0, 0, radius + 10 + progress * 12, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawAbilityRange() {
+  const selectedAbility = getSelectedAbilityState().ability;
+  const range =
+    selectedAbility.key === abilities.hook.key
+      ? getHookRange()
+      : selectedAbility.key === abilities.shield.key
+        ? getShieldRadius()
+        : getLaserRange();
+  ctx.save();
+  ctx.strokeStyle =
+    selectedAbility.key === abilities.hook.key
+      ? "rgba(255, 210, 120, 0.18)"
+      : selectedAbility.key === abilities.shield.key
+        ? "rgba(255, 224, 112, 0.26)"
+        : selectedAbility.key === abilities.spray.key
+          ? "rgba(210, 124, 255, 0.26)"
+          : "rgba(130, 220, 255, 0.24)";
+  ctx.setLineDash([10, 12]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, range, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawEnemies() {
+  for (const enemy of enemies) {
+    drawEnemy(enemy);
+  }
+}
+
+function drawEnemy(enemy) {
+  const width = enemy.renderWidth || enemy.size;
+  const height = enemy.renderHeight || enemy.size;
+  const half = enemy.size * 0.5;
+  const halfW = width * 0.5;
+  const halfH = height * 0.5;
+  const angle = Math.atan2(enemy.vy, enemy.vx);
+
+  ctx.save();
+  ctx.translate(enemy.x, enemy.y);
+  ctx.rotate(enemy.moving ? angle : Math.PI * 0.25);
+
+  const gradient = ctx.createLinearGradient(-half, -half, half, half);
+  if (enemy.kind === "brute") {
+    gradient.addColorStop(0, "#fff2b3");
+    gradient.addColorStop(0.45, "#ffd44f");
+    gradient.addColorStop(1, "#9c6a00");
+  } else if (enemy.kind === "replicator") {
+    gradient.addColorStop(0, "#d4fcff");
+    gradient.addColorStop(0.45, "#7de8ff");
+    gradient.addColorStop(1, "#1389a9");
+  } else if (enemy.kind === "heal") {
+    gradient.addColorStop(0, "#d3f4ff");
+    gradient.addColorStop(0.45, "#63bfff");
+    gradient.addColorStop(1, "#0a4e93");
+  } else if (enemy.kind === "shield") {
+    gradient.addColorStop(0, "#fff0a8");
+    gradient.addColorStop(0.45, "#ffc94d");
+    gradient.addColorStop(1, "#a86d04");
+  } else if (enemy.kind === "spray") {
+    gradient.addColorStop(0, "#e7bbff");
+    gradient.addColorStop(0.45, "#b758ff");
+    gradient.addColorStop(1, "#5b1687");
+  } else if (enemy.kind === "mine") {
+    gradient.addColorStop(0, "#b6ffbb");
+    gradient.addColorStop(0.45, "#51d86b");
+    gradient.addColorStop(1, "#125f25");
+  } else {
+    gradient.addColorStop(0, "#ffb4b4");
+    gradient.addColorStop(0.45, "#ff5a5a");
+    gradient.addColorStop(1, "#8f1028");
+  }
+
+  ctx.shadowColor =
+    enemy.kind === "brute"
+      ? "rgba(255, 214, 84, 0.5)"
+      : enemy.kind === "replicator"
+        ? "rgba(120, 244, 255, 0.48)"
+      : enemy.kind === "heal"
+        ? "rgba(112, 208, 255, 0.46)"
+      : enemy.kind === "shield"
+      ? "rgba(255, 212, 92, 0.45)"
+      : enemy.kind === "spray"
+        ? "rgba(203, 100, 255, 0.45)"
+        : enemy.kind === "mine"
+          ? "rgba(84, 255, 118, 0.42)"
+          : "rgba(255, 54, 84, 0.45)";
+  ctx.shadowBlur = enemy.moving ? 18 : 10;
+  ctx.fillStyle = gradient;
+  ctx.fillRect(-halfW, -halfH, width, height);
+
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(255,255,255,0.72)";
+  ctx.strokeRect(-halfW, -halfH, width, height);
+
+  ctx.fillStyle = "rgba(255, 246, 246, 0.42)";
+  ctx.fillRect(-halfW + 4, -halfH + 4, width * 0.24, height * 0.24);
+
+  if (enemy.kind === "brute") {
+    ctx.strokeStyle = "rgba(255, 248, 214, 0.88)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, 0);
+    ctx.lineTo(8, 0);
+    ctx.moveTo(-2, -5);
+    ctx.lineTo(-2, 5);
+    ctx.moveTo(2, -5);
+    ctx.lineTo(2, 5);
+    ctx.stroke();
+  } else if (enemy.kind === "replicator") {
+    ctx.strokeStyle = "rgba(228, 255, 255, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, -4);
+    ctx.lineTo(0, -8);
+    ctx.lineTo(6, -4);
+    ctx.lineTo(2, 2);
+    ctx.lineTo(6, 8);
+    ctx.lineTo(0, 4);
+    ctx.lineTo(-6, 8);
+    ctx.lineTo(-2, 2);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (enemy.kind === "heal") {
+    ctx.strokeStyle = "rgba(230, 248, 255, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(6, 0);
+    ctx.moveTo(0, -6);
+    ctx.lineTo(0, 6);
+    ctx.stroke();
+  } else if (enemy.kind === "mine") {
+    ctx.strokeStyle = "rgba(235, 255, 235, 0.86)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(6, 0);
+    ctx.moveTo(0, -6);
+    ctx.lineTo(0, 6);
+    ctx.stroke();
+  } else if (enemy.kind === "spray") {
+    ctx.strokeStyle = "rgba(248, 224, 255, 0.86)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, 3);
+    ctx.lineTo(0, -5);
+    ctx.lineTo(6, 3);
+    ctx.stroke();
+  }
+
+  if (enemy.phase === "charge") {
+    const charge = 1 - clamp(enemy.phaseTimer / LASER_CHARGE_TIME, 0, 1);
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(255, 210, 210, 0.9)";
+    ctx.lineWidth = 3;
+    ctx.arc(0, 0, half + 9, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
+    ctx.stroke();
+  } else if (enemy.phase === "shield_up") {
+    const shieldProgress = clamp(enemy.phaseTimer / ENEMY_SHIELD_UP_TIME, 0, 1);
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(255, 224, 122, ${0.42 + shieldProgress * 0.32})`;
+    ctx.lineWidth = 4;
+    ctx.arc(0, 0, getShieldRadius(), 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (enemy.phase === "spray_charge") {
+    const charge = 1 - clamp(enemy.phaseTimer / SPRAY_CHARGE_TIME, 0, 1);
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(226, 168, 255, ${0.42 + charge * 0.28})`;
+    ctx.lineWidth = 3;
+    ctx.arc(0, 0, half + 10, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
+    ctx.stroke();
+  }
+
+  if (enemy.maxHp > 1) {
+    const hpRatio = clamp(enemy.hp / enemy.maxHp, 0, 1);
+    ctx.fillStyle = "rgba(16, 22, 34, 0.72)";
+    ctx.fillRect(-halfW, -halfH - 10, width, 4);
+    ctx.fillStyle = "rgba(255, 220, 108, 0.95)";
+    ctx.fillRect(-halfW, -halfH - 10, width * hpRatio, 4);
+  }
+
+  ctx.restore();
+}
+
+function drawMines() {
+  for (const mine of mines) {
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 7 + mine.pulseSeed);
+    const radius = mine.radius;
+    const outerRadius = radius + 4 + pulse * 3;
+
+    ctx.save();
+    ctx.translate(mine.x, mine.y);
+
+    ctx.strokeStyle =
+      mine.owner === "player" ? `rgba(196, 204, 214, ${0.24 + pulse * 0.22})` : `rgba(255, 108, 120, ${0.3 + pulse * 0.28})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = mine.owner === "player" ? "#9ea6b1" : "#ff5868";
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = mine.owner === "player" ? "rgba(241, 245, 250, 0.95)" : "rgba(255, 232, 236, 0.92)";
+    ctx.fillRect(-2, -radius - 4, 4, 8);
+    ctx.fillRect(-radius - 4, -2, 8, 4);
+
+    ctx.fillStyle = "rgba(255,255,255,0.28)";
+    ctx.beginPath();
+    ctx.arc(-radius * 0.28, -radius * 0.28, radius * 0.34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawLaserEffects() {
+  if (activePlayerShield) {
+    const shieldProgress = clamp(activePlayerShield.timer / activePlayerShield.duration, 0, 1);
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 224, 122, ${0.34 + shieldProgress * 0.34})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, activePlayerShield.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(255, 248, 204, 0.95)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(
+      player.x,
+      player.y,
+      activePlayerShield.radius + 6,
+      -Math.PI * 0.5,
+      -Math.PI * 0.5 + Math.PI * 2 * shieldProgress
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (activeHook) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 209, 102, 0.92)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(activeHook.tipX, activeHook.tipY);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(255,255,255,0.58)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(activeHook.tipX, activeHook.tipY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "rgba(255, 236, 190, 0.96)";
+    ctx.beginPath();
+    ctx.arc(activeHook.tipX, activeHook.tipY, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (activePlayerLaser) {
+    const progress = 1 - clamp(activePlayerLaser.timer / activePlayerLaser.duration, 0, 1);
+    const previewX = player.x + activePlayerLaser.dirX * getLaserRange();
+    const previewY = player.y + activePlayerLaser.dirY * getLaserRange();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(114, 232, 255, ${0.24 + progress * 0.34})`;
+    ctx.lineWidth = 2 + progress * 2;
+    ctx.setLineDash([14, 10]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(previewX, previewY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  if (activePlayerSpray) {
+    const chargeTimer = activePlayerSpray.phase === "charge" ? activePlayerSpray.timer : 0;
+    const progress = activePlayerSpray.phase === "charge" ? 1 - clamp(chargeTimer / SPRAY_CHARGE_TIME, 0, 1) : 1;
+    const centerAngle = Math.atan2(activePlayerSpray.dirY, activePlayerSpray.dirX);
+    const range = getLaserRange();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(212, 122, 255, ${0.24 + progress * 0.34})`;
+    ctx.lineWidth = 2 + progress * 2;
+    ctx.setLineDash([14, 10]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(player.x + Math.cos(centerAngle - SPRAY_RANDOM_SPREAD * 0.5) * range, player.y + Math.sin(centerAngle - SPRAY_RANDOM_SPREAD * 0.5) * range);
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(player.x + Math.cos(centerAngle) * range, player.y + Math.sin(centerAngle) * range);
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(player.x + Math.cos(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range, player.y + Math.sin(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.phase !== "charge" && enemy.phase !== "spray_charge" && enemy.phase !== "spray_fire") continue;
+    const isSpray = enemy.phase === "spray_charge" || enemy.phase === "spray_fire";
+    const progress = 1 - clamp(enemy.phaseTimer / (isSpray ? SPRAY_CHARGE_TIME : LASER_CHARGE_TIME), 0, 1);
+
+    ctx.save();
+    ctx.strokeStyle = isSpray
+      ? `rgba(216, 120, 255, ${0.18 + progress * 0.3})`
+      : `rgba(255, 120, 132, ${0.18 + progress * 0.3})`;
+    ctx.lineWidth = 2 + progress * 2;
+    ctx.setLineDash([12, 10]);
+    ctx.beginPath();
+    if (isSpray) {
+      const centerAngle = Math.atan2(enemy.aimY - enemy.y, enemy.aimX - enemy.x);
+      const range = getCellSize() * LASER_RANGE_CELLS;
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.x + Math.cos(centerAngle - SPRAY_RANDOM_SPREAD * 0.5) * range, enemy.y + Math.sin(centerAngle - SPRAY_RANDOM_SPREAD * 0.5) * range);
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.x + Math.cos(centerAngle) * range, enemy.y + Math.sin(centerAngle) * range);
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.x + Math.cos(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range, enemy.y + Math.sin(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range);
+    } else {
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.aimX, enemy.aimY);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  for (const projectile of laserProjectiles) {
+    const tail = getProjectileTail(projectile);
+    const travelAlpha = clamp(1 - projectile.traveled / (projectile.range + projectile.length), 0.22, 1);
+    ctx.save();
+    ctx.strokeStyle = projectile.color.replace(/[\d.]+\)$/u, `${0.24 + travelAlpha * 0.76})`);
+    ctx.lineWidth = projectile.width;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(tail.x, tail.y);
+    ctx.lineTo(projectile.x, projectile.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255,255,255,${0.2 + travelAlpha * 0.55})`;
+    ctx.lineWidth = Math.max(1, projectile.width * 0.34);
+    ctx.beginPath();
+    ctx.moveTo(tail.x, tail.y);
+    ctx.lineTo(projectile.x, projectile.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawPlayer() {
+  const radius = player.size * 0.5;
+  const angle = Math.atan2(player.vy, player.vx);
+  const shakePower = player.hitShake > 0 ? player.hitShake * 8 : 0;
+  const shakeX = shakePower > 0 ? (Math.random() - 0.5) * shakePower : 0;
+  const shakeY = shakePower > 0 ? (Math.random() - 0.5) * shakePower : 0;
+
+  ctx.save();
+  ctx.translate(player.x + shakeX, player.y + shakeY);
+  ctx.rotate(player.moving ? angle : Math.PI * 0.25);
+
+  const gradient = ctx.createRadialGradient(-6, -8, 6, 0, 0, player.size);
+  gradient.addColorStop(0, player.hitFlash > 0 ? "#ffe4e4" : "#fff2a8");
+  gradient.addColorStop(0.38, player.hitFlash > 0 ? "#ff7a7a" : "#ff9f45");
+  gradient.addColorStop(1, player.hitFlash > 0 ? "#ff315f" : "#ff3d81");
+
+  ctx.shadowColor = "rgba(255, 88, 136, 0.35)";
+  ctx.shadowBlur = 24;
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255,255,255,0.8)";
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.beginPath();
+  ctx.arc(-radius * 0.36, -radius * 0.34, radius * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawDragGuide() {
+}
+
+function tick(now) {
+  const dt = Math.min(0.033, (now - lastFrame) / 1000);
+  lastFrame = now;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(tick);
+}
+
+canvas.addEventListener("pointerdown", startDrag);
+canvas.addEventListener("pointermove", movePointer);
+canvas.addEventListener("wheel", handleWheel, { passive: false });
+canvas.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+});
+window.addEventListener("keydown", handleKeyDown);
+window.addEventListener("pointerup", endDrag);
+window.addEventListener("pointercancel", endDrag);
+window.addEventListener("resize", resize);
+
+resize();
+scheduleNextSpawn(true);
+updateUi();
+requestAnimationFrame(tick);
