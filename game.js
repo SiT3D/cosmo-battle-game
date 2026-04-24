@@ -30,6 +30,8 @@ const ENEMY_DASH_MAX_DISTANCE = 420;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
+const SLOW_ENEMY_CHASE_SPEED = 148;
+const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.4, 3.2];
@@ -46,6 +48,7 @@ const SPRAY_PROJECTILE_COUNT = 10;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
 const LASER_PROJECTILE_SPEED = 460;
+const PLAYER_STOLEN_LASER_SPEED_MULTIPLIER = 1.5;
 const LASER_PROJECTILE_LENGTH = 58;
 const LASER_PROJECTILE_WIDTH = 8;
 const ENEMY_DASH_DELAY_AFTER_SHOT = 0.14;
@@ -56,6 +59,9 @@ const SPRAY_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED * 0.5;
 const SPRAY_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION * 0.5;
 const SPRAY_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE * 0.5;
 const SPRAY_ENEMY_RECOVER_DELAY = 0.8;
+const SLOW_FIELD_RADIUS = 92;
+const SLOW_FIELD_SPEED_MULTIPLIER = 0.38;
+const SLOW_ENEMY_RECOVER_DELAY = 0.4;
 const ENEMY_SHIELD_UP_TIME = 1.2;
 const ENEMY_MINE_INTERVAL_MIN = 10;
 const ENEMY_MINE_INTERVAL_MAX = 20;
@@ -66,6 +72,10 @@ const SHIELD_RADIUS = 84;
 const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
+const STOLEN_BLAST_CHARGES = 4;
+const BLAST_RANGE_CELLS = 4;
+const BLAST_MAX_RADIUS = 74;
+const BLAST_EXPAND_SPEED = 220;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
@@ -121,6 +131,11 @@ const abilities = {
     name: "Щит",
     hint: "Click",
   },
+  blast: {
+    key: "blast",
+    name: "Взрыв",
+    hint: "Click",
+  },
 };
 
 let worldTime = 0;
@@ -131,6 +146,7 @@ const impactBursts = [];
 const enemies = [];
 const spawnMarkers = [];
 const laserProjectiles = [];
+const blastWaves = [];
 const mines = [];
 let enemyId = 0;
 let mineId = 0;
@@ -206,6 +222,10 @@ function getLaserRange() {
   return getCellSize() * LASER_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.24);
 }
 
+function getBlastRange() {
+  return getCellSize() * BLAST_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.16);
+}
+
 function getShieldRadius() {
   return SHIELD_RADIUS;
 }
@@ -216,7 +236,8 @@ function isSimulationActive() {
     Boolean(activeHook) ||
     Boolean(activePlayerTeleport) ||
     Boolean(activePlayerLaser) ||
-    Boolean(activePlayerSpray)
+    Boolean(activePlayerSpray) ||
+    blastWaves.length > 0
   );
 }
 
@@ -335,6 +356,7 @@ function update(dt) {
   updateEnemies(simDt);
   updatePlayerMinePassive(simDt);
   updatePlayerShield(simDt);
+  updateBlastWaves(simDt);
   updateShieldAuras(simDt);
   resolveEnemyCollisions();
   updateLaserProjectiles(simDt);
@@ -367,15 +389,19 @@ function updatePlayerMotion(dt) {
 
     const dirX = dx / distance;
     const dirY = dy / distance;
+    const slowMultiplier = getPlayerSlowMultiplier();
     const currentSpeed = Math.hypot(player.vx, player.vy);
-    const brakingSpeed = Math.sqrt(2 * MOVE_BRAKE * Math.max(0, distance - MOVE_STOP_DISTANCE));
-    const targetSpeed = Math.min(MOVE_TO_POINT_SPEED, brakingSpeed);
+    const moveBrake = MOVE_BRAKE * slowMultiplier;
+    const moveAcceleration = MOVE_ACCELERATION * slowMultiplier;
+    const maxSpeed = MOVE_TO_POINT_SPEED * slowMultiplier;
+    const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
+    const targetSpeed = Math.min(maxSpeed, brakingSpeed);
 
     let nextSpeed = currentSpeed;
     if (currentSpeed < targetSpeed) {
-      nextSpeed = Math.min(targetSpeed, currentSpeed + MOVE_ACCELERATION * dt);
+      nextSpeed = Math.min(targetSpeed, currentSpeed + moveAcceleration * dt);
     } else {
-      nextSpeed = Math.max(targetSpeed, currentSpeed - MOVE_BRAKE * dt);
+      nextSpeed = Math.max(targetSpeed, currentSpeed - moveBrake * dt);
     }
 
     const step = Math.min(nextSpeed * dt, distance);
@@ -441,6 +467,20 @@ function settleEnemyMotion(enemy) {
   enemy.moving = false;
   enemy.restingFor = 0;
   enemy.moveTarget = null;
+}
+
+function getPlayerSlowMultiplier() {
+  let multiplier = 1;
+
+  for (const enemy of enemies) {
+    if (enemy.kind !== "slow") continue;
+    const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+    if (distance <= SLOW_FIELD_RADIUS + player.size * 0.45) {
+      multiplier = Math.min(multiplier, SLOW_FIELD_SPEED_MULTIPLIER);
+    }
+  }
+
+  return multiplier;
 }
 
 function updateEnemyMotion(enemy, dt) {
@@ -553,6 +593,7 @@ function updateTrailParticles(dt) {
 function getEnemyRecoverDelay(enemy) {
   if (enemy.kind === "replicator") return REPLICATOR_HOP_DELAY;
   if (enemy.kind === "spray") return SPRAY_ENEMY_RECOVER_DELAY;
+  if (enemy.kind === "slow") return SLOW_ENEMY_RECOVER_DELAY;
   return ENEMY_DASH_DELAY_AFTER_SHOT;
 }
 
@@ -667,6 +708,11 @@ function updateEnemies(dt) {
       continue;
     }
 
+    if (enemy.kind === "slow") {
+      updateSlowEnemy(enemy, dt);
+      continue;
+    }
+
     if (enemy.kind === "replicator") {
       enemy.replicateTimer -= dt;
       if (enemy.replicateTimer <= 0) {
@@ -710,6 +756,9 @@ function updateEnemies(dt) {
         } else if (enemy.kind === "mine") {
           enemy.phase = "recover";
           enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+        } else if (enemy.kind === "slow") {
+          enemy.phase = "recover";
+          enemy.phaseTimer = SLOW_ENEMY_RECOVER_DELAY;
         } else if (enemy.kind === "spray") {
           enemy.phase = "spray_charge";
           enemy.phaseTimer = SPRAY_CHARGE_TIME;
@@ -817,6 +866,37 @@ function updateBruteEnemy(enemy, dt) {
   handleWallBounce(enemy);
 }
 
+function updateSlowEnemy(enemy, dt) {
+  const dx = player.x - enemy.x;
+  const dy = player.y - enemy.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance <= 0.001) {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.moving = false;
+    return;
+  }
+
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const currentSpeed = Math.hypot(enemy.vx, enemy.vy);
+  const nextSpeed = Math.min(SLOW_ENEMY_CHASE_SPEED, currentSpeed + SLOW_ENEMY_CHASE_ACCELERATION * dt);
+  const step = Math.min(nextSpeed * dt, Math.max(0, distance));
+
+  enemy.vx = dirX * nextSpeed;
+  enemy.vy = dirY * nextSpeed;
+  enemy.x += dirX * step;
+  enemy.y += dirY * step;
+  enemy.moving = true;
+  enemy.phase = null;
+  enemy.phaseTimer = 0;
+  enemy.moveTarget = null;
+  enemy.restingFor = 0;
+
+  handleWallBounce(enemy);
+}
+
 function launchEnemy(enemy) {
   let direction = randomDirection();
   let dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE, ENEMY_DASH_MAX_DISTANCE);
@@ -862,7 +942,15 @@ function createEnemy(kind, x, y) {
     renderWidth: isBrute ? ENEMY_SIZE * 1.85 : ENEMY_SIZE,
     renderHeight: isBrute ? ENEMY_SIZE * 1.1 : ENEMY_SIZE,
     ability:
-      kind === "shield" ? abilities.shield : kind === "laser" ? abilities.laser : kind === "spray" ? abilities.spray : null,
+      kind === "shield"
+        ? abilities.shield
+        : kind === "laser"
+          ? abilities.laser
+          : kind === "spray"
+            ? abilities.spray
+            : kind === "slow"
+              ? abilities.blast
+              : null,
     abilityCharges:
       kind === "shield"
         ? STOLEN_SHIELD_CHARGES
@@ -870,6 +958,8 @@ function createEnemy(kind, x, y) {
           ? STOLEN_LASER_CHARGES
           : kind === "spray"
             ? STOLEN_ABILITY_CHARGES
+            : kind === "slow"
+              ? STOLEN_BLAST_CHARGES
             : null,
     phase: null,
     phaseTimer: 0,
@@ -891,19 +981,21 @@ function spawnEnemy(x, y) {
       ? "replicator"
       : roll < 0.06
         ? "heal"
-        : roll < 0.18
+        : roll < 0.11
+          ? "slow"
+        : roll < 0.21
           ? "brute"
-          : roll < 0.38
+          : roll < 0.41
             ? "mine"
-            : roll < 0.58
+            : roll < 0.6
               ? "shield"
-              : roll < 0.79
+              : roll < 0.8
                 ? "spray"
                 : "laser";
   const enemy = createEnemy(kind, x, y);
 
   enemies.push(enemy);
-  if (kind === "brute") {
+  if (kind === "brute" || kind === "slow") {
     enemy.moving = true;
   } else {
     launchEnemy(enemy);
@@ -1002,6 +1094,7 @@ function getAbilityIconKey(abilityKey) {
   if (abilityKey === abilities.hook.key) return "H";
   if (abilityKey === abilities.shield.key) return "S";
   if (abilityKey === abilities.spray.key) return "V";
+  if (abilityKey === abilities.blast.key) return "B";
   return "L";
 }
 
@@ -1114,6 +1207,7 @@ function stealEnemyAbility(enemy) {
     player.hp = Math.min(player.maxHp, player.hp + 1);
   } else if (enemy.kind === "replicator") {
     playerAbilityCapacity = 2;
+    playerHookCooldown = 0;
   } else if (enemy.kind === "mine") {
     activatePlayerMinePassive();
   } else if (enemy.ability) {
@@ -1177,6 +1271,31 @@ function useShieldAbility() {
     radius: getShieldRadius(),
   };
   playerShieldCooldown = SHIELD_COOLDOWN;
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function useBlastAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const range = getBlastRange();
+  const travel = Math.min(distance, range);
+  const targetX = player.x + (dx / distance) * travel;
+  const targetY = player.y + (dy / distance) * travel;
+
+  blastWaves.push({
+    x: targetX,
+    y: targetY,
+    radius: 6,
+    maxRadius: BLAST_MAX_RADIUS,
+    expandSpeed: BLAST_EXPAND_SPEED,
+    hitEnemyIds: new Set(),
+    hitPlayer: false,
+  });
   consumeAbilityCharge(selected.slot);
   return true;
 }
@@ -1274,6 +1393,10 @@ function tryUseAbilityFromClick(point) {
 
   if (selectedAbility.key === abilities.teleport.key) {
     return useTeleportAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.blast.key) {
+    return useBlastAbility(point);
   }
 
   if (selectedAbility.key === abilities.laser.key) {
@@ -1448,6 +1571,34 @@ function updatePlayerShield(dt) {
   }
 }
 
+function updateBlastWaves(dt) {
+  for (let index = blastWaves.length - 1; index >= 0; index -= 1) {
+    const blast = blastWaves[index];
+    blast.radius = Math.min(blast.maxRadius, blast.radius + blast.expandSpeed * dt);
+
+    for (const enemy of enemies) {
+      if (blast.hitEnemyIds.has(enemy.id)) continue;
+      const distance = Math.hypot(enemy.x - blast.x, enemy.y - blast.y);
+      if (distance > blast.radius + enemy.size * 0.5) continue;
+
+      damageEnemy(enemy, 1);
+      blast.hitEnemyIds.add(enemy.id);
+    }
+
+    if (!blast.hitPlayer) {
+      const distanceToPlayer = Math.hypot(player.x - blast.x, player.y - blast.y);
+      if (distanceToPlayer <= blast.radius + player.size * 0.45) {
+        applyPlayerHit();
+        blast.hitPlayer = true;
+      }
+    }
+
+    if (blast.radius >= blast.maxRadius) {
+      blastWaves.splice(index, 1);
+    }
+  }
+}
+
 function updateShieldAuras(dt) {
   if (activePlayerShield) {
     for (let index = enemies.length - 1; index >= 0; index -= 1) {
@@ -1525,6 +1676,7 @@ function resolveEnemyCollisions() {
   for (let index = enemies.length - 1; index >= 0; index -= 1) {
     const enemy = enemies[index];
     if (activeHook && activeHook.enemyId === enemy.id) continue;
+    if (enemy.kind === "slow") continue;
 
     const collisionDistance = player.size * 0.5 + enemy.size * 0.6;
     const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
@@ -1582,6 +1734,7 @@ function firePlayerLaser(config) {
     range: getLaserRange(),
     color: "rgba(105, 226, 255, 0.96)",
     width: LASER_PROJECTILE_WIDTH,
+    speed: LASER_PROJECTILE_SPEED * PLAYER_STOLEN_LASER_SPEED_MULTIPLIER,
   });
   consumeAbilityCharge(config.slot);
 }
@@ -1653,7 +1806,7 @@ function spawnSprayProjectile({ owner, x, y, dirX, dirY, range, color, width }) 
   });
 }
 
-function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width }) {
+function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width, speed = LASER_PROJECTILE_SPEED }) {
   laserProjectiles.push({
     owner,
     x,
@@ -1664,6 +1817,7 @@ function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width }) 
     dirY,
     traveled: 0,
     range,
+    speed,
     color,
     width,
     length: LASER_PROJECTILE_LENGTH,
@@ -1679,7 +1833,7 @@ function updateLaserProjectiles(dt) {
     projectile.prevX = projectile.x;
     projectile.prevY = projectile.y;
 
-    const step = LASER_PROJECTILE_SPEED * dt;
+    const step = projectile.speed * dt;
     projectile.x += projectile.dirX * step;
     projectile.y += projectile.dirY * step;
     projectile.traveled += step;
@@ -1748,6 +1902,7 @@ function startDeathSequence() {
   activePlayerLaser = null;
   activePlayerSpray = null;
   activePlayerShield = null;
+  blastWaves.length = 0;
   playerMinePassive = null;
   playerAbilityCapacity = 1;
   reserveAbility = null;
@@ -1815,6 +1970,7 @@ function resetGame() {
   activePlayerLaser = null;
   activePlayerSpray = null;
   activePlayerShield = null;
+  blastWaves.length = 0;
   playerMinePassive = null;
   playerAbilityCapacity = 1;
   reserveAbility = null;
@@ -2285,6 +2441,8 @@ function drawAbilityRange() {
   const range =
     selectedAbility.key === abilities.hook.key
       ? getHookRange()
+      : selectedAbility.key === abilities.blast.key
+        ? getBlastRange()
       : selectedAbility.key === abilities.shield.key
         ? getShieldRadius()
         : getLaserRange();
@@ -2292,6 +2450,8 @@ function drawAbilityRange() {
   ctx.strokeStyle =
     selectedAbility.key === abilities.hook.key
       ? "rgba(255, 210, 120, 0.18)"
+      : selectedAbility.key === abilities.blast.key
+        ? "rgba(245, 244, 222, 0.22)"
       : selectedAbility.key === abilities.shield.key
         ? "rgba(255, 224, 112, 0.26)"
         : selectedAbility.key === abilities.spray.key
@@ -2341,6 +2501,18 @@ function drawHookTargetPreview() {
 
 function drawEnemies() {
   for (const enemy of enemies) {
+    if (enemy.kind === "slow") {
+      const pulse = 0.5 + 0.5 * Math.sin(worldTime * 3 + enemy.x * 0.01);
+      ctx.save();
+      ctx.strokeStyle = `rgba(245, 248, 255, ${0.12 + pulse * 0.1})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, SLOW_FIELD_RADIUS + pulse * 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     drawEnemy(enemy);
   }
 }
@@ -2374,6 +2546,10 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#fff0a8");
     gradient.addColorStop(0.45, "#ffc94d");
     gradient.addColorStop(1, "#a86d04");
+  } else if (enemy.kind === "slow") {
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.45, "#e7edf7");
+    gradient.addColorStop(1, "#7f92b1");
   } else if (enemy.kind === "spray") {
     gradient.addColorStop(0, "#e7bbff");
     gradient.addColorStop(0.45, "#b758ff");
@@ -2397,6 +2573,8 @@ function drawEnemy(enemy) {
         ? "rgba(112, 208, 255, 0.46)"
       : enemy.kind === "shield"
       ? "rgba(255, 212, 92, 0.45)"
+      : enemy.kind === "slow"
+        ? "rgba(245, 248, 255, 0.45)"
       : enemy.kind === "spray"
         ? "rgba(203, 100, 255, 0.45)"
         : enemy.kind === "mine"
@@ -2456,6 +2634,16 @@ function drawEnemy(enemy) {
     ctx.lineTo(6, 0);
     ctx.moveTo(0, -6);
     ctx.lineTo(0, 6);
+    ctx.stroke();
+  } else if (enemy.kind === "slow") {
+    ctx.strokeStyle = "rgba(246, 249, 255, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.moveTo(-8, 0);
+    ctx.lineTo(8, 0);
+    ctx.moveTo(0, -8);
+    ctx.lineTo(0, 8);
     ctx.stroke();
   } else if (enemy.kind === "spray") {
     ctx.strokeStyle = "rgba(248, 224, 255, 0.86)";
@@ -2658,6 +2846,23 @@ function drawLaserEffects() {
     ctx.lineTo(player.x + Math.cos(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range, player.y + Math.sin(centerAngle + SPRAY_RANDOM_SPREAD * 0.5) * range);
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  for (const blast of blastWaves) {
+    const progress = clamp(blast.radius / blast.maxRadius, 0, 1);
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 243, 214, ${0.28 + (1 - progress) * 0.38})`;
+    ctx.lineWidth = 2 + (1 - progress) * 4;
+    ctx.beginPath();
+    ctx.arc(blast.x, blast.y, blast.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255, 196, 112, ${0.18 + (1 - progress) * 0.22})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(blast.x, blast.y, Math.max(0, blast.radius - 10), 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
