@@ -36,7 +36,7 @@ const ENEMY_SPAWN_INTERVAL = [1.4, 3.2];
 const GRID_CELLS = 8;
 const HOOK_RANGE_CELLS = 2;
 const HOOK_SPEED = 1180;
-const HOOK_PULL_DURATION = 0.18;
+const HOOK_PULL_DURATION = 1.1;
 const TELEPORT_CHARGE_TIME = 2;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
@@ -49,6 +49,9 @@ const LASER_PROJECTILE_SPEED = 460;
 const LASER_PROJECTILE_LENGTH = 58;
 const LASER_PROJECTILE_WIDTH = 8;
 const ENEMY_DASH_DELAY_AFTER_SHOT = 0.14;
+const LASER_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED / 3;
+const LASER_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION / 3;
+const LASER_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE / 3;
 const SPRAY_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED * 0.5;
 const SPRAY_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION * 0.5;
 const SPRAY_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE * 0.5;
@@ -460,10 +463,25 @@ function updateEnemyMotion(enemy, dt) {
   const dirX = dx / distance;
   const dirY = dy / distance;
   const currentSpeed = Math.hypot(enemy.vx, enemy.vy);
-  const moveBrake = enemy.kind === "spray" ? SPRAY_ENEMY_MOVE_BRAKE : ENEMY_MOVE_BRAKE;
-  const moveAcceleration = enemy.kind === "spray" ? SPRAY_ENEMY_MOVE_ACCELERATION : ENEMY_MOVE_ACCELERATION;
+  const moveBrake =
+    enemy.kind === "spray"
+      ? SPRAY_ENEMY_MOVE_BRAKE
+      : enemy.kind === "laser"
+        ? LASER_ENEMY_MOVE_BRAKE
+        : ENEMY_MOVE_BRAKE;
+  const moveAcceleration =
+    enemy.kind === "spray"
+      ? SPRAY_ENEMY_MOVE_ACCELERATION
+      : enemy.kind === "laser"
+        ? LASER_ENEMY_MOVE_ACCELERATION
+        : ENEMY_MOVE_ACCELERATION;
   const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - ENEMY_MOVE_STOP_DISTANCE));
-  const maxSpeed = enemy.kind === "spray" ? SPRAY_ENEMY_DASH_SPEED : ENEMY_DASH_SPEED;
+  const maxSpeed =
+    enemy.kind === "spray"
+      ? SPRAY_ENEMY_DASH_SPEED
+      : enemy.kind === "laser"
+        ? LASER_ENEMY_DASH_SPEED
+        : ENEMY_DASH_SPEED;
   const targetSpeed = Math.min(maxSpeed, brakingSpeed);
 
   let nextSpeed = currentSpeed;
@@ -670,6 +688,17 @@ function updateEnemies(dt) {
     }
 
     if (enemy.moving) {
+      if (enemy.kind === "laser" && !enemy.turnShotLocked) {
+        enemy.aimX = player.x;
+        enemy.aimY = player.y;
+        enemy.phaseTimer -= dt;
+        if (enemy.phaseTimer <= 0) {
+          fireEnemyLaser(enemy);
+          enemy.turnShotLocked = true;
+          enemy.phaseTimer = 0;
+        }
+      }
+
       updateEnemyMotion(enemy, dt);
       if (!enemy.moving) {
         if (enemy.kind === "shield") {
@@ -688,6 +717,14 @@ function updateEnemies(dt) {
           enemy.aimY = player.y;
           enemy.shotsRemaining = SPRAY_PROJECTILE_COUNT;
           enemy.shotTimer = 0;
+        } else if (enemy.kind === "laser") {
+          if (enemy.turnShotLocked) {
+            enemy.phase = "turn_wait";
+            enemy.phaseTimer = 0;
+          } else {
+            enemy.phase = "recover";
+            enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+          }
         } else {
           enemy.phase = "charge";
           enemy.phaseTimer = LASER_CHARGE_TIME;
@@ -804,7 +841,7 @@ function launchEnemy(enemy) {
   enemy.moving = true;
   enemy.restingFor = 0;
   enemy.phase = "dash";
-  enemy.phaseTimer = 0;
+  enemy.phaseTimer = enemy.kind === "laser" && !enemy.turnShotLocked ? LASER_CHARGE_TIME : 0;
 }
 
 function createEnemy(kind, x, y) {
@@ -942,6 +979,22 @@ function findFreePoint(padding) {
   }
 
   return null;
+}
+
+function findNearestHookTarget() {
+  let bestTarget = null;
+  let bestDistance = getHookRange();
+
+  for (const enemy of enemies) {
+    if (enemy.kind === "brute") continue;
+    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (distance > bestDistance) continue;
+
+    bestTarget = enemy;
+    bestDistance = distance;
+  }
+
+  return bestTarget;
 }
 
 function getAbilityIconKey(abilityKey) {
@@ -1128,25 +1181,27 @@ function useShieldAbility() {
   return true;
 }
 
-function useHookAbility(targetPoint = aimPoint) {
+function useHookAbility() {
   if (playerHookCooldown > 0) return false;
-
-  const dx = targetPoint.x - player.x;
-  const dy = targetPoint.y - player.y;
-  const distance = Math.hypot(dx, dy);
-  if (distance < 1) return false;
+  const target = findNearestHookTarget();
+  if (!target) return false;
 
   activeHook = {
-    enemyId: null,
-    phase: "extend",
-    tipX: player.x,
-    tipY: player.y,
-    dirX: dx / distance,
-    dirY: dy / distance,
-    maxDistance: getHookRange(),
-    traveled: 0,
+    enemyId: target.id,
+    phase: "pull",
+    tipX: target.x,
+    tipY: target.y,
     pullTime: 0,
+    pullStartX: target.x,
+    pullStartY: target.y,
   };
+  target.moving = false;
+  target.vx = 0;
+  target.vy = 0;
+  target.restingFor = 0;
+  target.moveTarget = null;
+  target.phase = null;
+  target.phaseTimer = 0;
   playerHookCooldown = HOOK_COOLDOWN;
   return true;
 }
@@ -1210,26 +1265,15 @@ function updatePlayerMinePassive(dt) {
 function tryUseAbilityFromClick(point) {
   if (player.dead) return false;
   if (player.moving || activeHook || activePlayerTeleport || activePlayerLaser || activePlayerSpray || player.dragging) return false;
-
-  const distanceToPlayer = Math.hypot(point.x - player.x, point.y - player.y);
-  if (distanceToPlayer <= player.size * 0.5) return false;
-
-  const hookTarget = findFirstEnemyOnBeam(
-    player.x,
-    player.y,
-    point.x,
-    point.y,
-    getHookRange(),
-    (enemy) => enemy.kind !== "brute"
-  );
   const selected = getSelectedAbilityState();
   const selectedAbility = selected.ability;
 
-  if (
-    selectedAbility.key === abilities.hook.key
-  ) {
-    return useHookAbility(point);
+  if (selectedAbility.key === abilities.hook.key) {
+    return useHookAbility();
   }
+
+  const distanceToPlayer = Math.hypot(point.x - player.x, point.y - player.y);
+  if (distanceToPlayer <= player.size * 0.5) return false;
 
   if (selectedAbility.key === abilities.teleport.key) {
     return useTeleportAbility(point);
@@ -1298,70 +1342,9 @@ function updateMoveMarker(dt) {
 function updateHook(dt) {
   if (!activeHook) return;
 
-  if (activeHook.phase === "extend") {
-    const remaining = activeHook.maxDistance - activeHook.traveled;
-    const step = Math.min(HOOK_SPEED * dt, remaining);
-    const fromX = activeHook.tipX;
-    const fromY = activeHook.tipY;
-    const toX = fromX + activeHook.dirX * step;
-    const toY = fromY + activeHook.dirY * step;
-    const hit = findFirstEnemyOnBeam(fromX, fromY, toX, toY, activeHook.maxDistance, (enemy) => enemy.kind !== "brute");
-    const bruteHit = findFirstEnemyOnBeam(fromX, fromY, toX, toY, activeHook.maxDistance, (enemy) => enemy.kind === "brute");
-
-    if (bruteHit && (!hit || bruteHit.t <= hit.t)) {
-      activeHook.tipX = bruteHit.x;
-      activeHook.tipY = bruteHit.y;
-      activeHook.phase = "retract";
-      return;
-    }
-
-    if (hit) {
-      activeHook.enemyId = hit.enemy.id;
-      activeHook.phase = "pull";
-      activeHook.tipX = hit.enemy.x;
-      activeHook.tipY = hit.enemy.y;
-      activeHook.pullTime = 0;
-      activeHook.pullStartX = hit.enemy.x;
-      activeHook.pullStartY = hit.enemy.y;
-      hit.enemy.moving = false;
-      hit.enemy.vx = 0;
-      hit.enemy.vy = 0;
-      hit.enemy.restingFor = 0;
-      hit.enemy.moveTarget = null;
-      hit.enemy.phase = null;
-      hit.enemy.phaseTimer = 0;
-      return;
-    }
-
-    activeHook.tipX = toX;
-    activeHook.tipY = toY;
-    activeHook.traveled += step;
-
-    if (activeHook.traveled >= activeHook.maxDistance - 0.001) {
-      activeHook.phase = "retract";
-    }
-    return;
-  }
-
-  if (activeHook.phase === "retract") {
-    const dx = player.x - activeHook.tipX;
-    const dy = player.y - activeHook.tipY;
-    const distance = Math.hypot(dx, dy);
-
-    if (distance <= HOOK_SPEED * dt) {
-      activeHook = null;
-      return;
-    }
-
-    activeHook.tipX += (dx / distance) * HOOK_SPEED * dt;
-    activeHook.tipY += (dy / distance) * HOOK_SPEED * dt;
-    return;
-  }
-
   const target = enemies.find((enemy) => enemy.id === activeHook.enemyId);
   if (!target) {
-    activeHook.phase = "retract";
-    activeHook.enemyId = null;
+    activeHook = null;
     return;
   }
 
