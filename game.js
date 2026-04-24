@@ -2052,6 +2052,7 @@ function draw() {
   drawMines();
   if (!player.dead) {
     drawAbilityRange();
+    drawHookTargetPreview();
   }
   drawEnemies();
   drawLaserEffects();
@@ -2311,6 +2312,40 @@ function drawAbilityRange() {
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(player.x, player.y, range, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawHookTargetPreview() {
+  const selectedAbility = getSelectedAbilityState().ability;
+  if (selectedAbility.key !== abilities.hook.key || activeHook) return;
+
+  const target = findNearestHookTarget();
+  if (!target) return;
+
+  const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8);
+  const radius = target.size * (0.8 + pulse * 0.18);
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(255, 214, 124, ${0.36 + pulse * 0.24})`;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath();
+  ctx.moveTo(player.x, player.y);
+  ctx.lineTo(target.x, target.y);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.strokeStyle = `rgba(255, 232, 174, ${0.58 + pulse * 0.24})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, radius + 6, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(255, 196, 92, ${0.24 + pulse * 0.18})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, radius + 12 + pulse * 3, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
