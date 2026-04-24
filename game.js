@@ -2211,7 +2211,7 @@ function resolveEnemyCollisions() {
     if (distance > collisionDistance) continue;
 
     applyPlayerHit();
-    removeEnemy(enemy.id);
+    killEnemy(enemy);
   }
 }
 
@@ -2682,6 +2682,25 @@ function removeEnemy(id) {
   enemies.splice(index, 1);
 }
 
+function killEnemy(enemy, { explode = true } = {}) {
+  if (!enemy) return false;
+
+  if (explode) {
+    spawnImpactBurst(enemy.x, enemy.y, {
+      count: enemy.kind === "brute" ? 22 : enemy.kind === "sproutling" ? 10 : 16,
+      speedMin: 90,
+      speedMax: enemy.kind === "brute" ? 320 : 240,
+      lifeMin: 0.14,
+      lifeMax: 0.34,
+      sizeMin: enemy.kind === "sproutling" ? 2 : 3,
+      sizeMax: enemy.kind === "brute" ? 8 : 6,
+    });
+  }
+
+  removeEnemy(enemy.id);
+  return true;
+}
+
 function damageEnemy(enemy, amount = 1) {
   // A hooked target must reach the player to be consumed reliably.
   if (activeHook && activeHook.enemyId === enemy.id) {
@@ -2689,14 +2708,12 @@ function damageEnemy(enemy, amount = 1) {
   }
 
   if (enemy.isIllusion) {
-    removeEnemy(enemy.id);
-    return true;
+    return killEnemy(enemy);
   }
 
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
-    removeEnemy(enemy.id);
-    return true;
+    return killEnemy(enemy);
   }
   return false;
 }
