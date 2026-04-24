@@ -2687,13 +2687,13 @@ function killEnemy(enemy, { explode = true } = {}) {
 
   if (explode) {
     spawnImpactBurst(enemy.x, enemy.y, {
-      count: enemy.kind === "brute" ? 22 : enemy.kind === "sproutling" ? 10 : 16,
-      speedMin: 90,
-      speedMax: enemy.kind === "brute" ? 320 : 240,
-      lifeMin: 0.14,
-      lifeMax: 0.34,
-      sizeMin: enemy.kind === "sproutling" ? 2 : 3,
-      sizeMax: enemy.kind === "brute" ? 8 : 6,
+      count: enemy.kind === "brute" ? 30 : enemy.kind === "sproutling" ? 14 : 22,
+      speedMin: 110,
+      speedMax: enemy.kind === "brute" ? 380 : 300,
+      lifeMin: 0.55,
+      lifeMax: 0.95,
+      sizeMin: enemy.kind === "sproutling" ? 12 : 20,
+      sizeMax: enemy.kind === "brute" ? 48 : enemy.kind === "sproutling" ? 22 : 38,
     });
   }
 
