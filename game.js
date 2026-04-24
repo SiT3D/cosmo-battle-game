@@ -7,6 +7,7 @@ const hpLabelEl = document.getElementById("hpLabel");
 const powerLabelEl = document.getElementById("powerLabel");
 const timeLabelEl = document.getElementById("timeLabel");
 const passiveTrayEl = document.getElementById("passiveTray");
+const abilityTilesEl = document.getElementById("abilityTiles");
 
 const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 const VIEW = { width: 0, height: 0 };
@@ -134,7 +135,7 @@ let currentAbility = abilities.hook;
 let currentAbilityCharges = null;
 let reserveAbility = null;
 let reserveAbilityCharges = null;
-let abilityMode = "teleport";
+let abilityMode = "hook";
 let activeHook = null;
 let activePlayerTeleport = null;
 let activePlayerLaser = null;
@@ -940,16 +941,24 @@ function findFreePoint(padding) {
   return null;
 }
 
+function getAbilityIconKey(abilityKey) {
+  if (abilityKey === abilities.teleport.key) return "T";
+  if (abilityKey === abilities.hook.key) return "H";
+  if (abilityKey === abilities.shield.key) return "S";
+  if (abilityKey === abilities.spray.key) return "V";
+  return "L";
+}
+
 function setCurrentAbility(ability, charges = null) {
   currentAbility = ability;
   currentAbilityCharges = charges;
-  abilityMode = ability.key === abilities.hook.key ? "teleport" : "primary";
+  abilityMode = ability.key === abilities.hook.key ? "hook" : "primary";
 }
 
 function resetToHook() {
   currentAbility = abilities.hook;
   currentAbilityCharges = null;
-  abilityMode = "teleport";
+  abilityMode = "hook";
   reserveAbility = null;
   reserveAbilityCharges = null;
 }
@@ -989,6 +998,9 @@ function getSelectedAbilityState() {
 function promoteReserveAbility() {
   if (!reserveAbility) {
     setCurrentAbility(abilities.hook);
+    playerAbilityCapacity = 1;
+    reserveAbility = null;
+    reserveAbilityCharges = null;
     return;
   }
 
@@ -1009,7 +1021,7 @@ function consumeAbilityCharge(slot = "primary") {
       reserveAbilityCharges = null;
       playerAbilityCapacity = 1;
       if (abilityMode === "secondary") {
-        abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "teleport";
+        abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "hook";
       }
     }
     return;
@@ -1189,8 +1201,7 @@ function tryUseAbilityFromClick(point) {
   const selectedAbility = selected.ability;
 
   if (
-    selectedAbility.key === abilities.hook.key ||
-    (playerAbilityCapacity > 1 && !reserveAbility && currentAbility.key !== abilities.hook.key && Boolean(hookTarget))
+    selectedAbility.key === abilities.hook.key
   ) {
     useHookAbility(point);
     return true;
@@ -1732,7 +1743,7 @@ function startDeathSequence() {
   playerAbilityCapacity = 1;
   reserveAbility = null;
   reserveAbilityCharges = null;
-  abilityMode = "teleport";
+  abilityMode = "hook";
   moveMarker = null;
   trail.length = 0;
   laserProjectiles.length = 0;
@@ -1798,7 +1809,7 @@ function resetGame() {
   playerAbilityCapacity = 1;
   reserveAbility = null;
   reserveAbilityCharges = null;
-  abilityMode = "teleport";
+  abilityMode = "hook";
   playerShieldCooldown = 0;
   resetToHook();
   moveMarker = null;
@@ -1869,6 +1880,11 @@ function removeEnemy(id) {
 }
 
 function damageEnemy(enemy, amount = 1) {
+  // A hooked target must reach the player to be consumed reliably.
+  if (activeHook && activeHook.enemyId === enemy.id) {
+    return false;
+  }
+
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
     removeEnemy(enemy.id);
@@ -1899,21 +1915,76 @@ function updateUi() {
   } else {
     abilityHintEl.textContent = `Click${switchHint}`;
   }
-  abilityIconEl.textContent =
-    selectedAbility.key === abilities.teleport.key
-      ? "T"
-      : selectedAbility.key === abilities.hook.key
-      ? "H"
-      : selectedAbility.key === abilities.shield.key
-        ? "S"
-        : selectedAbility.key === abilities.spray.key
-          ? "V"
-          : "L";
+  abilityIconEl.textContent = getAbilityIconKey(selectedAbility.key);
   hpLabelEl.textContent = `HP ${player.hp}/${player.maxHp}`;
   powerLabelEl.textContent = playerMinePassive
     ? `Сила x${player.power.toFixed(1)} | Мины ${playerMinePassive.remaining}`
     : `Сила x${player.power.toFixed(1)}`;
   timeLabelEl.textContent = `${actionTime.toFixed(2)}s`;
+  const abilityTiles = [
+    {
+      mode: "teleport",
+      slot: "База",
+      icon: getAbilityIconKey(abilities.teleport.key),
+      name: abilities.teleport.name,
+      hint: "Движение",
+      active: abilityMode === "teleport",
+      empty: false,
+    },
+    {
+      mode: "hook",
+      slot: "База",
+      icon: getAbilityIconKey(abilities.hook.key),
+      name: abilities.hook.name,
+      hint: "Q/Wheel",
+      active: abilityMode === "hook",
+      empty: false,
+    },
+  ];
+
+  if (currentAbility.key !== abilities.hook.key) {
+    abilityTiles.push({
+      mode: "primary",
+      slot: "Слот 1",
+      icon: getAbilityIconKey(currentAbility.key),
+      name: currentAbilityCharges === null ? currentAbility.name : `${currentAbility.name} x${currentAbilityCharges}`,
+      hint: "Украдено",
+      active: abilityMode === "primary",
+      empty: false,
+    });
+  }
+
+  if (playerAbilityCapacity > 1) {
+    if (reserveAbility) {
+      abilityTiles.push({
+        mode: "secondary",
+        slot: "Слот 2",
+        icon: getAbilityIconKey(reserveAbility.key),
+        name: reserveAbilityCharges === null ? reserveAbility.name : `${reserveAbility.name} x${reserveAbilityCharges}`,
+        hint: "Украдено",
+        active: abilityMode === "secondary",
+        empty: false,
+      });
+    } else {
+      abilityTiles.push({
+        mode: "secondary",
+        slot: "Слот 2",
+        icon: "+",
+        name: "Пусто",
+        hint: "Ждёт лут",
+        active: false,
+        empty: true,
+      });
+    }
+  }
+
+  abilityTilesEl.innerHTML = abilityTiles
+    .map(
+      (tile) =>
+        `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}" data-mode="${tile.mode}"><div class="ability-tile__top"><span class="ability-tile__icon">${tile.icon}</span><span class="ability-tile__slot">${tile.slot}</span></div><span class="ability-tile__name">${tile.name}</span><span class="ability-tile__hint">${tile.hint}</span></div>`
+    )
+    .join("");
+
   const passiveChips = [];
   if (playerMinePassive) {
     passiveChips.push(
@@ -1926,22 +1997,18 @@ function updateUi() {
     );
   }
   if (currentAbility.key !== abilities.hook.key) {
-    const currentIcon =
-      currentAbility.key === abilities.shield.key ? "S" : currentAbility.key === abilities.spray.key ? "V" : "L";
     const currentLabel =
       currentAbilityCharges === null ? currentAbility.name : `${currentAbility.name} x${currentAbilityCharges}`;
     passiveChips.push(
-      `<div class="passive-chip"><span class="passive-chip__icon">${currentIcon}</span><span class="passive-chip__text">${abilityMode === "primary" ? "Активно" : "Слот 1"} ${currentLabel}</span></div>`
+      `<div class="passive-chip"><span class="passive-chip__icon">${getAbilityIconKey(currentAbility.key)}</span><span class="passive-chip__text">${abilityMode === "primary" ? "Активно" : "Слот 1"} ${currentLabel}</span></div>`
     );
   }
   if (playerAbilityCapacity > 1) {
     if (reserveAbility) {
-      const reserveIcon =
-        reserveAbility.key === abilities.shield.key ? "S" : reserveAbility.key === abilities.spray.key ? "V" : "L";
       const reserveLabel =
         reserveAbilityCharges === null ? reserveAbility.name : `${reserveAbility.name} x${reserveAbilityCharges}`;
       passiveChips.push(
-        `<div class="passive-chip"><span class="passive-chip__icon">${reserveIcon}</span><span class="passive-chip__text">${abilityMode === "secondary" ? "Активно" : "Слот 2"} ${reserveLabel}</span></div>`
+        `<div class="passive-chip"><span class="passive-chip__icon">${getAbilityIconKey(reserveAbility.key)}</span><span class="passive-chip__text">${abilityMode === "secondary" ? "Активно" : "Слот 2"} ${reserveLabel}</span></div>`
       );
     } else {
       passiveChips.push(
