@@ -437,7 +437,9 @@ function update(dt) {
     beginEnemyActionCycle();
   }
   const targetTimeScale = startedActive ? 1 : INACTIVE_TIME_SCALE;
-  currentTimeScale = moveToward(currentTimeScale, targetTimeScale, dt / TIME_SCALE_TRANSITION);
+  currentTimeScale = startedActive
+    ? moveToward(currentTimeScale, targetTimeScale, dt / TIME_SCALE_TRANSITION)
+    : INACTIVE_TIME_SCALE;
   const simDt = dt * currentTimeScale;
 
   worldTime += simDt;
