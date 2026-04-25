@@ -40,6 +40,8 @@ const MIN_ENEMY_TYPES_PER_LEVEL = 8;
 const LEVEL1_BOSS_KIND = "level1_boss";
 const LEVEL1_BOSS_PHASE_ONE_HP = 20;
 const LEVEL1_BOSS_PHASE_TWO_HP = 40;
+const LEVEL1_BOSS_LEVEL_ONE_PHASE_TWO_HP = 10;
+const LEVEL1_BOSS_LEVEL_TWO_PHASE_TWO_HP = 15;
 const LEVEL1_BOSS_SIZE = 52;
 const LEVEL1_BOSS_BOUNCE_SPEED = 210;
 const LEVEL1_BOSS_CHASE_SPEED = 155;
@@ -1251,6 +1253,15 @@ function getEnemyRecoverDelay(enemy) {
   return ENEMY_DASH_DELAY_AFTER_SHOT;
 }
 
+function getStaggeredEnemyDelay(delay) {
+  return delay * randomRange(0.65, 1.45);
+}
+
+function setEnemyTurnWait(enemy, delay = getEnemyRecoverDelay(enemy)) {
+  enemy.phase = "turn_wait";
+  enemy.phaseTimer = getStaggeredEnemyDelay(delay);
+}
+
 function getEnemyCommandMultiplier(enemy = null) {
   const hasCommander = enemies.some(
     (candidate) =>
@@ -1309,10 +1320,10 @@ function supportEnemyFromMedic(medic) {
 
 function beginEnemyActionCycle() {
   for (const enemy of enemies) {
-    enemy.turnShotLocked = false;
     if (enemy.phase === "turn_wait") {
+      enemy.turnShotLocked = false;
       enemy.phase = "recover";
-      enemy.phaseTimer = getEnemyRecoverDelay(enemy);
+      enemy.phaseTimer = Math.min(enemy.phaseTimer || Infinity, getStaggeredEnemyDelay(getEnemyRecoverDelay(enemy)));
     }
   }
 }
@@ -1518,6 +1529,11 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "turn_wait") {
+      enemy.phaseTimer -= timerDt;
+      if (enemy.phaseTimer <= 0) {
+        enemy.turnShotLocked = false;
+        launchEnemy(enemy);
+      }
       continue;
     }
 
@@ -1538,49 +1554,48 @@ function updateEnemies(dt) {
       if (!enemy.moving) {
         if (enemy.kind === "shield") {
           enemy.phase = "shield_up";
-          enemy.phaseTimer = ENEMY_SHIELD_UP_TIME;
+          enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_SHIELD_UP_TIME);
         } else if (enemy.kind === "trickster") {
           spawnTricksterIllusions(enemy);
           enemy.phase = "recover";
-          enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+          enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
         } else if (enemy.kind === "replicator") {
           enemy.phase = "recover";
-          enemy.phaseTimer = REPLICATOR_HOP_DELAY;
+          enemy.phaseTimer = getStaggeredEnemyDelay(REPLICATOR_HOP_DELAY);
         } else if (enemy.kind === "grower") {
           enemy.phase = "recover";
-          enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+          enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
         } else if (enemy.kind === "mine") {
           enemy.phase = "recover";
-          enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+          enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
         } else if (enemy.kind === "slow") {
           enemy.phase = "recover";
-          enemy.phaseTimer = SLOW_ENEMY_RECOVER_DELAY;
+          enemy.phaseTimer = getStaggeredEnemyDelay(SLOW_ENEMY_RECOVER_DELAY);
         } else if (enemy.kind === "spray") {
           const target = getEnemyAggroTarget(enemy.x, enemy.y);
           enemy.phase = "spray_charge";
-          enemy.phaseTimer = SPRAY_CHARGE_TIME;
+          enemy.phaseTimer = getStaggeredEnemyDelay(SPRAY_CHARGE_TIME);
           enemy.aimX = target.x;
           enemy.aimY = target.y;
           enemy.shotsRemaining = ENEMY_SPRAY_PROJECTILE_COUNT;
-          enemy.shotTimer = 0;
+          enemy.shotTimer = randomRange(0, SPRAY_SHOT_INTERVAL);
         } else if (enemy.kind === "sniper") {
           const target = getEnemyAggroTarget(enemy.x, enemy.y);
           enemy.phase = "sniper_charge";
-          enemy.phaseTimer = SNIPER_CHARGE_TIME;
+          enemy.phaseTimer = getStaggeredEnemyDelay(SNIPER_CHARGE_TIME);
           enemy.aimX = target.x;
           enemy.aimY = target.y;
         } else if (enemy.kind === "laser") {
           if (enemy.turnShotLocked) {
-            enemy.phase = "turn_wait";
-            enemy.phaseTimer = 0;
+            setEnemyTurnWait(enemy);
           } else {
             enemy.phase = "recover";
-            enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
+            enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
           }
         } else {
           const target = getEnemyAggroTarget(enemy.x, enemy.y);
           enemy.phase = "charge";
-          enemy.phaseTimer = LASER_CHARGE_TIME;
+          enemy.phaseTimer = getStaggeredEnemyDelay(LASER_CHARGE_TIME);
           enemy.aimX = target.x;
           enemy.aimY = target.y;
         }
@@ -1596,8 +1611,7 @@ function updateEnemies(dt) {
       enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         fireEnemyLaser(enemy);
-        enemy.phase = "turn_wait";
-        enemy.phaseTimer = 0;
+        setEnemyTurnWait(enemy);
         enemy.turnShotLocked = true;
       }
       continue;
@@ -1610,8 +1624,7 @@ function updateEnemies(dt) {
       enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         fireEnemySniper(enemy);
-        enemy.phase = "turn_wait";
-        enemy.phaseTimer = 0;
+        setEnemyTurnWait(enemy);
         enemy.turnShotLocked = true;
       }
       continue;
@@ -1633,8 +1646,7 @@ function updateEnemies(dt) {
         fireEnemySprayShot(enemy);
         enemy.shotsRemaining -= 1;
         if (enemy.shotsRemaining <= 0) {
-          enemy.phase = "turn_wait";
-          enemy.phaseTimer = 0;
+          setEnemyTurnWait(enemy);
           enemy.turnShotLocked = true;
           break;
         }
@@ -1654,8 +1666,7 @@ function updateEnemies(dt) {
     if (enemy.phase === "shield_up") {
       enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
-        enemy.phase = "turn_wait";
-        enemy.phaseTimer = 0;
+        setEnemyTurnWait(enemy);
       }
     }
   }
@@ -1829,10 +1840,17 @@ function spawnBossCellExplosion(x, y) {
   });
 }
 
+function getLevel1BossPhaseTwoHp() {
+  if (currentLevelIndex === 0) return LEVEL1_BOSS_LEVEL_ONE_PHASE_TWO_HP;
+  if (currentLevelIndex === 1) return LEVEL1_BOSS_LEVEL_TWO_PHASE_TWO_HP;
+  return LEVEL1_BOSS_PHASE_TWO_HP;
+}
+
 function enterLevel1BossStageTwo(enemy) {
+  const phaseTwoHp = getLevel1BossPhaseTwoHp();
   enemy.bossStage = 2;
-  enemy.hp = LEVEL1_BOSS_PHASE_TWO_HP;
-  enemy.maxHp = LEVEL1_BOSS_PHASE_TWO_HP;
+  enemy.hp = phaseTwoHp;
+  enemy.maxHp = phaseTwoHp;
   enemy.bossState = "chase";
   enemy.bossStateTimer = 2.4;
   enemy.bossNextSpecial = "shield";
@@ -1926,7 +1944,7 @@ function launchEnemy(enemy) {
   enemy.moving = true;
   enemy.restingFor = 0;
   enemy.phase = "dash";
-  enemy.phaseTimer = enemy.kind === "laser" && !enemy.turnShotLocked ? LASER_CHARGE_TIME : 0;
+  enemy.phaseTimer = enemy.kind === "laser" && !enemy.turnShotLocked ? getStaggeredEnemyDelay(LASER_CHARGE_TIME) : 0;
 }
 
 function createEnemy(kind, x, y) {
