@@ -26,6 +26,7 @@ const PLAYER_TURN_RATE = 4.2;
 const PLAYER_TRAJECTORY_STEPS = 42;
 const PLAYER_TRAJECTORY_STEP_TIME = 1 / 30;
 const PLAYER_TURN_BRAKE_ANGLE = Math.PI * 0.55;
+const PLAYER_TURN_MIN_SPEED_FACTOR = 0.22;
 const ENEMY_SIZE = 22;
 const ENEMY_DASH_SPEED = 816;
 const ENEMY_MOVE_STOP_DISTANCE = 10;
@@ -45,6 +46,9 @@ const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const COMMANDER_HP = 2;
 const COMMANDER_SPEED_MULTIPLIER = 1.45;
+const MEDIC_HP = 2;
+const MEDIC_SUPPORT_INTERVAL = 4.5;
+const MEDIC_SUPPORT_RANGE = 210;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
@@ -221,6 +225,7 @@ const enemyMeta = {
   grower: { name: "Садовники", color: "#9aea44", glow: "rgba(154, 234, 68, 0.5)" },
   slow: { name: "Белые", color: "#e7edf7", glow: "rgba(231, 237, 247, 0.5)" },
   heal: { name: "Лечилки", color: "#63bfff", glow: "rgba(99, 191, 255, 0.5)" },
+  medic: { name: "Медики", color: "#36f0ff", glow: "rgba(54, 240, 255, 0.55)" },
   replicator: { name: "Клоны", color: "#7de8ff", glow: "rgba(125, 232, 255, 0.5)" },
 };
 
@@ -228,18 +233,21 @@ const campaignLevels = [
   {
     name: "Разминка",
     roster: { laser: 5, shield: 2 },
+    minEnemies: 25,
     maxEnemies: 4,
     spawnInterval: [1.6, 2.7],
   },
   {
     name: "Броня",
-    roster: { shield: 5, laser: 4, heal: 1 },
+    roster: { shield: 5, laser: 4, heal: 1, medic: 1 },
+    minEnemies: 30,
     maxEnemies: 5,
     spawnInterval: [1.45, 2.5],
   },
   {
     name: "Фиолетовый дождь",
     roster: { spray: 5, laser: 3, trickster: 1 },
+    minEnemies: 35,
     maxEnemies: 5,
     spawnInterval: [1.35, 2.35],
   },
@@ -251,7 +259,7 @@ const campaignLevels = [
   },
   {
     name: "Тяжелые",
-    roster: { brute: 4, bomber: 3, shield: 4, heal: 2 },
+    roster: { brute: 4, bomber: 3, shield: 4, heal: 2, medic: 2 },
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
   },
@@ -275,13 +283,13 @@ const campaignLevels = [
   },
   {
     name: "Размножение",
-    roster: { commander: 3, replicator: 3, grower: 3, mine: 4, slow: 2 },
+    roster: { commander: 3, medic: 3, replicator: 3, grower: 3, mine: 4, slow: 2 },
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
   },
   {
     name: "Финальная смесь",
-    roster: { commander: 3, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
+    roster: { commander: 3, medic: 3, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
   },
@@ -384,9 +392,10 @@ function turnAngleToward(currentAngle, targetAngle, maxTurn) {
 }
 
 function getTurnAdjustedTargetSpeed(baseSpeed, angleDelta) {
-  if (angleDelta >= PLAYER_TURN_BRAKE_ANGLE) return 0;
+  if (angleDelta >= PLAYER_TURN_BRAKE_ANGLE) return baseSpeed * PLAYER_TURN_MIN_SPEED_FACTOR;
   const alignment = 1 - angleDelta / PLAYER_TURN_BRAKE_ANGLE;
-  return baseSpeed * clamp(alignment * alignment, 0, 1);
+  const speedFactor = PLAYER_TURN_MIN_SPEED_FACTOR + (1 - PLAYER_TURN_MIN_SPEED_FACTOR) * alignment * alignment;
+  return baseSpeed * clamp(speedFactor, PLAYER_TURN_MIN_SPEED_FACTOR, 1);
 }
 
 function getCurrentLevel() {
@@ -413,10 +422,11 @@ function getLevelRoster(level = getCurrentLevel()) {
 
   const entries = Object.entries(roster);
   const total = entries.reduce((sum, [, count]) => sum + count, 0);
-  if (total >= MIN_ENEMIES_PER_LEVEL) return roster;
+  const minEnemies = level.minEnemies ?? MIN_ENEMIES_PER_LEVEL;
+  if (total >= minEnemies) return roster;
 
   const scaledEntries = entries.map(([kind, count]) => {
-    const exactCount = (count / total) * MIN_ENEMIES_PER_LEVEL;
+    const exactCount = (count / total) * minEnemies;
     return {
       kind,
       count: Math.floor(exactCount),
@@ -424,7 +434,7 @@ function getLevelRoster(level = getCurrentLevel()) {
     };
   });
 
-  let remaining = MIN_ENEMIES_PER_LEVEL - scaledEntries.reduce((sum, entry) => sum + entry.count, 0);
+  let remaining = minEnemies - scaledEntries.reduce((sum, entry) => sum + entry.count, 0);
   const remainderOrder = [...scaledEntries].sort((left, right) => right.remainder - left.remainder);
   for (const entry of remainderOrder) {
     if (remaining <= 0) break;
@@ -728,14 +738,16 @@ function updatePlayerMotion(dt) {
     const targetSpeed = Math.min(maxSpeed, brakingSpeed);
     const targetAngle = Math.atan2(dirY, dirX);
     const currentAngle = player.facingAngle ?? (currentSpeed > 1 ? Math.atan2(player.vy, player.vx) : targetAngle);
+    const angleDelta = Math.abs(normalizeAngle(targetAngle - currentAngle));
+    const adjustedTargetSpeed = getTurnAdjustedTargetSpeed(targetSpeed, angleDelta);
     const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * dt);
     player.facingAngle = nextAngle;
 
     let nextSpeed = currentSpeed;
-    if (currentSpeed < targetSpeed) {
-      nextSpeed = Math.min(targetSpeed, currentSpeed + moveAcceleration * dt);
+    if (currentSpeed < adjustedTargetSpeed) {
+      nextSpeed = Math.min(adjustedTargetSpeed, currentSpeed + moveAcceleration * dt);
     } else {
-      nextSpeed = Math.max(targetSpeed, currentSpeed - moveBrake * dt);
+      nextSpeed = Math.max(adjustedTargetSpeed, currentSpeed - moveBrake * dt);
     }
 
     const step = Math.min(nextSpeed * dt, distance);
@@ -989,6 +1001,49 @@ function getEnemyCommandMultiplier(enemy = null) {
   return hasCommander ? COMMANDER_SPEED_MULTIPLIER : 1;
 }
 
+function supportEnemyFromMedic(medic) {
+  let bestTarget = null;
+  let bestDistance = Infinity;
+
+  for (const enemy of enemies) {
+    if (enemy.id === medic.id || enemy.isIllusion) continue;
+    if (enemy.kind === "medic" || enemy.kind === "splitter_child" || enemy.kind === "sproutling") continue;
+
+    const distance = Math.hypot(enemy.x - medic.x, enemy.y - medic.y);
+    if (distance > MEDIC_SUPPORT_RANGE || distance >= bestDistance) continue;
+
+    const canHeal = (enemy.hp ?? 1) < (enemy.maxHp ?? 1);
+    const canFortify = (enemy.maxHp ?? 1) < 3 && enemy.kind !== "brute";
+    if (!canHeal && !canFortify) continue;
+
+    bestTarget = enemy;
+    bestDistance = distance;
+  }
+
+  if (!bestTarget) return false;
+
+  if (bestTarget.hp < bestTarget.maxHp) {
+    bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + 1);
+  } else {
+    bestTarget.maxHp += 1;
+    bestTarget.hp += 1;
+  }
+
+  beamEffects.push({
+    fromX: medic.x,
+    fromY: medic.y,
+    toX: bestTarget.x,
+    toY: bestTarget.y,
+    color: "rgba(54, 240, 255, 0.9)",
+    innerColor: "rgba(230, 255, 255, 0.94)",
+    width: 5,
+    ttl: 0.18,
+    life: 0.18,
+  });
+
+  return true;
+}
+
 function beginEnemyActionCycle() {
   for (const enemy of enemies) {
     enemy.turnShotLocked = false;
@@ -1144,6 +1199,14 @@ function updateEnemies(dt) {
       if (enemy.seedTimer <= 0) {
         spawnGrowerSeed(enemy.x, enemy.y);
         enemy.seedTimer = randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX);
+      }
+    }
+
+    if (enemy.kind === "medic") {
+      enemy.medicTimer -= timerDt;
+      if (enemy.medicTimer <= 0) {
+        supportEnemyFromMedic(enemy);
+        enemy.medicTimer = MEDIC_SUPPORT_INTERVAL;
       }
     }
 
@@ -1425,6 +1488,7 @@ function createEnemy(kind, x, y) {
   const isSproutling = kind === "sproutling";
   const isSplitterChild = kind === "splitter_child";
   const isCommander = kind === "commander";
+  const isMedic = kind === "medic";
   const enemy = {
     id: enemyId += 1,
     x,
@@ -1436,8 +1500,8 @@ function createEnemy(kind, x, y) {
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : 1,
-    maxHp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : 1,
+    hp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : 1,
+    maxHp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : 1,
     renderWidth: isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     renderHeight: isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
@@ -1479,6 +1543,7 @@ function createEnemy(kind, x, y) {
     moveTarget: null,
     mineTimer: randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX),
     seedTimer: randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX),
+    medicTimer: randomRange(MEDIC_SUPPORT_INTERVAL * 0.55, MEDIC_SUPPORT_INTERVAL),
     replicateTimer: REPLICATOR_CLONE_TIME,
     turnShotLocked: false,
   };
@@ -1848,7 +1913,7 @@ function stealEnemyAbility(enemy) {
   }
 
   player.power = clamp(player.power + enemy.power * 0.35, 1, 4);
-  if (enemy.kind === "heal") {
+  if (enemy.kind === "heal" || enemy.kind === "medic") {
     player.hp = Math.min(player.maxHp, player.hp + 1);
   } else if (enemy.kind === "replicator") {
     playerAbilityCapacity = 2;
@@ -3778,12 +3843,14 @@ function getPredictedPlayerTrajectory() {
     const currentSpeed = Math.hypot(state.vx, state.vy);
     const targetAngle = Math.atan2(dy, dx);
     const currentAngle = state.facingAngle ?? (currentSpeed > 1 ? Math.atan2(state.vy, state.vx) : targetAngle);
+    const angleDelta = Math.abs(normalizeAngle(targetAngle - currentAngle));
     const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * PLAYER_TRAJECTORY_STEP_TIME);
     const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
     const targetSpeed = Math.min(maxSpeed, brakingSpeed);
-    const nextSpeed = currentSpeed < targetSpeed
-      ? Math.min(targetSpeed, currentSpeed + moveAcceleration * PLAYER_TRAJECTORY_STEP_TIME)
-      : Math.max(targetSpeed, currentSpeed - moveBrake * PLAYER_TRAJECTORY_STEP_TIME);
+    const adjustedTargetSpeed = getTurnAdjustedTargetSpeed(targetSpeed, angleDelta);
+    const nextSpeed = currentSpeed < adjustedTargetSpeed
+      ? Math.min(adjustedTargetSpeed, currentSpeed + moveAcceleration * PLAYER_TRAJECTORY_STEP_TIME)
+      : Math.max(adjustedTargetSpeed, currentSpeed - moveBrake * PLAYER_TRAJECTORY_STEP_TIME);
     const travel = Math.min(nextSpeed * PLAYER_TRAJECTORY_STEP_TIME, distance);
 
     state.vx = Math.cos(nextAngle) * nextSpeed;
@@ -3927,6 +3994,17 @@ function drawEnemies() {
       ctx.restore();
     }
 
+    if (enemy.kind === "medic") {
+      const pulse = 0.5 + 0.5 * Math.sin(worldTime * 4.5 + enemy.y * 0.01);
+      ctx.save();
+      ctx.strokeStyle = `rgba(54, 240, 255, ${0.12 + pulse * 0.1})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, MEDIC_SUPPORT_RANGE * 0.32 + pulse * 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     if (enemy.kind === "slow") {
       const pulse = 0.5 + 0.5 * Math.sin(worldTime * 3 + enemy.x * 0.01);
       ctx.save();
@@ -3971,6 +4049,10 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#d3f4ff");
     gradient.addColorStop(0.45, "#63bfff");
     gradient.addColorStop(1, "#0a4e93");
+  } else if (enemy.kind === "medic") {
+    gradient.addColorStop(0, "#dcffff");
+    gradient.addColorStop(0.45, "#36f0ff");
+    gradient.addColorStop(1, "#057d91");
   } else if (enemy.kind === "shield") {
     gradient.addColorStop(0, "#fff0a8");
     gradient.addColorStop(0.45, "#ffc94d");
@@ -4024,6 +4106,8 @@ function drawEnemy(enemy) {
         ? "rgba(120, 244, 255, 0.48)"
       : enemy.kind === "heal"
         ? "rgba(112, 208, 255, 0.46)"
+      : enemy.kind === "medic"
+        ? "rgba(54, 240, 255, 0.48)"
       : enemy.kind === "shield"
       ? "rgba(255, 212, 92, 0.45)"
       : enemy.kind === "slow"
@@ -4090,6 +4174,17 @@ function drawEnemy(enemy) {
     ctx.lineTo(6, 0);
     ctx.moveTo(0, -6);
     ctx.lineTo(0, 6);
+    ctx.stroke();
+  } else if (enemy.kind === "medic") {
+    ctx.strokeStyle = "rgba(230, 255, 255, 0.94)";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(-7, 0);
+    ctx.lineTo(7, 0);
+    ctx.moveTo(0, -7);
+    ctx.lineTo(0, 7);
+    ctx.moveTo(-6, -6);
+    ctx.lineTo(6, 6);
     ctx.stroke();
   } else if (enemy.kind === "mine") {
     ctx.strokeStyle = "rgba(235, 255, 235, 0.86)";
