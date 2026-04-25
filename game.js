@@ -35,7 +35,7 @@ const ENEMY_MOVE_BRAKE = 816;
 const ENEMY_DASH_MIN_DISTANCE = 220;
 const ENEMY_DASH_MAX_DISTANCE = 420;
 const MIN_ENEMIES_PER_LEVEL = 50;
-const MIN_ENEMY_TYPES_PER_LEVEL = 6;
+const MIN_ENEMY_TYPES_PER_LEVEL = 8;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
@@ -52,6 +52,7 @@ const MEDIC_SUPPORT_RANGE = 210;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
+const ENEMY_SPAWN_INTERVAL_MULTIPLIER = 0.9;
 const GRID_CELLS = 8;
 const HOOK_RANGE_CELLS = 4;
 const HOOK_SPEED = 1180;
@@ -219,6 +220,7 @@ const enemyMeta = {
   bomber: { name: "Подрывники", color: "#ff8f35", glow: "rgba(255, 143, 53, 0.55)" },
   splitter: { name: "Делители", color: "#4ee6a8", glow: "rgba(78, 230, 168, 0.55)" },
   commander: { name: "Командиры", color: "#2ad3ff", glow: "rgba(42, 211, 255, 0.55)" },
+  mirror: { name: "Зеркала", color: "#c9f3ff", glow: "rgba(201, 243, 255, 0.58)" },
   brute: { name: "Танки", color: "#ffd44f", glow: "rgba(255, 212, 79, 0.55)" },
   sniper: { name: "Снайперы", color: "#a71d32", glow: "rgba(167, 29, 50, 0.55)" },
   trickster: { name: "Иллюзии", color: "#ff74ca", glow: "rgba(255, 116, 202, 0.5)" },
@@ -265,7 +267,7 @@ const campaignLevels = [
   },
   {
     name: "Дальняя линия",
-    roster: { sniper: 4, laser: 4, spray: 3, splitter: 3 },
+    roster: { sniper: 4, mirror: 3, laser: 4, spray: 3, splitter: 3 },
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
   },
@@ -289,7 +291,7 @@ const campaignLevels = [
   },
   {
     name: "Финальная смесь",
-    roster: { commander: 3, medic: 3, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
+    roster: { commander: 3, medic: 3, mirror: 4, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
   },
@@ -407,12 +409,20 @@ function getEnemyMaxCount() {
 }
 
 function getSpawnInterval() {
-  return getCurrentLevel()?.spawnInterval ?? ENEMY_SPAWN_INTERVAL;
+  const interval = getCurrentLevel()?.spawnInterval ?? ENEMY_SPAWN_INTERVAL;
+  return interval.map((delay) => delay * ENEMY_SPAWN_INTERVAL_MULTIPLIER);
+}
+
+function getAutoRosterKinds(level = getCurrentLevel()) {
+  const enemyKinds = Object.keys(enemyMeta);
+  const levelIndex = Math.max(0, campaignLevels.indexOf(level));
+  const offset = levelIndex % enemyKinds.length;
+  return [...enemyKinds.slice(offset), ...enemyKinds.slice(0, offset)];
 }
 
 function getLevelRoster(level = getCurrentLevel()) {
   const roster = { ...level.roster };
-  const enemyKinds = Object.keys(enemyMeta);
+  const enemyKinds = getAutoRosterKinds(level);
 
   for (const kind of enemyKinds) {
     if (Object.keys(roster).length >= MIN_ENEMY_TYPES_PER_LEVEL) break;
@@ -1545,6 +1555,7 @@ function createEnemy(kind, x, y) {
     seedTimer: randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX),
     medicTimer: randomRange(MEDIC_SUPPORT_INTERVAL * 0.55, MEDIC_SUPPORT_INTERVAL),
     replicateTimer: REPLICATOR_CLONE_TIME,
+    mirrorReady: kind === "mirror",
     turnShotLocked: false,
   };
 
@@ -1960,6 +1971,7 @@ function useBaseGunAbility(targetPoint = aimPoint) {
   if (distance < 1 || !consumeBaseGunCharge()) return false;
 
   baseProjectiles.push({
+    owner: "player",
     x: player.x,
     y: player.y,
     vx: (dx / distance) * BASE_GUN_PROJECTILE_SPEED,
@@ -2499,6 +2511,16 @@ function updateBaseProjectiles(dt) {
       continue;
     }
 
+    if (projectile.owner === "enemy") {
+      const hitDistance = player.size * 0.5 + projectile.radius;
+      const distanceToPlayer = Math.hypot(projectile.x - player.x, projectile.y - player.y);
+      if (distanceToPlayer <= hitDistance) {
+        applyPlayerHit();
+        baseProjectiles.splice(index, 1);
+      }
+      continue;
+    }
+
     let hitEnemy = null;
     for (const enemy of enemies) {
       const distance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
@@ -2508,6 +2530,11 @@ function updateBaseProjectiles(dt) {
     }
 
     if (!hitEnemy) continue;
+
+    if (reflectProjectileFromMirror(hitEnemy, projectile, "base")) {
+      baseProjectiles.splice(index, 1);
+      continue;
+    }
 
     damageEnemy(hitEnemy, 1);
     baseProjectiles.splice(index, 1);
@@ -2982,6 +3009,55 @@ function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width, sp
   });
 }
 
+function reflectProjectileFromMirror(enemy, projectile, type = "laser") {
+  if (enemy.kind !== "mirror" || !enemy.mirrorReady || projectile.owner !== "player") return false;
+
+  enemy.mirrorReady = false;
+  const dx = projectile.x - enemy.x;
+  const dy = projectile.y - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+
+  spawnImpactBurst(enemy.x, enemy.y, {
+    count: 12,
+    speedMin: 90,
+    speedMax: 210,
+    lifeMin: 0.14,
+    lifeMax: 0.28,
+    sizeMin: 2,
+    sizeMax: 5,
+  });
+
+  if (type === "base") {
+    baseProjectiles.push({
+      owner: "enemy",
+      x: enemy.x + dirX * (enemy.size * 0.75),
+      y: enemy.y + dirY * (enemy.size * 0.75),
+      vx: dirX * BASE_GUN_PROJECTILE_SPEED,
+      vy: dirY * BASE_GUN_PROJECTILE_SPEED,
+      radius: BASE_GUN_PROJECTILE_RADIUS,
+      ttl: BASE_GUN_PROJECTILE_LIFETIME,
+      life: BASE_GUN_PROJECTILE_LIFETIME,
+      color: "rgba(201, 243, 255, 0.94)",
+      innerColor: "rgba(255, 255, 255, 0.96)",
+    });
+    return true;
+  }
+
+  spawnLaserProjectile({
+    owner: "enemy",
+    x: enemy.x + dirX * (enemy.size * 0.75),
+    y: enemy.y + dirY * (enemy.size * 0.75),
+    dirX,
+    dirY,
+    range: getCellSize() * LASER_RANGE_CELLS,
+    color: "rgba(201, 243, 255, 0.94)",
+    width: LASER_PROJECTILE_WIDTH - 1,
+  });
+  return true;
+}
+
 function updateLaserProjectiles(dt) {
   for (let index = laserProjectiles.length - 1; index >= 0; index -= 1) {
     const projectile = laserProjectiles[index];
@@ -3008,6 +3084,10 @@ function hitEnemyWithProjectile(projectile) {
   const tail = getProjectileTail(projectile);
   const hit = findFirstEnemyOnBeam(tail.x, tail.y, projectile.x, projectile.y, projectile.length + ENEMY_SIZE);
   if (!hit) return false;
+
+  if (reflectProjectileFromMirror(hit.enemy, projectile, "laser")) {
+    return true;
+  }
 
   damageEnemy(hit.enemy, 1);
   return true;
@@ -4073,6 +4153,10 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#d8f8ff");
     gradient.addColorStop(0.45, "#2ad3ff");
     gradient.addColorStop(1, "#075273");
+  } else if (enemy.kind === "mirror") {
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.45, "#c9f3ff");
+    gradient.addColorStop(1, "#507a91");
   } else if (enemy.kind === "sniper") {
     gradient.addColorStop(0, "#ffccd4");
     gradient.addColorStop(0.45, "#a71d32");
@@ -4118,6 +4202,8 @@ function drawEnemy(enemy) {
         ? "rgba(78, 230, 168, 0.46)"
       : enemy.kind === "commander"
         ? "rgba(42, 211, 255, 0.48)"
+      : enemy.kind === "mirror"
+        ? "rgba(201, 243, 255, 0.5)"
       : enemy.kind === "sniper"
         ? "rgba(156, 18, 42, 0.48)"
       : enemy.kind === "trickster"
@@ -4263,6 +4349,22 @@ function drawEnemy(enemy) {
     ctx.moveTo(-6, 7);
     ctx.lineTo(6, 7);
     ctx.stroke();
+  } else if (enemy.kind === "mirror") {
+    ctx.strokeStyle = enemy.mirrorReady ? "rgba(255, 255, 255, 0.96)" : "rgba(205, 225, 235, 0.65)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-7, -7);
+    ctx.lineTo(7, -7);
+    ctx.lineTo(3, 7);
+    ctx.lineTo(-7, 7);
+    ctx.closePath();
+    ctx.stroke();
+    if (enemy.mirrorReady) {
+      ctx.beginPath();
+      ctx.moveTo(-3, 4);
+      ctx.lineTo(5, -4);
+      ctx.stroke();
+    }
   } else if (enemy.kind === "sniper") {
     ctx.strokeStyle = "rgba(255, 228, 236, 0.9)";
     ctx.lineWidth = 2;
