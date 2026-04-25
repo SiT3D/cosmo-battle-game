@@ -60,6 +60,7 @@ const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const COMMANDER_HP = 3;
 const COMMANDER_AURA_RADIUS = 76 * 4;
+const COMMANDER_RALLY_DISTANCE = COMMANDER_AURA_RADIUS * 0.45;
 const COMMANDER_SPEED_MULTIPLIER = 1.45;
 const MEDIC_HP = 3;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
@@ -140,7 +141,7 @@ const BLAST_MAX_RADIUS = 311 * 1.5;
 const BLAST_EXPAND_SPEED = 44;
 const LEVEL1_BOSS_BLAST_MAX_RADIUS = BLAST_MAX_RADIUS * 0.7;
 const LEVEL1_BOSS_BLAST_EXPAND_SPEED = BLAST_EXPAND_SPEED * 0.7;
-const BOMBER_BLAST_MAX_RADIUS = 132;
+const BOMBER_BLAST_MAX_RADIUS = 132 * 4;
 const BOMBER_BLAST_EXPAND_SPEED = 120;
 const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
@@ -1463,17 +1464,17 @@ function updateEnemies(dt) {
     }
 
     if (enemy.kind === "brute") {
-      updateBruteEnemy(enemy, dt);
+      updateBruteEnemy(enemy, timerDt);
       continue;
     }
 
     if (enemy.kind === "sproutling" || enemy.kind === "splitter_child") {
-      updateSproutlingEnemy(enemy, dt);
+      updateSproutlingEnemy(enemy, timerDt);
       continue;
     }
 
     if (enemy.kind === "slow") {
-      updateSlowEnemy(enemy, dt);
+      updateSlowEnemy(enemy, timerDt);
       continue;
     }
 
@@ -1526,7 +1527,7 @@ function updateEnemies(dt) {
         }
       }
 
-      updateEnemyMotion(enemy, dt);
+      updateEnemyMotion(enemy, timerDt);
       if (!enemy.moving) {
         if (enemy.kind === "shield") {
           enemy.phase = "shield_up";
@@ -1840,6 +1841,34 @@ function fireBossRadialBurst(enemy) {
   }
 }
 
+function getCommanderRallyTarget(commander) {
+  const allies = enemies
+    .filter((enemy) => enemy.id !== commander.id && !enemy.isIllusion && !isBossEnemy(enemy))
+    .map((enemy) => ({
+      enemy,
+      distance: Math.hypot(enemy.x - commander.x, enemy.y - commander.y),
+    }))
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, 4);
+
+  if (allies.length === 0) return null;
+
+  let weightTotal = 0;
+  let x = 0;
+  let y = 0;
+  for (const ally of allies) {
+    const weight = 1 / Math.max(40, ally.distance);
+    weightTotal += weight;
+    x += ally.enemy.x * weight;
+    y += ally.enemy.y * weight;
+  }
+
+  return {
+    x: x / weightTotal,
+    y: y / weightTotal,
+  };
+}
+
 function launchEnemy(enemy) {
   let direction = randomDirection();
   let dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE, ENEMY_DASH_MAX_DISTANCE);
@@ -1862,6 +1891,21 @@ function launchEnemy(enemy) {
       const angle = Math.atan2(dy, dx) + randomRange(-0.55, 0.55);
       direction = { x: Math.cos(angle), y: Math.sin(angle) };
       dashDistance = clamp(distance * 0.9, ENEMY_DASH_MIN_DISTANCE * 0.8, ENEMY_DASH_MAX_DISTANCE);
+    }
+  } else if (enemy.kind === "commander") {
+    const target = getCommanderRallyTarget(enemy);
+    if (target) {
+      const dx = target.x - enemy.x;
+      const dy = target.y - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > COMMANDER_RALLY_DISTANCE) {
+        direction = { x: dx / distance, y: dy / distance };
+        dashDistance = clamp(distance - COMMANDER_RALLY_DISTANCE, ENEMY_DASH_MIN_DISTANCE * 0.45, ENEMY_DASH_MAX_DISTANCE);
+      } else if (distance > 1) {
+        const angle = Math.atan2(dy, dx) + randomRange(-0.7, 0.7);
+        direction = { x: Math.cos(angle), y: Math.sin(angle) };
+        dashDistance = ENEMY_DASH_MIN_DISTANCE * 0.45;
+      }
     }
   }
 
