@@ -37,6 +37,19 @@ const ENEMY_DASH_MIN_DISTANCE = 220;
 const ENEMY_DASH_MAX_DISTANCE = 420;
 const MIN_ENEMIES_PER_LEVEL = 50;
 const MIN_ENEMY_TYPES_PER_LEVEL = 8;
+const LEVEL1_BOSS_KIND = "level1_boss";
+const LEVEL1_BOSS_HP = 10;
+const LEVEL1_BOSS_SIZE = 52;
+const LEVEL1_BOSS_STAGE_TWO_HP = 5;
+const LEVEL1_BOSS_BOUNCE_SPEED = 210;
+const LEVEL1_BOSS_CHASE_SPEED = 155;
+const LEVEL1_BOSS_CHASE_ACCELERATION = 360;
+const LEVEL1_BOSS_EXPLOSION_INTERVAL = 5;
+const LEVEL1_BOSS_SHIELD_TIME = 2.1;
+const LEVEL1_BOSS_SHIELD_RADIUS = 92;
+const LEVEL1_BOSS_BLINK_TIME = 0.95;
+const LEVEL1_BOSS_RADIAL_SHOTS = 30;
+const LEVEL1_BOSS_RADIAL_SPEED = 520;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
@@ -246,6 +259,7 @@ const enemyMeta = {
   heal: { name: "Лечилки", color: "#63bfff", glow: "rgba(99, 191, 255, 0.5)" },
   medic: { name: "Медики", color: "#36f0ff", glow: "rgba(54, 240, 255, 0.55)" },
   replicator: { name: "Клоны", color: "#7de8ff", glow: "rgba(125, 232, 255, 0.5)" },
+  [LEVEL1_BOSS_KIND]: { name: "Босс", color: "#ff315f", glow: "rgba(255, 49, 95, 0.62)" },
 };
 
 const campaignLevels = [
@@ -255,6 +269,7 @@ const campaignLevels = [
     minEnemies: 25,
     maxEnemies: 4,
     spawnInterval: [1.6, 2.7],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Броня",
@@ -478,6 +493,7 @@ let gameState = "menu";
 let currentLevelIndex = 0;
 let levelSpawnQueue = [];
 let levelCompleted = false;
+let levelBossSpawned = false;
 let pendingUpgradeChoices = [];
 
 function resize() {
@@ -594,6 +610,10 @@ function getLevelRoster(level = getCurrentLevel()) {
 }
 
 function getLevelTotalCount(level = getCurrentLevel()) {
+  return getLevelNormalEnemyCount(level) + (level.boss ? 1 : 0);
+}
+
+function getLevelNormalEnemyCount(level = getCurrentLevel()) {
   return Object.values(getLevelRoster(level)).reduce((sum, count) => sum + count, 0);
 }
 
@@ -810,6 +830,7 @@ function update(dt) {
   updatePlayerSpray(simDt);
   updateBaseProjectiles(simDt);
   updateEnemySpawns(simDt);
+  updateLevelBossSpawn();
   updateEnemies(simDt * getPlayerUpgrades().enemySpeedMultiplier);
   if (player.dead) {
     updateUi();
@@ -1300,6 +1321,45 @@ function updateEnemySpawns(dt) {
   scheduleNextSpawn();
 }
 
+function isBossEnemy(enemy) {
+  return enemy?.kind === LEVEL1_BOSS_KIND;
+}
+
+function isBossShieldActive(enemy) {
+  return isBossEnemy(enemy) && enemy.bossState === "shield";
+}
+
+function isAbsorbingShieldEnemy(enemy) {
+  return (enemy.kind === "shield" && enemy.phase === "shield_up") || isBossShieldActive(enemy);
+}
+
+function getEnemyShieldRadius(enemy) {
+  return isBossEnemy(enemy) ? LEVEL1_BOSS_SHIELD_RADIUS : getShieldRadius();
+}
+
+function getRemainingNormalLevelEnemies() {
+  let remaining = levelSpawnQueue.length + spawnMarkers.length;
+  for (const enemy of enemies) {
+    if (!enemy.isIllusion && !isBossEnemy(enemy)) remaining += 1;
+  }
+  return remaining;
+}
+
+function updateLevelBossSpawn() {
+  const level = getCurrentLevel();
+  if (!level.boss || levelBossSpawned || levelCompleted || player.dead) return;
+
+  const triggerRemaining = Math.floor(getLevelNormalEnemyCount(level) * (level.boss.triggerRemainingRatio ?? 0.5));
+  if (getRemainingNormalLevelEnemies() > triggerRemaining) return;
+
+  const point = findFreePoint(LEVEL1_BOSS_SIZE * 1.2) ?? {
+    x: player.x < ARENA.x + ARENA.width * 0.5 ? ARENA.x + ARENA.width * 0.78 : ARENA.x + ARENA.width * 0.22,
+    y: player.y < ARENA.y + ARENA.height * 0.5 ? ARENA.y + ARENA.height * 0.78 : ARENA.y + ARENA.height * 0.22,
+  };
+  spawnBoss(point.x, point.y, level.boss.kind);
+  levelBossSpawned = true;
+}
+
 function updateEnemies(dt) {
   for (const enemy of enemies) {
     if (enemy.isIllusion) {
@@ -1312,6 +1372,11 @@ function updateEnemies(dt) {
 
     const commandMultiplier = getEnemyCommandMultiplier(enemy);
     const timerDt = dt * commandMultiplier;
+
+    if (isBossEnemy(enemy)) {
+      updateLevel1Boss(enemy, dt);
+      continue;
+    }
 
     if (enemy.kind === "brute") {
       updateBruteEnemy(enemy, dt);
@@ -1595,6 +1660,91 @@ function updateSlowEnemy(enemy, dt) {
   handleWallBounce(enemy);
 }
 
+function updateLevel1Boss(enemy, dt) {
+  if (enemy.hp <= LEVEL1_BOSS_STAGE_TWO_HP && enemy.bossStage === 1) {
+    enemy.bossStage = 2;
+    enemy.bossState = "chase";
+    enemy.bossStateTimer = 2.4;
+    enemy.bossNextSpecial = "shield";
+    enemy.vx *= 0.45;
+    enemy.vy *= 0.45;
+    spawnImpactBurst(enemy.x, enemy.y, { count: 34, speedMin: 130, speedMax: 420, lifeMin: 0.28, lifeMax: 0.58, sizeMin: 5, sizeMax: 12 });
+  }
+
+  if (enemy.bossStage === 1) {
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+    handleWallBounce(enemy);
+    enemy.bossExplosionTimer -= dt;
+    if (enemy.bossExplosionTimer <= 0) {
+      spawnBossCellExplosion(enemy.x, enemy.y);
+      enemy.bossExplosionTimer += LEVEL1_BOSS_EXPLOSION_INTERVAL;
+    }
+    return;
+  }
+
+  if (enemy.bossState === "shield") {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.bossStateTimer -= dt;
+    if (enemy.bossStateTimer <= 0) {
+      enemy.bossState = "chase";
+      enemy.bossStateTimer = randomRange(1.8, 2.7);
+      enemy.bossNextSpecial = "burst";
+    }
+    return;
+  }
+
+  if (enemy.bossState === "blink") {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.bossStateTimer -= dt;
+    if (enemy.bossStateTimer <= 0) {
+      fireBossRadialBurst(enemy);
+      enemy.bossState = "chase";
+      enemy.bossStateTimer = randomRange(2.0, 3.0);
+      enemy.bossNextSpecial = "shield";
+    }
+    return;
+  }
+
+  updateBossChase(enemy, dt);
+  enemy.bossStateTimer -= dt;
+  if (enemy.bossStateTimer > 0) return;
+  enemy.bossState = enemy.bossNextSpecial === "shield" ? "shield" : "blink";
+  enemy.bossStateTimer = enemy.bossNextSpecial === "shield" ? LEVEL1_BOSS_SHIELD_TIME : LEVEL1_BOSS_BLINK_TIME;
+}
+
+function updateBossChase(enemy, dt) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const desiredVx = (dx / distance) * LEVEL1_BOSS_CHASE_SPEED;
+  const desiredVy = (dy / distance) * LEVEL1_BOSS_CHASE_SPEED;
+  enemy.vx = moveToward(enemy.vx, desiredVx, LEVEL1_BOSS_CHASE_ACCELERATION * dt);
+  enemy.vy = moveToward(enemy.vy, desiredVy, LEVEL1_BOSS_CHASE_ACCELERATION * dt);
+  const speed = Math.hypot(enemy.vx, enemy.vy);
+  if (speed > LEVEL1_BOSS_CHASE_SPEED) {
+    enemy.vx = (enemy.vx / speed) * LEVEL1_BOSS_CHASE_SPEED;
+    enemy.vy = (enemy.vy / speed) * LEVEL1_BOSS_CHASE_SPEED;
+  }
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
+}
+
+function spawnBossCellExplosion(x, y) {
+  blastWaves.push({ owner: "enemy", x, y, radius: 8, maxRadius: getCellSize(), expandSpeed: getCellSize() * 1.8, hitEnemyIds: new Set(), hitPlayer: false });
+}
+
+function fireBossRadialBurst(enemy) {
+  for (let index = 0; index < LEVEL1_BOSS_RADIAL_SHOTS; index += 1) {
+    const angle = (Math.PI * 2 * index) / LEVEL1_BOSS_RADIAL_SHOTS;
+    spawnLaserProjectile({ owner: "enemy", x: enemy.x, y: enemy.y, dirX: Math.cos(angle), dirY: Math.sin(angle), range: getArenaProjectileReach(), color: "rgba(255, 49, 95, 0.96)", width: LASER_PROJECTILE_WIDTH - 1, speed: LEVEL1_BOSS_RADIAL_SPEED });
+  }
+}
+
 function launchEnemy(enemy) {
   let direction = randomDirection();
   let dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE, ENEMY_DASH_MAX_DISTANCE);
@@ -1639,21 +1789,22 @@ function createEnemy(kind, x, y) {
   const isSplitterChild = kind === "splitter_child";
   const isCommander = kind === "commander";
   const isMedic = kind === "medic";
+  const isBoss = kind === LEVEL1_BOSS_KIND;
   const enemy = {
     id: enemyId += 1,
     x,
     y,
     vx: 0,
     vy: 0,
-    size: isBrute ? ENEMY_SIZE * 1.18 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
+    size: isBoss ? LEVEL1_BOSS_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    maxHp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    renderWidth: isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
-    renderHeight: isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    hp: isBoss ? LEVEL1_BOSS_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    maxHp: isBoss ? LEVEL1_BOSS_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    renderWidth: isBoss ? LEVEL1_BOSS_SIZE * 1.12 : isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isBoss ? LEVEL1_BOSS_SIZE * 1.12 : isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
@@ -1703,9 +1854,17 @@ function createEnemy(kind, x, y) {
     turnShotLocked: false,
   };
 
-  const hpPenalty = getPlayerUpgrades().enemyHpPenalty;
-  enemy.hp = Math.max(DEFAULT_ENEMY_HP, enemy.hp - hpPenalty);
-  enemy.maxHp = Math.max(DEFAULT_ENEMY_HP, enemy.maxHp - hpPenalty);
+  if (isBoss) {
+    enemy.bossStage = 1;
+    enemy.bossState = "bounce";
+    enemy.bossExplosionTimer = LEVEL1_BOSS_EXPLOSION_INTERVAL;
+    enemy.bossStateTimer = 0;
+    enemy.bossNextSpecial = "shield";
+  } else {
+    const hpPenalty = getPlayerUpgrades().enemyHpPenalty;
+    enemy.hp = Math.max(DEFAULT_ENEMY_HP, enemy.hp - hpPenalty);
+    enemy.maxHp = Math.max(DEFAULT_ENEMY_HP, enemy.maxHp - hpPenalty);
+  }
 
   return enemy;
 }
@@ -1747,6 +1906,16 @@ function spawnEnemy(x, y, forcedKind = null) {
   } else {
     launchEnemy(enemy);
   }
+}
+
+function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
+  const boss = createEnemy(kind, x, y);
+  const direction = randomDirection();
+  boss.vx = direction.x * LEVEL1_BOSS_BOUNCE_SPEED;
+  boss.vy = direction.y * LEVEL1_BOSS_BOUNCE_SPEED;
+  boss.moving = true;
+  enemies.push(boss);
+  spawnImpactBurst(x, y, { count: 46, speedMin: 160, speedMax: 520, lifeMin: 0.34, lifeMax: 0.86, sizeMin: 7, sizeMax: 18 });
 }
 
 function spawnTricksterIllusions(source) {
@@ -1909,6 +2078,7 @@ function findNearestHookTarget() {
 
   for (const enemy of enemies) {
     if (enemy.kind === "brute") continue;
+    if (isBossEnemy(enemy)) continue;
     const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
     if (distance > bestDistance) continue;
 
@@ -2746,6 +2916,19 @@ function updateBaseProjectiles(dt) {
       continue;
     }
 
+    let absorbedByShield = false;
+    for (const enemy of enemies) {
+      if (!isAbsorbingShieldEnemy(enemy)) continue;
+      const distance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
+      if (distance > getEnemyShieldRadius(enemy) + projectile.radius) continue;
+      absorbedByShield = true;
+      break;
+    }
+    if (absorbedByShield) {
+      baseProjectiles.splice(index, 1);
+      continue;
+    }
+
     let hitEnemy = null;
     for (const enemy of enemies) {
       const distance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
@@ -2794,6 +2977,13 @@ function updateZigzagProjectiles(dt) {
 
     for (const enemy of enemies) {
       if (projectile.hitEnemyIds.has(enemy.id) || enemy.isIllusion) continue;
+      if (isAbsorbingShieldEnemy(enemy)) {
+        const shieldDistance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
+        if (shieldDistance <= getEnemyShieldRadius(enemy) + projectile.radius) {
+          zigzagProjectiles.splice(index, 1);
+          break;
+        }
+      }
       const distance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
       if (distance > enemy.size * 0.65 + projectile.radius) continue;
 
@@ -2839,16 +3029,18 @@ function updateBlastWaves(dt) {
 
     blast.radius = Math.min(blast.maxRadius, blast.radius + blast.expandSpeed * dt);
 
-    for (const enemy of enemies) {
-      if (blast.hitEnemyIds.has(enemy.id)) continue;
-      const distance = Math.hypot(enemy.x - blast.x, enemy.y - blast.y);
-      if (distance > blast.radius + enemy.size * 0.5) continue;
+    if (blast.owner !== "enemy") {
+      for (const enemy of enemies) {
+        if (blast.hitEnemyIds.has(enemy.id)) continue;
+        const distance = Math.hypot(enemy.x - blast.x, enemy.y - blast.y);
+        if (distance > blast.radius + enemy.size * 0.5) continue;
 
-      damageEnemy(enemy, 1);
-      blast.hitEnemyIds.add(enemy.id);
+        damageEnemy(enemy, 1);
+        blast.hitEnemyIds.add(enemy.id);
+      }
     }
 
-    if (!blast.hitPlayer) {
+    if (blast.owner !== "player" && !blast.hitPlayer) {
       const distanceToPlayer = Math.hypot(player.x - blast.x, player.y - blast.y);
       if (distanceToPlayer <= blast.radius + player.size * 0.45) {
         applyPlayerHit();
@@ -2961,6 +3153,13 @@ function updateHomingMissiles(dt) {
     let hitEnemy = null;
     for (const enemy of enemies) {
       if (enemy.isIllusion) continue;
+      if (isAbsorbingShieldEnemy(enemy)) {
+        const shieldDistance = Math.hypot(enemy.x - missile.x, enemy.y - missile.y);
+        if (shieldDistance <= getEnemyShieldRadius(enemy) + missile.radius) {
+          hitEnemy = { absorbedByShield: true };
+          break;
+        }
+      }
       const distance = Math.hypot(enemy.x - missile.x, enemy.y - missile.y);
       if (distance > enemy.size * 0.65 + missile.radius) continue;
       hitEnemy = enemy;
@@ -2969,7 +3168,9 @@ function updateHomingMissiles(dt) {
 
     if (!hitEnemy) continue;
 
-    damageEnemy(hitEnemy, 1);
+    if (!hitEnemy.absorbedByShield) {
+      damageEnemy(hitEnemy, 1);
+    }
     spawnImpactBurst(missile.x, missile.y, {
       count: 12,
       speedMin: 80,
@@ -3004,10 +3205,10 @@ function updateShieldAuras(dt) {
   }
 
   for (const enemy of enemies) {
-    if (enemy.kind !== "shield" || enemy.phase !== "shield_up") continue;
+    if (!isAbsorbingShieldEnemy(enemy)) continue;
     const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
-    if (distance <= getShieldRadius() + player.size * 0.45) {
-      applyPlayerHit();
+    if (distance <= getEnemyShieldRadius(enemy) + player.size * 0.45) {
+      applyPlayerHit(isBossEnemy(enemy) ? player.maxHp : 1, { ignoreInvuln: isBossEnemy(enemy) });
     }
   }
 
@@ -3033,7 +3234,7 @@ function updateShieldAuras(dt) {
 
     if (!destroyProjectile) {
       for (const enemy of enemies) {
-        if (enemy.kind !== "shield" || enemy.phase !== "shield_up") continue;
+        if (!isAbsorbingShieldEnemy(enemy)) continue;
         const hit = getSegmentCircleHit(
           tail.x,
           tail.y,
@@ -3041,7 +3242,7 @@ function updateShieldAuras(dt) {
           projectile.y,
           enemy.x,
           enemy.y,
-          getShieldRadius()
+          getEnemyShieldRadius(enemy)
         );
         if (hit) {
           destroyProjectile = true;
@@ -3067,7 +3268,8 @@ function resolveEnemyCollisions() {
     const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
     if (distance > collisionDistance) continue;
 
-    applyPlayerHit();
+    applyPlayerHit(isBossEnemy(enemy) && isBossShieldActive(enemy) ? player.maxHp : 1, { ignoreInvuln: isBossEnemy(enemy) && isBossShieldActive(enemy) });
+    if (isBossEnemy(enemy)) continue;
     killEnemy(enemy);
   }
 }
@@ -3460,10 +3662,10 @@ function hitEnemyProjectileTarget(projectile) {
   return true;
 }
 
-function applyPlayerHit() {
-  if (player.dead || player.hitInvuln > 0) return false;
+function applyPlayerHit(amount = 1, { ignoreInvuln = false } = {}) {
+  if (player.dead || (!ignoreInvuln && player.hitInvuln > 0)) return false;
 
-  player.hp = Math.max(0, player.hp - 1);
+  player.hp = Math.max(0, player.hp - amount);
   player.hitFlash = 0.7;
   player.hitShake = 1;
   player.hitInvuln = 0.18;
@@ -3544,6 +3746,7 @@ function resetGame() {
   deathResetTimer = 0;
   gameState = "playing";
   levelCompleted = false;
+  levelBossSpawned = false;
   levelSpawnQueue = buildLevelSpawnQueue(level);
   pendingUpgradeChoices = [];
   simulationWasActive = false;
@@ -3685,6 +3888,7 @@ function removeEnemy(id) {
 
 function getEnemyXpValue(enemy) {
   if (!enemy || enemy.isIllusion) return 0;
+  if (isBossEnemy(enemy)) return 8;
   if (enemy.kind === "brute" || enemy.kind === "commander" || enemy.kind === "medic") return 2;
   if (enemy.kind === "splitter_child" || enemy.kind === "sproutling") return 1;
   return 1;
@@ -3745,6 +3949,8 @@ function damageEnemy(enemy, amount = 1) {
     return killEnemy(enemy);
   }
 
+  if (isBossShieldActive(enemy)) return false;
+
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
     return killEnemy(enemy);
@@ -3772,6 +3978,10 @@ function getRemainingLevelRoster(level = getCurrentLevel()) {
   for (const enemy of enemies) {
     if (enemy.isIllusion) continue;
     addEnemyKind(enemy.kind);
+  }
+
+  if (level.boss && !levelBossSpawned) {
+    addEnemyKind(level.boss.kind);
   }
 
   return remainingRoster;
@@ -3854,7 +4064,8 @@ function showCampaignMenu() {
   const cards = campaignLevels
     .map((level, index) => {
       const total = getLevelTotalCount(level);
-      const rosterText = Object.entries(getLevelRoster(level))
+      const roster = { ...getLevelRoster(level), ...(level.boss ? { [level.boss.kind]: 1 } : {}) };
+      const rosterText = Object.entries(roster)
         .map(([kind, count]) => `${enemyMeta[kind]?.name ?? kind} ${count}`)
         .join(", ");
       return `<button class="level-card" type="button" data-level="${index}">
@@ -4473,6 +4684,11 @@ function drawHookTargetPreview() {
 
 function drawEnemies() {
   for (const enemy of enemies) {
+    if (isBossEnemy(enemy)) {
+      drawBoss(enemy);
+      continue;
+    }
+
     if (enemy.kind === "commander") {
       const pulse = 0.5 + 0.5 * Math.sin(worldTime * 5 + enemy.x * 0.01);
       ctx.save();
@@ -4511,6 +4727,71 @@ function drawEnemies() {
     }
     drawEnemy(enemy);
   }
+}
+
+function drawBoss(enemy) {
+  const radius = enemy.size * 0.5;
+  const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8);
+  const isStageTwo = enemy.bossStage === 2;
+  const isBlinking = enemy.bossState === "blink";
+
+  ctx.save();
+  ctx.translate(enemy.x, enemy.y);
+
+  if (isBlinking) {
+    const progress = 1 - clamp(enemy.bossStateTimer / LEVEL1_BOSS_BLINK_TIME, 0, 1);
+    ctx.strokeStyle = `rgba(255, 210, 224, ${0.2 + progress * 0.4})`;
+    ctx.lineWidth = 2 + progress * 2;
+    ctx.setLineDash([8, 8]);
+    for (let index = 0; index < LEVEL1_BOSS_RADIAL_SHOTS; index += 3) {
+      const angle = (Math.PI * 2 * index) / LEVEL1_BOSS_RADIAL_SHOTS;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      ctx.lineTo(Math.cos(angle) * getArenaProjectileReach(), Math.sin(angle) * getArenaProjectileReach());
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  if (isBossShieldActive(enemy)) {
+    const shieldProgress = clamp(enemy.bossStateTimer / LEVEL1_BOSS_SHIELD_TIME, 0, 1);
+    ctx.strokeStyle = `rgba(255, 232, 112, ${0.38 + shieldProgress * 0.36})`;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(0, 0, LEVEL1_BOSS_SHIELD_RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.rotate(Math.atan2(enemy.vy, enemy.vx) + worldTime * (isStageTwo ? 1.4 : 0.75));
+  const gradient = ctx.createRadialGradient(-radius * 0.35, -radius * 0.35, 4, 0, 0, radius * 1.25);
+  gradient.addColorStop(0, isBlinking ? "#ffffff" : "#ffd7df");
+  gradient.addColorStop(0.36, isStageTwo ? "#ff315f" : "#ff6f86");
+  gradient.addColorStop(1, isStageTwo ? "#4b0016" : "#7b0e2b");
+  ctx.shadowColor = "rgba(255, 49, 95, 0.65)";
+  ctx.shadowBlur = 28;
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (Math.PI * 2 * index) / 8 + Math.PI * 0.125;
+    const pointRadius = index % 2 === 0 ? radius * 1.05 : radius * 0.66;
+    const x = Math.cos(angle) * pointRadius;
+    const y = Math.sin(angle) * pointRadius;
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255, 244, 248, 0.86)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  const hpRatio = clamp(enemy.hp / enemy.maxHp, 0, 1);
+  ctx.fillStyle = "rgba(16, 22, 34, 0.82)";
+  ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16, 6);
+  ctx.fillStyle = isStageTwo ? "rgba(255, 49, 95, 0.96)" : "rgba(255, 220, 108, 0.96)";
+  ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16 * hpRatio, 6);
+  ctx.restore();
 }
 
 function drawEnemy(enemy) {
