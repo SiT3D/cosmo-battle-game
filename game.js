@@ -8,6 +8,8 @@ const powerLabelEl = document.getElementById("powerLabel");
 const timeLabelEl = document.getElementById("timeLabel");
 const passiveTrayEl = document.getElementById("passiveTray");
 const abilityTilesEl = document.getElementById("abilityTiles");
+const levelHudEl = document.getElementById("levelHud");
+const campaignOverlayEl = document.getElementById("campaignOverlay");
 
 const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 const VIEW = { width: 0, height: 0 };
@@ -18,8 +20,8 @@ const INACTIVE_TIME_SCALE = 0.1;
 const TIME_SCALE_TRANSITION = 1.2;
 const MOVE_TO_POINT_SPEED = 490;
 const MOVE_STOP_DISTANCE = 10;
-const MOVE_ACCELERATION = 380;
-const MOVE_BRAKE = 490;
+const MOVE_ACCELERATION = 1140;
+const MOVE_BRAKE = 1470;
 const ENEMY_SIZE = 22;
 const ENEMY_DASH_SPEED = 816;
 const ENEMY_MOVE_STOP_DISTANCE = 10;
@@ -192,6 +194,83 @@ const abilities = {
   },
 };
 
+const enemyMeta = {
+  laser: { name: "Красные", color: "#ff5a5a", glow: "rgba(255, 90, 90, 0.55)" },
+  shield: { name: "Желтые", color: "#ffc94d", glow: "rgba(255, 201, 77, 0.55)" },
+  spray: { name: "Фиолетовые", color: "#b758ff", glow: "rgba(183, 88, 255, 0.55)" },
+  mine: { name: "Мины", color: "#51d86b", glow: "rgba(81, 216, 107, 0.5)" },
+  brute: { name: "Танки", color: "#ffd44f", glow: "rgba(255, 212, 79, 0.55)" },
+  sniper: { name: "Снайперы", color: "#a71d32", glow: "rgba(167, 29, 50, 0.55)" },
+  trickster: { name: "Иллюзии", color: "#ff74ca", glow: "rgba(255, 116, 202, 0.5)" },
+  grower: { name: "Садовники", color: "#9aea44", glow: "rgba(154, 234, 68, 0.5)" },
+  slow: { name: "Белые", color: "#e7edf7", glow: "rgba(231, 237, 247, 0.5)" },
+  heal: { name: "Лечилки", color: "#63bfff", glow: "rgba(99, 191, 255, 0.5)" },
+  replicator: { name: "Клоны", color: "#7de8ff", glow: "rgba(125, 232, 255, 0.5)" },
+};
+
+const campaignLevels = [
+  {
+    name: "Разминка",
+    roster: { laser: 5, shield: 2 },
+    maxEnemies: 4,
+    spawnInterval: [1.6, 2.7],
+  },
+  {
+    name: "Броня",
+    roster: { shield: 5, laser: 4, heal: 1 },
+    maxEnemies: 5,
+    spawnInterval: [1.45, 2.5],
+  },
+  {
+    name: "Фиолетовый дождь",
+    roster: { spray: 5, laser: 3, trickster: 1 },
+    maxEnemies: 5,
+    spawnInterval: [1.35, 2.35],
+  },
+  {
+    name: "Минное поле",
+    roster: { mine: 5, shield: 3, laser: 3 },
+    maxEnemies: 6,
+    spawnInterval: [1.25, 2.2],
+  },
+  {
+    name: "Тяжелые",
+    roster: { brute: 4, shield: 4, heal: 2 },
+    maxEnemies: 5,
+    spawnInterval: [1.55, 2.7],
+  },
+  {
+    name: "Дальняя линия",
+    roster: { sniper: 4, laser: 4, spray: 3 },
+    maxEnemies: 6,
+    spawnInterval: [1.3, 2.35],
+  },
+  {
+    name: "Сад",
+    roster: { grower: 4, slow: 2, shield: 3, laser: 3 },
+    maxEnemies: 6,
+    spawnInterval: [1.35, 2.4],
+  },
+  {
+    name: "Обманки",
+    roster: { trickster: 5, spray: 4, sniper: 2 },
+    maxEnemies: 6,
+    spawnInterval: [1.2, 2.15],
+  },
+  {
+    name: "Размножение",
+    roster: { replicator: 3, grower: 3, mine: 4, slow: 2 },
+    maxEnemies: 7,
+    spawnInterval: [1.25, 2.2],
+  },
+  {
+    name: "Финальная смесь",
+    roster: { laser: 4, shield: 4, spray: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
+    maxEnemies: 8,
+    spawnInterval: [1.05, 1.9],
+  },
+];
+
 let worldTime = 0;
 let actionTime = 0;
 let lastFrame = performance.now();
@@ -233,6 +312,10 @@ let deathResetTimer = 0;
 let deathExplosion = null;
 let simulationWasActive = false;
 let currentTimeScale = INACTIVE_TIME_SCALE;
+let gameState = "menu";
+let currentLevelIndex = 0;
+let levelSpawnQueue = [];
+let levelCompleted = false;
 
 function resize() {
   const rect = canvas.getBoundingClientRect();
@@ -270,6 +353,41 @@ function resize() {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getCurrentLevel() {
+  return campaignLevels[currentLevelIndex] ?? campaignLevels[0];
+}
+
+function getEnemyMaxCount() {
+  return getCurrentLevel()?.maxEnemies ?? ENEMY_MAX_COUNT;
+}
+
+function getSpawnInterval() {
+  return getCurrentLevel()?.spawnInterval ?? ENEMY_SPAWN_INTERVAL;
+}
+
+function getLevelTotalCount(level = getCurrentLevel()) {
+  return Object.values(level.roster).reduce((sum, count) => sum + count, 0);
+}
+
+function shuffleList(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function buildLevelSpawnQueue(level = getCurrentLevel()) {
+  const queue = [];
+  for (const [kind, count] of Object.entries(level.roster)) {
+    for (let index = 0; index < count; index += 1) {
+      queue.push(kind);
+    }
+  }
+  return shuffleList(queue);
 }
 
 function getCellSize() {
@@ -330,6 +448,7 @@ function getCanvasPoint(event) {
 }
 
 function startDrag(event) {
+  if (gameState !== "playing") return;
   if (player.dead) return;
 
   const point = getCanvasPoint(event);
@@ -345,6 +464,7 @@ function startDrag(event) {
 }
 
 function movePointer(event) {
+  if (gameState !== "playing") return;
   const point = getCanvasPoint(event);
   aimPoint = point;
 }
@@ -395,6 +515,8 @@ function selectAbilityModeByIndex(index) {
 }
 
 function handleKeyDown(event) {
+  if (gameState !== "playing") return;
+
   if (event.code === "KeyQ") {
     event.preventDefault();
     cycleAbilitySelection(1);
@@ -409,6 +531,8 @@ function handleKeyDown(event) {
 }
 
 function handleWheel(event) {
+  if (gameState !== "playing") return;
+
   if (Math.abs(event.deltaY) < 2) return;
   if (!canSwitchAbilities()) return;
   event.preventDefault();
@@ -422,6 +546,11 @@ function moveToward(current, target, maxDelta) {
 }
 
 function update(dt) {
+  if (gameState !== "playing") {
+    updateUi();
+    return;
+  }
+
   if (player.dead) {
     updateImpactBursts(dt);
     updateDeathExplosion(dt);
@@ -503,6 +632,7 @@ function update(dt) {
   player.hitFlash = Math.max(0, (player.hitFlash || 0) - simDt * 2.2);
   player.hitShake = Math.max(0, (player.hitShake || 0) - simDt * 5.5);
   updateMoveMarker(simDt);
+  checkLevelComplete();
   updateUi();
 }
 
@@ -827,7 +957,7 @@ function updateDeathExplosion(dt) {
 }
 
 function scheduleNextSpawn(initial = false) {
-  const [minDelay, maxDelay] = ENEMY_SPAWN_INTERVAL;
+  const [minDelay, maxDelay] = getSpawnInterval();
   spawnClock = initial ? 0.8 : randomRange(minDelay, maxDelay);
 }
 
@@ -837,12 +967,13 @@ function updateEnemySpawns(dt) {
     marker.elapsed += dt;
 
     if (marker.elapsed >= ENEMY_SPAWN_TELEGRAPH) {
-      spawnEnemy(marker.x, marker.y);
+      spawnEnemy(marker.x, marker.y, marker.kind);
       spawnMarkers.splice(index, 1);
     }
   }
 
-  if (enemies.length + spawnMarkers.length >= ENEMY_MAX_COUNT) return;
+  if (levelSpawnQueue.length === 0) return;
+  if (enemies.length + spawnMarkers.length >= getEnemyMaxCount()) return;
 
   spawnClock -= dt;
   if (spawnClock > 0) return;
@@ -852,6 +983,7 @@ function updateEnemySpawns(dt) {
     spawnMarkers.push({
       x: point.x,
       y: point.y,
+      kind: levelSpawnQueue.shift(),
       elapsed: 0,
     });
   }
@@ -1241,9 +1373,9 @@ function createEnemy(kind, x, y) {
   return enemy;
 }
 
-function spawnEnemy(x, y) {
+function getRandomEnemyKind() {
   const roll = Math.random();
-  const kind =
+  return (
     roll < 0.025
       ? "replicator"
       : roll < 0.06
@@ -1264,7 +1396,12 @@ function spawnEnemy(x, y) {
                   ? "shield"
                   : roll < 0.82
                     ? "spray"
-                    : "laser";
+                    : "laser"
+  );
+}
+
+function spawnEnemy(x, y, forcedKind = null) {
+  const kind = forcedKind ?? getRandomEnemyKind();
   const enemy = createEnemy(kind, x, y);
 
   enemies.push(enemy);
@@ -1334,7 +1471,7 @@ function spawnSproutling(x, y) {
 }
 
 function spawnReplicatorClone(source) {
-  if (enemies.length + spawnMarkers.length >= ENEMY_MAX_COUNT) return false;
+  if (enemies.length + spawnMarkers.length >= getEnemyMaxCount()) return false;
 
   const padding = ENEMY_SIZE * 2.1;
   for (let attempt = 0; attempt < 14; attempt += 1) {
@@ -2776,10 +2913,14 @@ function startDeathSequence() {
 
 function resetGame() {
   const half = player.size * 0.5;
+  const level = getCurrentLevel();
 
   worldTime = 0;
   actionTime = 0;
   deathResetTimer = 0;
+  gameState = "playing";
+  levelCompleted = false;
+  levelSpawnQueue = buildLevelSpawnQueue(level);
   simulationWasActive = false;
   currentTimeScale = INACTIVE_TIME_SCALE;
   enemyId = 0;
@@ -2834,6 +2975,8 @@ function resetGame() {
   aimPoint.x = player.x;
   aimPoint.y = player.y;
   scheduleNextSpawn(true);
+  updateLevelHud();
+  hideCampaignOverlay();
 }
 
 function getProjectileTail(projectile) {
@@ -2944,7 +3087,87 @@ function damageEnemy(enemy, amount = 1) {
   return false;
 }
 
+function getRosterHtml(level = getCurrentLevel()) {
+  return Object.entries(level.roster)
+    .map(([kind, count]) => {
+      const meta = enemyMeta[kind] ?? { name: kind, color: "#ff5a5a", glow: "rgba(255, 90, 90, 0.45)" };
+      return `<span class="roster-chip" title="${meta.name}"><span class="roster-chip__swatch" style="--enemy-color:${meta.color};--enemy-glow:${meta.glow}"></span>${meta.name} ${count}</span>`;
+    })
+    .join("");
+}
+
+function updateLevelHud() {
+  if (!levelHudEl) return;
+  const level = getCurrentLevel();
+  levelHudEl.innerHTML = `<span class="level-chip">Уровень ${currentLevelIndex + 1}/10: ${level.name}</span>${getRosterHtml(level)}`;
+}
+
+function hideCampaignOverlay() {
+  if (!campaignOverlayEl) return;
+  campaignOverlayEl.classList.remove("is-visible");
+  campaignOverlayEl.innerHTML = "";
+}
+
+function showCampaignMenu() {
+  gameState = "menu";
+  if (!campaignOverlayEl) return;
+
+  const cards = campaignLevels
+    .map((level, index) => {
+      const total = getLevelTotalCount(level);
+      const rosterText = Object.entries(level.roster)
+        .map(([kind, count]) => `${enemyMeta[kind]?.name ?? kind} ${count}`)
+        .join(", ");
+      return `<button class="level-card" type="button" data-level="${index}">
+        <span class="level-card__number">${index + 1}</span>
+        <span class="level-card__name">${level.name}</span>
+        <span class="level-card__meta">${total} врагов: ${rosterText}</span>
+      </button>`;
+    })
+    .join("");
+
+  campaignOverlayEl.innerHTML = `<section class="campaign-panel">
+    <p class="campaign-kicker">Кампания</p>
+    <h1 class="campaign-title">10 арен</h1>
+    <p class="campaign-copy">Выбери уровень. Сверху в бою будет показан полный состав монстров уровня, как счетчик перед раундом.</p>
+    <div class="level-grid">${cards}</div>
+  </section>`;
+  campaignOverlayEl.classList.add("is-visible");
+}
+
+function showLevelComplete() {
+  gameState = "complete";
+  if (!campaignOverlayEl) return;
+
+  const isLastLevel = currentLevelIndex >= campaignLevels.length - 1;
+  campaignOverlayEl.innerHTML = `<section class="campaign-panel">
+    <p class="campaign-kicker">Уровень очищен</p>
+    <h1 class="campaign-title">${getCurrentLevel().name}</h1>
+    <p class="campaign-copy">Время: ${actionTime.toFixed(2)}s. Можно переиграть, перейти дальше или выбрать другой уровень.</p>
+    <div class="campaign-actions">
+      <button class="campaign-button" type="button" data-action="restart">Повторить</button>
+      ${isLastLevel ? "" : `<button class="campaign-button" type="button" data-action="next">Следующий</button>`}
+      <button class="campaign-button is-secondary" type="button" data-action="menu">К выбору уровня</button>
+    </div>
+  </section>`;
+  campaignOverlayEl.classList.add("is-visible");
+}
+
+function startLevel(index) {
+  currentLevelIndex = clamp(index, 0, campaignLevels.length - 1);
+  resetGame();
+}
+
+function checkLevelComplete() {
+  if (levelCompleted || player.dead) return;
+  if (levelSpawnQueue.length > 0 || spawnMarkers.length > 0 || enemies.length > 0 || enemySeeds.length > 0) return;
+
+  levelCompleted = true;
+  showLevelComplete();
+}
+
 function updateUi() {
+  updateLevelHud();
   const selected = getSelectedAbilityState();
   const selectedAbility = selected.ability;
   abilityNameEl.textContent =
@@ -4109,8 +4332,26 @@ window.addEventListener("keydown", handleKeyDown);
 window.addEventListener("pointerup", endDrag);
 window.addEventListener("pointercancel", endDrag);
 window.addEventListener("resize", resize);
+campaignOverlayEl?.addEventListener("click", (event) => {
+  const levelButton = event.target.closest("[data-level]");
+  if (levelButton) {
+    startLevel(Number(levelButton.dataset.level));
+    return;
+  }
+
+  const actionButton = event.target.closest("[data-action]");
+  if (!actionButton) return;
+
+  if (actionButton.dataset.action === "restart") {
+    startLevel(currentLevelIndex);
+  } else if (actionButton.dataset.action === "next") {
+    startLevel(currentLevelIndex + 1);
+  } else if (actionButton.dataset.action === "menu") {
+    showCampaignMenu();
+  }
+});
 
 resize();
-scheduleNextSpawn(true);
+showCampaignMenu();
 updateUi();
 requestAnimationFrame(tick);
