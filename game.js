@@ -59,6 +59,7 @@ const SPLITTER_CHILD_LIMIT = 8;
 const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
 const COMMANDER_HP = 3;
+const COMMANDER_AURA_RADIUS = 76 * 4;
 const COMMANDER_SPEED_MULTIPLIER = 1.45;
 const MEDIC_HP = 3;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
@@ -303,6 +304,7 @@ const campaignLevels = [
     minEnemies: 30,
     maxEnemies: 5,
     spawnInterval: [1.45, 2.5],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Фиолетовый дождь",
@@ -310,48 +312,56 @@ const campaignLevels = [
     minEnemies: 35,
     maxEnemies: 5,
     spawnInterval: [1.35, 2.35],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Минное поле",
     roster: { mine: 5, bomber: 3, shield: 3, laser: 3 },
     maxEnemies: 6,
     spawnInterval: [1.25, 2.2],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Тяжелые",
     roster: { brute: 4, bomber: 3, shield: 4, heal: 2, medic: 2 },
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Дальняя линия",
     roster: { sniper: 4, mirror: 3, laser: 4, spray: 3, splitter: 3 },
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Сад",
     roster: { commander: 2, grower: 4, slow: 2, shield: 3, laser: 3 },
     maxEnemies: 6,
     spawnInterval: [1.35, 2.4],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Обманки",
     roster: { trickster: 5, splitter: 4, spray: 4, sniper: 2 },
     maxEnemies: 6,
     spawnInterval: [1.2, 2.15],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Размножение",
     roster: { commander: 3, medic: 3, replicator: 3, grower: 3, mine: 4, slow: 2 },
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Финальная смесь",
     roster: { commander: 3, medic: 3, mirror: 4, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
 ];
 
@@ -1238,7 +1248,10 @@ function getEnemyCommandMultiplier(enemy = null) {
     (candidate) =>
       candidate.kind === "commander" &&
       !candidate.isIllusion &&
-      (!enemy || candidate.id !== enemy.id)
+      (!enemy || (
+        candidate.id !== enemy.id &&
+        Math.hypot(candidate.x - enemy.x, candidate.y - enemy.y) <= COMMANDER_AURA_RADIUS
+      ))
   );
   return hasCommander ? COMMANDER_SPEED_MULTIPLIER : 1;
 }
@@ -4918,7 +4931,7 @@ function drawEnemies() {
       ctx.lineWidth = 2;
       ctx.setLineDash([7, 7]);
       ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, 76 + pulse * 7, 0, Math.PI * 2);
+      ctx.arc(enemy.x, enemy.y, COMMANDER_AURA_RADIUS + pulse * 7, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
