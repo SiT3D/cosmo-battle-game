@@ -28,6 +28,7 @@ const PLAYER_TRAJECTORY_STEP_TIME = 1 / 30;
 const PLAYER_TURN_BRAKE_ANGLE = Math.PI * 0.55;
 const PLAYER_TURN_MIN_SPEED_FACTOR = 0.22;
 const ENEMY_SIZE = 22;
+const DEFAULT_ENEMY_HP = 2;
 const ENEMY_DASH_SPEED = 816;
 const ENEMY_MOVE_STOP_DISTANCE = 10;
 const ENEMY_MOVE_ACCELERATION = 632;
@@ -44,9 +45,9 @@ const SPROUTLING_CHASE_ACCELERATION = 520;
 const SPLITTER_CHILD_LIMIT = 8;
 const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
-const COMMANDER_HP = 2;
+const COMMANDER_HP = 3;
 const COMMANDER_SPEED_MULTIPLIER = 1.45;
-const MEDIC_HP = 2;
+const MEDIC_HP = 3;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
 const MEDIC_SUPPORT_RANGE = 210;
 const ENEMY_MAX_COUNT = 8;
@@ -127,9 +128,17 @@ const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
 const PLAYER_DECOY_PASSIVE_TOTAL = 3;
 const PLAYER_DECOY_PASSIVE_INTERVAL = 5;
+const PLAYER_MIRROR_PASSIVE_DURATION = 10;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
+const STOLEN_SPLITTER_CHARGES = 3;
+const SPLITTER_PROJECTILE_COUNT = 3;
+const SPLITTER_PROJECTILE_SPEED = 360;
+const SPLITTER_PROJECTILE_LIFETIME = 3.4;
+const SPLITTER_PROJECTILE_RADIUS = 7;
+const SPLITTER_PROJECTILE_AMPLITUDE = 34;
+const SPLITTER_PROJECTILE_FREQUENCY = 8.2;
 const MINE_LIFETIME = 30;
 const MINE_RADIUS = 12;
 const REPLICATOR_CLONE_TIME = 10;
@@ -151,7 +160,10 @@ const player = {
   restingFor: 0,
   hp: 3,
   maxHp: 3,
-  power: 1,
+  xp: 0,
+  xpLevel: 1,
+  xpNext: 6,
+  upgrades: null,
   hitFlash: 0,
   hitShake: 0,
   hitInvuln: 0,
@@ -208,6 +220,11 @@ const abilities = {
   blast: {
     key: "blast",
     name: "Взрыв",
+    hint: "Click",
+  },
+  splitter: {
+    key: "splitter",
+    name: "Зигзаг",
     hint: "Click",
   },
 };
@@ -297,6 +314,123 @@ const campaignLevels = [
   },
 ];
 
+function createPlayerUpgrades() {
+  return {
+    hookRangeMultiplier: 1,
+    hookCooldownMultiplier: 1,
+    laserRangeMultiplier: 1,
+    blastRangeMultiplier: 1,
+    decoyRangeMultiplier: 1,
+    shieldCooldownMultiplier: 1,
+    baseCooldownMultiplier: 1,
+    enemySpeedMultiplier: 1,
+    enemySpawnIntervalMultiplier: 1,
+    enemyHpPenalty: 0,
+  };
+}
+
+function getPlayerUpgrades() {
+  if (!player.upgrades) {
+    player.upgrades = createPlayerUpgrades();
+  }
+  return player.upgrades;
+}
+
+const upgradeCards = [
+  {
+    id: "hook_range",
+    title: "Длинный хук",
+    text: "Дальность хука +18%",
+    apply: () => {
+      player.upgrades.hookRangeMultiplier *= 1.18;
+    },
+  },
+  {
+    id: "hook_cooldown",
+    title: "Быстрый хук",
+    text: "Кулдаун хука -15%",
+    apply: () => {
+      player.upgrades.hookCooldownMultiplier *= 0.85;
+      playerHookCooldown *= 0.85;
+    },
+  },
+  {
+    id: "laser_range",
+    title: "Фокус линзы",
+    text: "Дальность лазера +20%",
+    apply: () => {
+      player.upgrades.laserRangeMultiplier *= 1.2;
+    },
+  },
+  {
+    id: "blast_range",
+    title: "Широкая волна",
+    text: "Дальность взрыва +18%",
+    apply: () => {
+      player.upgrades.blastRangeMultiplier *= 1.18;
+    },
+  },
+  {
+    id: "sidearm_reload",
+    title: "Легкий затвор",
+    text: "Перезарядка пушки -15%",
+    apply: () => {
+      player.upgrades.baseCooldownMultiplier *= 0.85;
+      playerBaseGunCooldowns = playerBaseGunCooldowns.map((cooldown) => cooldown * 0.85);
+    },
+  },
+  {
+    id: "shield_reload",
+    title: "Плотный щит",
+    text: "Кулдаун щита -15%",
+    apply: () => {
+      player.upgrades.shieldCooldownMultiplier *= 0.85;
+      playerShieldCooldown *= 0.85;
+    },
+  },
+  {
+    id: "decoy_range",
+    title: "Дальний маяк",
+    text: "Дальность приманки +20%",
+    apply: () => {
+      player.upgrades.decoyRangeMultiplier *= 1.2;
+    },
+  },
+  {
+    id: "max_hp",
+    title: "Корпус",
+    text: "Максимальное HP +1 и лечение на 1",
+    apply: () => {
+      player.maxHp += 1;
+      player.hp = Math.min(player.maxHp, player.hp + 1);
+    },
+  },
+  {
+    id: "enemy_slow",
+    title: "Сбой двигателей",
+    text: "Враги действуют на 8% медленнее",
+    apply: () => {
+      player.upgrades.enemySpeedMultiplier *= 0.92;
+    },
+  },
+  {
+    id: "enemy_spawn",
+    title: "Помехи порталам",
+    text: "Новые враги появляются на 10% реже",
+    apply: () => {
+      player.upgrades.enemySpawnIntervalMultiplier *= 1.1;
+    },
+  },
+  {
+    id: "enemy_armor",
+    title: "Хрупкая броня",
+    text: "Новые крепкие враги получают -1 HP",
+    apply: () => {
+      player.upgrades.enemyHpPenalty += 1;
+    },
+  },
+];
+
 let worldTime = 0;
 let actionTime = 0;
 let lastFrame = performance.now();
@@ -306,6 +440,7 @@ const enemies = [];
 const spawnMarkers = [];
 const laserProjectiles = [];
 const baseProjectiles = [];
+const zigzagProjectiles = [];
 const blastWaves = [];
 const beamEffects = [];
 const enemySeeds = [];
@@ -328,6 +463,7 @@ let activePlayerShield = null;
 const activePlayerDecoys = [];
 let playerDecoyPassive = null;
 let playerMinePassive = null;
+let playerMirrorPassive = null;
 let playerAbilityCapacity = 1;
 let playerShieldCooldown = 0;
 let playerHookCooldown = 0;
@@ -342,6 +478,7 @@ let gameState = "menu";
 let currentLevelIndex = 0;
 let levelSpawnQueue = [];
 let levelCompleted = false;
+let pendingUpgradeChoices = [];
 
 function resize() {
   const rect = canvas.getBoundingClientRect();
@@ -410,7 +547,8 @@ function getEnemyMaxCount() {
 
 function getSpawnInterval() {
   const interval = getCurrentLevel()?.spawnInterval ?? ENEMY_SPAWN_INTERVAL;
-  return interval.map((delay) => delay * ENEMY_SPAWN_INTERVAL_MULTIPLIER);
+  const upgradeMultiplier = getPlayerUpgrades().enemySpawnIntervalMultiplier;
+  return interval.map((delay) => delay * ENEMY_SPAWN_INTERVAL_MULTIPLIER * upgradeMultiplier);
 }
 
 function getAutoRosterKinds(level = getCurrentLevel()) {
@@ -483,19 +621,19 @@ function getCellSize() {
 }
 
 function getHookRange() {
-  return getCellSize() * HOOK_RANGE_CELLS;
+  return getCellSize() * HOOK_RANGE_CELLS * getPlayerUpgrades().hookRangeMultiplier;
 }
 
 function getLaserRange() {
-  return getCellSize() * LASER_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.24);
+  return getCellSize() * LASER_RANGE_CELLS * getPlayerUpgrades().laserRangeMultiplier;
 }
 
 function getBlastRange() {
-  return getCellSize() * BLAST_RANGE_CELLS * (1 + Math.max(0, player.power - 1) * 0.16);
+  return getCellSize() * BLAST_RANGE_CELLS * getPlayerUpgrades().blastRangeMultiplier;
 }
 
 function getDecoyRange() {
-  return getCellSize() * DECOY_RANGE_CELLS;
+  return getCellSize() * DECOY_RANGE_CELLS * getPlayerUpgrades().decoyRangeMultiplier;
 }
 
 function getArenaProjectileReach() {
@@ -672,7 +810,7 @@ function update(dt) {
   updatePlayerSpray(simDt);
   updateBaseProjectiles(simDt);
   updateEnemySpawns(simDt);
-  updateEnemies(simDt);
+  updateEnemies(simDt * getPlayerUpgrades().enemySpeedMultiplier);
   if (player.dead) {
     updateUi();
     return;
@@ -680,8 +818,10 @@ function update(dt) {
   updateEnemySeeds(simDt);
   updatePlayerMinePassive(simDt);
   updatePlayerDecoyPassive(simDt);
+  updatePlayerMirrorPassive(simDt);
   updatePlayerShield(simDt);
   updatePlayerDecoy(simDt);
+  updateZigzagProjectiles(simDt);
   updateBlastWaves(simDt);
   if (player.dead) {
     updateUi();
@@ -1510,8 +1650,8 @@ function createEnemy(kind, x, y) {
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : 1,
-    maxHp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : 1,
+    hp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    maxHp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
     renderWidth: isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     renderHeight: isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
@@ -1525,6 +1665,8 @@ function createEnemy(kind, x, y) {
             ? abilities.spray
           : kind === "bomber"
             ? abilities.blast
+          : kind === "splitter"
+            ? abilities.splitter
             : kind === "grower"
               ? abilities.missiles
             : kind === "slow"
@@ -1541,6 +1683,8 @@ function createEnemy(kind, x, y) {
             ? STOLEN_ABILITY_CHARGES
             : kind === "bomber"
               ? STOLEN_BOMBER_BLAST_CHARGES
+            : kind === "splitter"
+              ? STOLEN_SPLITTER_CHARGES
             : kind === "grower"
               ? STOLEN_MISSILE_CHARGES
             : kind === "slow"
@@ -1558,6 +1702,10 @@ function createEnemy(kind, x, y) {
     mirrorReady: kind === "mirror",
     turnShotLocked: false,
   };
+
+  const hpPenalty = getPlayerUpgrades().enemyHpPenalty;
+  enemy.hp = Math.max(DEFAULT_ENEMY_HP, enemy.hp - hpPenalty);
+  enemy.maxHp = Math.max(DEFAULT_ENEMY_HP, enemy.maxHp - hpPenalty);
 
   return enemy;
 }
@@ -1781,6 +1929,7 @@ function getAbilityIconKey(abilityKey) {
   if (abilityKey === abilities.missiles.key) return "R";
   if (abilityKey === abilities.spray.key) return "V";
   if (abilityKey === abilities.blast.key) return "B";
+  if (abilityKey === abilities.splitter.key) return "Z";
   return "L";
 }
 
@@ -1788,18 +1937,30 @@ function getAbilityCooldownState(abilityKey) {
   if (abilityKey === abilities.hook.key && playerHookCooldown > 0) {
     return {
       remaining: playerHookCooldown,
-      duration: HOOK_COOLDOWN,
+      duration: getHookCooldown(),
     };
   }
 
   if (abilityKey === abilities.shield.key && playerShieldCooldown > 0) {
     return {
       remaining: playerShieldCooldown,
-      duration: SHIELD_COOLDOWN,
+      duration: getShieldCooldown(),
     };
   }
 
   return null;
+}
+
+function getHookCooldown() {
+  return HOOK_COOLDOWN * getPlayerUpgrades().hookCooldownMultiplier;
+}
+
+function getShieldCooldown() {
+  return SHIELD_COOLDOWN * getPlayerUpgrades().shieldCooldownMultiplier;
+}
+
+function getBaseGunCooldown() {
+  return BASE_GUN_COOLDOWN * getPlayerUpgrades().baseCooldownMultiplier;
 }
 
 function getReadyBaseGunCharges() {
@@ -1820,7 +1981,7 @@ function getNextBaseGunCooldown() {
 function consumeBaseGunCharge() {
   const slotIndex = playerBaseGunCooldowns.findIndex((cooldown) => cooldown <= 0);
   if (slotIndex === -1) return false;
-  playerBaseGunCooldowns[slotIndex] = BASE_GUN_COOLDOWN;
+  playerBaseGunCooldowns[slotIndex] = getBaseGunCooldown();
   return true;
 }
 
@@ -1923,7 +2084,7 @@ function stealEnemyAbility(enemy) {
     return;
   }
 
-  player.power = clamp(player.power + enemy.power * 0.35, 1, 4);
+  addPlayerXp(getEnemyXpValue(enemy));
   if (enemy.kind === "heal" || enemy.kind === "medic") {
     player.hp = Math.min(player.maxHp, player.hp + 1);
   } else if (enemy.kind === "replicator") {
@@ -1933,6 +2094,8 @@ function stealEnemyAbility(enemy) {
     activatePlayerDecoyPassive();
   } else if (enemy.kind === "mine") {
     activatePlayerMinePassive();
+  } else if (enemy.kind === "mirror") {
+    activatePlayerMirrorPassive();
   } else if (enemy.ability) {
     if (currentAbility.key === abilities.hook.key) {
       setCurrentAbility(enemy.ability, enemy.abilityCharges);
@@ -2033,7 +2196,7 @@ function useShieldAbility() {
     duration: PLAYER_SHIELD_TIME,
     radius: getShieldRadius(),
   };
-  playerShieldCooldown = SHIELD_COOLDOWN;
+  playerShieldCooldown = getShieldCooldown();
   consumeAbilityCharge(selected.slot);
   return true;
 }
@@ -2149,6 +2312,44 @@ function useMissilesAbility(targetPoint = aimPoint) {
   return true;
 }
 
+function useSplitterAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const baseAngle = Math.atan2(dy, dx);
+  for (let index = 0; index < SPLITTER_PROJECTILE_COUNT; index += 1) {
+    const spread = (index - 1) * 0.16;
+    const angle = baseAngle + spread;
+    zigzagProjectiles.push({
+      x: player.x,
+      y: player.y,
+      prevX: player.x,
+      prevY: player.y,
+      baseX: player.x,
+      baseY: player.y,
+      dirX: Math.cos(angle),
+      dirY: Math.sin(angle),
+      perpX: -Math.sin(angle),
+      perpY: Math.cos(angle),
+      distance: 0,
+      speed: SPLITTER_PROJECTILE_SPEED,
+      ttl: SPLITTER_PROJECTILE_LIFETIME,
+      life: SPLITTER_PROJECTILE_LIFETIME,
+      radius: SPLITTER_PROJECTILE_RADIUS,
+      amplitude: SPLITTER_PROJECTILE_AMPLITUDE * (0.72 + index * 0.22),
+      frequency: SPLITTER_PROJECTILE_FREQUENCY * (0.88 + index * 0.14),
+      phase: index * Math.PI * 0.72,
+      hitEnemyIds: new Set(),
+    });
+  }
+
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
 function useHookAbility() {
   if (playerHookCooldown > 0) return false;
   const target = findNearestHookTarget();
@@ -2167,7 +2368,7 @@ function useHookAbility() {
   target.moveTarget = null;
   target.phase = null;
   target.phaseTimer = 0;
-  playerHookCooldown = HOOK_COOLDOWN;
+  playerHookCooldown = getHookCooldown();
   return true;
 }
 
@@ -2200,6 +2401,13 @@ function activatePlayerDecoyPassive() {
     remaining: PLAYER_DECOY_PASSIVE_TOTAL,
     timer: PLAYER_DECOY_PASSIVE_INTERVAL,
     interval: PLAYER_DECOY_PASSIVE_INTERVAL,
+  };
+}
+
+function activatePlayerMirrorPassive() {
+  playerMirrorPassive = {
+    timer: PLAYER_MIRROR_PASSIVE_DURATION,
+    duration: PLAYER_MIRROR_PASSIVE_DURATION,
   };
 }
 
@@ -2266,6 +2474,15 @@ function updatePlayerDecoyPassive(dt) {
   }
 }
 
+function updatePlayerMirrorPassive(dt) {
+  if (!playerMirrorPassive) return;
+
+  playerMirrorPassive.timer -= dt;
+  if (playerMirrorPassive.timer <= 0) {
+    playerMirrorPassive = null;
+  }
+}
+
 function tryUseAbilityFromClick(point) {
   if (player.dead) return false;
   if (
@@ -2307,6 +2524,10 @@ function tryUseAbilityFromClick(point) {
 
   if (selectedAbility.key === abilities.missiles.key) {
     return useMissilesAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.splitter.key) {
+    return useSplitterAbility(point);
   }
 
   if (selectedAbility.key === abilities.laser.key) {
@@ -2515,6 +2736,10 @@ function updateBaseProjectiles(dt) {
       const hitDistance = player.size * 0.5 + projectile.radius;
       const distanceToPlayer = Math.hypot(projectile.x - player.x, projectile.y - player.y);
       if (distanceToPlayer <= hitDistance) {
+        if (reflectProjectileFromPlayerMirror(projectile, "base")) {
+          baseProjectiles.splice(index, 1);
+          continue;
+        }
         applyPlayerHit();
         baseProjectiles.splice(index, 1);
       }
@@ -2538,6 +2763,53 @@ function updateBaseProjectiles(dt) {
 
     damageEnemy(hitEnemy, 1);
     baseProjectiles.splice(index, 1);
+  }
+}
+
+function updateZigzagProjectiles(dt) {
+  for (let index = zigzagProjectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = zigzagProjectiles[index];
+    projectile.ttl -= dt;
+    if (projectile.ttl <= 0) {
+      zigzagProjectiles.splice(index, 1);
+      continue;
+    }
+
+    projectile.distance += projectile.speed * dt;
+    projectile.prevX = projectile.x;
+    projectile.prevY = projectile.y;
+    const wave = Math.sin(projectile.distance * 0.035 * projectile.frequency + projectile.phase) * projectile.amplitude;
+    projectile.x = projectile.baseX + projectile.dirX * projectile.distance + projectile.perpX * wave;
+    projectile.y = projectile.baseY + projectile.dirY * projectile.distance + projectile.perpY * wave;
+
+    if (
+      projectile.x < ARENA.x - 40 ||
+      projectile.x > ARENA.x + ARENA.width + 40 ||
+      projectile.y < ARENA.y - 40 ||
+      projectile.y > ARENA.y + ARENA.height + 40
+    ) {
+      zigzagProjectiles.splice(index, 1);
+      continue;
+    }
+
+    for (const enemy of enemies) {
+      if (projectile.hitEnemyIds.has(enemy.id) || enemy.isIllusion) continue;
+      const distance = Math.hypot(enemy.x - projectile.x, enemy.y - projectile.y);
+      if (distance > enemy.size * 0.65 + projectile.radius) continue;
+
+      damageEnemy(enemy, 1);
+      projectile.hitEnemyIds.add(enemy.id);
+      spawnImpactBurst(projectile.x, projectile.y, {
+        count: 8,
+        speedMin: 70,
+        speedMax: 180,
+        lifeMin: 0.12,
+        lifeMax: 0.24,
+        sizeMin: 2,
+        sizeMax: 5,
+      });
+      break;
+    }
   }
 }
 
@@ -3058,6 +3330,55 @@ function reflectProjectileFromMirror(enemy, projectile, type = "laser") {
   return true;
 }
 
+function reflectProjectileFromPlayerMirror(projectile, type = "laser") {
+  if (!playerMirrorPassive || projectile.owner !== "enemy") return false;
+
+  const dx = projectile.x - player.x;
+  const dy = projectile.y - player.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+
+  spawnImpactBurst(player.x, player.y, {
+    count: 10,
+    speedMin: 90,
+    speedMax: 210,
+    lifeMin: 0.12,
+    lifeMax: 0.24,
+    sizeMin: 2,
+    sizeMax: 5,
+  });
+
+  if (type === "base") {
+    baseProjectiles.push({
+      owner: "player",
+      x: player.x + dirX * (player.size * 0.72),
+      y: player.y + dirY * (player.size * 0.72),
+      vx: dirX * BASE_GUN_PROJECTILE_SPEED,
+      vy: dirY * BASE_GUN_PROJECTILE_SPEED,
+      radius: BASE_GUN_PROJECTILE_RADIUS,
+      ttl: BASE_GUN_PROJECTILE_LIFETIME,
+      life: BASE_GUN_PROJECTILE_LIFETIME,
+      color: "rgba(201, 243, 255, 0.94)",
+      innerColor: "rgba(255, 255, 255, 0.96)",
+    });
+    return true;
+  }
+
+  spawnLaserProjectile({
+    owner: "player",
+    x: player.x + dirX * (player.size * 0.72),
+    y: player.y + dirY * (player.size * 0.72),
+    dirX,
+    dirY,
+    range: getLaserRange(),
+    color: "rgba(201, 243, 255, 0.94)",
+    width: LASER_PROJECTILE_WIDTH,
+    speed: LASER_PROJECTILE_SPEED * PLAYER_STOLEN_LASER_SPEED_MULTIPLIER,
+  });
+  return true;
+}
+
 function updateLaserProjectiles(dt) {
   for (let index = laserProjectiles.length - 1; index >= 0; index -= 1) {
     const projectile = laserProjectiles[index];
@@ -3131,6 +3452,10 @@ function hitEnemyProjectileTarget(projectile) {
     return true;
   }
 
+  if (reflectProjectileFromPlayerMirror(projectile, "laser")) {
+    return true;
+  }
+
   applyPlayerHit();
   return true;
 }
@@ -3171,11 +3496,13 @@ function startDeathSequence() {
   activePlayerShield = null;
   activePlayerDecoys.length = 0;
   playerDecoyPassive = null;
+  playerMirrorPassive = null;
   baseProjectiles.length = 0;
   blastWaves.length = 0;
   beamEffects.length = 0;
   enemySeeds.length = 0;
   homingMissiles.length = 0;
+  zigzagProjectiles.length = 0;
   playerMinePassive = null;
   playerAbilityCapacity = 1;
   reserveAbility = null;
@@ -3218,6 +3545,7 @@ function resetGame() {
   gameState = "playing";
   levelCompleted = false;
   levelSpawnQueue = buildLevelSpawnQueue(level);
+  pendingUpgradeChoices = [];
   simulationWasActive = false;
   currentTimeScale = INACTIVE_TIME_SCALE;
   enemyId = 0;
@@ -3230,6 +3558,7 @@ function resetGame() {
   impactBursts.length = 0;
   deathExplosion = null;
 
+  player.maxHp = 3;
   player.hp = player.maxHp;
   player.vx = 0;
   player.vy = 0;
@@ -3238,7 +3567,10 @@ function resetGame() {
   player.launched = false;
   player.restingFor = 0;
   player.moveTarget = null;
-  player.power = 1;
+  player.xp = 0;
+  player.xpLevel = 1;
+  player.xpNext = getXpNextForLevel(player.xpLevel);
+  player.upgrades = createPlayerUpgrades();
   player.hitFlash = 1;
   player.hitShake = 1.15;
   player.hitInvuln = 0.45;
@@ -3252,11 +3584,13 @@ function resetGame() {
   activePlayerShield = null;
   activePlayerDecoys.length = 0;
   playerDecoyPassive = null;
+  playerMirrorPassive = null;
   baseProjectiles.length = 0;
   blastWaves.length = 0;
   beamEffects.length = 0;
   enemySeeds.length = 0;
   homingMissiles.length = 0;
+  zigzagProjectiles.length = 0;
   playerMinePassive = null;
   playerAbilityCapacity = 1;
   reserveAbility = null;
@@ -3349,6 +3683,31 @@ function removeEnemy(id) {
   enemies.splice(index, 1);
 }
 
+function getEnemyXpValue(enemy) {
+  if (!enemy || enemy.isIllusion) return 0;
+  if (enemy.kind === "brute" || enemy.kind === "commander" || enemy.kind === "medic") return 2;
+  if (enemy.kind === "splitter_child" || enemy.kind === "sproutling") return 1;
+  return 1;
+}
+
+function getXpNextForLevel(level) {
+  return 6 + Math.max(0, level - 1) * 3;
+}
+
+function addPlayerXp(amount) {
+  if (amount <= 0 || player.dead || levelCompleted) return;
+
+  player.xp += amount;
+  if (gameState !== "playing") return;
+
+  if (player.xp >= player.xpNext) {
+    player.xp -= player.xpNext;
+    player.xpLevel += 1;
+    player.xpNext = getXpNextForLevel(player.xpLevel);
+    showUpgradeChoices();
+  }
+}
+
 function killEnemy(enemy, { explode = true } = {}) {
   if (!enemy) return false;
 
@@ -3371,6 +3730,7 @@ function killEnemy(enemy, { explode = true } = {}) {
     });
   }
 
+  addPlayerXp(getEnemyXpValue(enemy));
   removeEnemy(enemy.id);
   return true;
 }
@@ -3435,6 +3795,52 @@ function updateLevelHud() {
   levelHudEl.innerHTML = `<span class="level-chip">Уровень ${currentLevelIndex + 1}/10: ${level.name} | Осталось ${remainingCount}/${totalCount}</span>${getRosterHtml(level, remainingRoster)}`;
 }
 
+function getUpgradeChoices() {
+  const pool = shuffleList(upgradeCards);
+  return pool.slice(0, Math.min(3, pool.length));
+}
+
+function showUpgradeChoices() {
+  gameState = "upgrade";
+  pendingUpgradeChoices = getUpgradeChoices();
+  if (!campaignOverlayEl) return;
+
+  const cards = pendingUpgradeChoices
+    .map((card) => `<button class="upgrade-card" type="button" data-upgrade="${card.id}">
+      <span class="upgrade-card__title">${card.title}</span>
+      <span class="upgrade-card__text">${card.text}</span>
+    </button>`)
+    .join("");
+
+  campaignOverlayEl.innerHTML = `<section class="campaign-panel upgrade-panel">
+    <p class="campaign-kicker">Новый уровень</p>
+    <h1 class="campaign-title">Опыт ${player.xpLevel}</h1>
+    <p class="campaign-copy">Выбери одно улучшение. Игра продолжится сразу после выбора.</p>
+    <div class="upgrade-grid">${cards}</div>
+  </section>`;
+  campaignOverlayEl.classList.add("is-visible");
+}
+
+function chooseUpgrade(id) {
+  const card = pendingUpgradeChoices.find((choice) => choice.id === id);
+  if (!card) return;
+
+  card.apply();
+  pendingUpgradeChoices = [];
+
+  if (player.xp >= player.xpNext) {
+    player.xp -= player.xpNext;
+    player.xpLevel += 1;
+    player.xpNext = getXpNextForLevel(player.xpLevel);
+    showUpgradeChoices();
+    return;
+  }
+
+  gameState = "playing";
+  hideCampaignOverlay();
+  scheduleNextSpawn();
+}
+
 function hideCampaignOverlay() {
   if (!campaignOverlayEl) return;
   campaignOverlayEl.classList.remove("is-visible");
@@ -3492,7 +3898,7 @@ function startLevel(index) {
 }
 
 function checkLevelComplete() {
-  if (levelCompleted || player.dead) return;
+  if (levelCompleted || player.dead || gameState !== "playing") return;
   if (levelSpawnQueue.length > 0 || spawnMarkers.length > 0 || enemies.length > 0 || enemySeeds.length > 0) return;
 
   levelCompleted = true;
@@ -3532,9 +3938,10 @@ function updateUi() {
   }
   abilityIconEl.textContent = getAbilityIconKey(selectedAbility.key);
   hpLabelEl.textContent = `HP ${player.hp}/${player.maxHp}`;
+  const xpText = `XP ${player.xp}/${player.xpNext} | Ур.${player.xpLevel}`;
   powerLabelEl.textContent = playerMinePassive
-    ? `Сила x${player.power.toFixed(1)} | Мины ${playerMinePassive.remaining}`
-    : `Сила x${player.power.toFixed(1)}`;
+    ? `${xpText} | Мины ${playerMinePassive.remaining}`
+    : xpText;
   timeLabelEl.textContent = `${actionTime.toFixed(2)}s`;
   const abilityTiles = [
     {
@@ -3615,6 +4022,11 @@ function updateUi() {
   if (playerDecoyPassive) {
     passiveChips.push(
       `<div class="passive-chip"><span class="passive-chip__icon">D</span><span class="passive-chip__text">Приманки ${playerDecoyPassive.remaining}/3</span></div>`
+    );
+  }
+  if (playerMirrorPassive) {
+    passiveChips.push(
+      `<div class="passive-chip"><span class="passive-chip__icon">R</span><span class="passive-chip__text">Зеркало ${playerMirrorPassive.timer.toFixed(1)}s</span></div>`
     );
   }
   if (playerAbilityCapacity > 1) {
@@ -4524,6 +4936,34 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
+  if (playerMirrorPassive) {
+    const mirrorProgress = clamp(playerMirrorPassive.timer / playerMirrorPassive.duration, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 10);
+    const radius = player.size * (0.9 + pulse * 0.08);
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(201, 243, 255, ${0.24 + mirrorProgress * 0.5})`;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 7]);
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, radius + 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.22 + mirrorProgress * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(
+      player.x,
+      player.y,
+      radius + 17,
+      -Math.PI * 0.5,
+      -Math.PI * 0.5 + Math.PI * 2 * mirrorProgress
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
   if (activeHook) {
     ctx.save();
     ctx.strokeStyle = "rgba(255, 209, 102, 0.92)";
@@ -4780,6 +5220,30 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
+  for (const projectile of zigzagProjectiles) {
+    const life = clamp(projectile.ttl / projectile.life, 0, 1);
+    const angle = Math.atan2(projectile.dirY, projectile.dirX);
+
+    ctx.save();
+    ctx.translate(projectile.x, projectile.y);
+    ctx.rotate(angle + Math.PI * 0.25);
+    ctx.fillStyle = `rgba(78, 230, 168, ${0.22 + life * 0.62})`;
+    ctx.fillRect(-projectile.radius, -projectile.radius, projectile.radius * 2, projectile.radius * 2);
+    ctx.strokeStyle = `rgba(224, 255, 242, ${0.28 + life * 0.62})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-projectile.radius, -projectile.radius, projectile.radius * 2, projectile.radius * 2);
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(201, 243, 255, ${0.1 + life * 0.24})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(projectile.prevX, projectile.prevY);
+    ctx.lineTo(projectile.x, projectile.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   for (const projectile of baseProjectiles) {
     const life = clamp(projectile.ttl / projectile.life, 0, 1);
     ctx.save();
@@ -4897,6 +5361,12 @@ window.addEventListener("pointerup", endDrag);
 window.addEventListener("pointercancel", endDrag);
 window.addEventListener("resize", resize);
 campaignOverlayEl?.addEventListener("click", (event) => {
+  const upgradeButton = event.target.closest("[data-upgrade]");
+  if (upgradeButton) {
+    chooseUpgrade(upgradeButton.dataset.upgrade);
+    return;
+  }
+
   const levelButton = event.target.closest("[data-level]");
   if (levelButton) {
     startLevel(Number(levelButton.dataset.level));
