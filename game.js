@@ -38,9 +38,9 @@ const ENEMY_DASH_MAX_DISTANCE = 420;
 const MIN_ENEMIES_PER_LEVEL = 50;
 const MIN_ENEMY_TYPES_PER_LEVEL = 8;
 const LEVEL1_BOSS_KIND = "level1_boss";
-const LEVEL1_BOSS_HP = 24;
+const LEVEL1_BOSS_PHASE_ONE_HP = 20;
+const LEVEL1_BOSS_PHASE_TWO_HP = 40;
 const LEVEL1_BOSS_SIZE = 52;
-const LEVEL1_BOSS_STAGE_TWO_HP = 5;
 const LEVEL1_BOSS_BOUNCE_SPEED = 210;
 const LEVEL1_BOSS_CHASE_SPEED = 155;
 const LEVEL1_BOSS_CHASE_ACCELERATION = 360;
@@ -124,6 +124,8 @@ const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
 const HOOK_COOLDOWN = 8;
 const SHIELD_RADIUS = 84;
+const PLAYER_SHIELD_BOSS_DAMAGE = 1;
+const ENEMY_TOOLTIP_DELAY = 0.55;
 const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
@@ -135,6 +137,8 @@ const STOLEN_BOMBER_BLAST_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
 const BLAST_MAX_RADIUS = 311 * 1.5;
 const BLAST_EXPAND_SPEED = 44;
+const LEVEL1_BOSS_BLAST_MAX_RADIUS = BLAST_MAX_RADIUS * 0.7;
+const LEVEL1_BOSS_BLAST_EXPAND_SPEED = BLAST_EXPAND_SPEED * 0.7;
 const BOMBER_BLAST_MAX_RADIUS = 132;
 const BOMBER_BLAST_EXPAND_SPEED = 120;
 const DECOY_DURATION = 10;
@@ -260,6 +264,28 @@ const enemyMeta = {
   medic: { name: "Медики", color: "#36f0ff", glow: "rgba(54, 240, 255, 0.55)" },
   replicator: { name: "Клоны", color: "#7de8ff", glow: "rgba(125, 232, 255, 0.5)" },
   [LEVEL1_BOSS_KIND]: { name: "Босс", color: "#ff315f", glow: "rgba(255, 49, 95, 0.62)" },
+};
+
+const enemyInfo = {
+  laser: { text: "Стреляет заряженным лучом перед рывком.", reward: `Лазер, ${STOLEN_LASER_CHARGES} зарядов.` },
+  shield: { text: "Поднимает защитную ауру и давит сближением.", reward: `Щит, ${STOLEN_SHIELD_CHARGES} заряда.` },
+  spray: { text: "Выпускает веер быстрых снарядов.", reward: `Спрей, ${STOLEN_ABILITY_CHARGES} заряда.` },
+  mine: { text: "Оставляет опасные мины на поле.", reward: "Пассив: серия мин вокруг игрока." },
+  bomber: { text: "Взрывается волной при гибели.", reward: `Взрыв, ${STOLEN_BOMBER_BLAST_CHARGES} заряда.` },
+  splitter: { text: "После смерти делится на мелкие цели.", reward: `Зигзаг, ${STOLEN_SPLITTER_CHARGES} заряда.` },
+  splitter_child: { text: "Мелкий осколок делителя.", reward: "Только опыт." },
+  commander: { text: "Ускоряет ближайших союзников.", reward: "Больше опыта." },
+  mirror: { text: "Отражает первый снаряд игрока.", reward: "Пассив: временное зеркало." },
+  brute: { text: "Крепкий враг с большим запасом HP.", reward: "Нельзя съесть хуком." },
+  sniper: { text: "Долго целится и стреляет точным выстрелом.", reward: `Снайпер, ${STOLEN_SNIPER_CHARGES} заряда.` },
+  trickster: { text: "Создает обманки рядом с собой.", reward: "Пассив: приманки рядом с игроком." },
+  grower: { text: "Сажает ростки, которые становятся врагами.", reward: `Ракеты, ${STOLEN_MISSILE_CHARGES} заряда.` },
+  sproutling: { text: "Быстрый росток садовника.", reward: "Только опыт." },
+  slow: { text: "Замедляет игрока в светлом поле.", reward: `Взрыв, ${STOLEN_BLAST_CHARGES} заряда.` },
+  heal: { text: "Слабая цель лечения.", reward: "Лечение на 1 HP и опыт." },
+  medic: { text: "Лечит и поддерживает других врагов.", reward: "Лечение на 1 HP и больше опыта." },
+  replicator: { text: "Прыгает и создает копии себя.", reward: "Второй слот способности и сброс кулдауна хука." },
+  [LEVEL1_BOSS_KIND]: { text: "Большая цель со стадиями, щитом и залпами.", reward: "Нельзя съесть хуком." },
 };
 
 const campaignLevels = [
@@ -484,6 +510,9 @@ let playerShieldCooldown = 0;
 let playerHookCooldown = 0;
 let playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
 let aimPoint = { x: 0, y: 0 };
+let pointerInCanvas = false;
+let hoveredEnemyId = null;
+let hoveredEnemyTimer = 0;
 let moveMarker = null;
 let deathResetTimer = 0;
 let deathExplosion = null;
@@ -712,10 +741,49 @@ function startDrag(event) {
 function movePointer(event) {
   if (gameState !== "playing") return;
   const point = getCanvasPoint(event);
+  pointerInCanvas = true;
   aimPoint = point;
 }
 
 function endDrag() {
+}
+
+function resetEnemyHover() {
+  hoveredEnemyId = null;
+  hoveredEnemyTimer = 0;
+}
+
+function findEnemyAtPoint(point) {
+  for (let index = enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = enemies[index];
+    const width = enemy.renderWidth || enemy.size;
+    const height = enemy.renderHeight || enemy.size;
+    const radius = Math.max(enemy.size, width, height) * 0.55;
+    const distance = Math.hypot(point.x - enemy.x, point.y - enemy.y);
+    if (distance <= radius) return enemy;
+  }
+  return null;
+}
+
+function updateEnemyHover(dt) {
+  if (!pointerInCanvas || gameState !== "playing" || player.dead) {
+    resetEnemyHover();
+    return;
+  }
+
+  const enemy = findEnemyAtPoint(aimPoint);
+  if (!enemy) {
+    resetEnemyHover();
+    return;
+  }
+
+  if (hoveredEnemyId !== enemy.id) {
+    hoveredEnemyId = enemy.id;
+    hoveredEnemyTimer = 0;
+    return;
+  }
+
+  hoveredEnemyTimer += dt;
 }
 
 function canSwitchAbilities() {
@@ -793,11 +861,13 @@ function moveToward(current, target, maxDelta) {
 
 function update(dt) {
   if (gameState !== "playing") {
+    resetEnemyHover();
     updateUi();
     return;
   }
 
   if (player.dead) {
+    resetEnemyHover();
     updateImpactBursts(dt);
     updateDeathExplosion(dt);
     deathResetTimer = Math.max(0, deathResetTimer - dt);
@@ -881,6 +951,7 @@ function update(dt) {
   player.hitFlash = Math.max(0, (player.hitFlash || 0) - simDt * 2.2);
   player.hitShake = Math.max(0, (player.hitShake || 0) - simDt * 5.5);
   updateMoveMarker(simDt);
+  updateEnemyHover(dt);
   checkLevelComplete();
   updateUi();
 }
@@ -1661,16 +1732,6 @@ function updateSlowEnemy(enemy, dt) {
 }
 
 function updateLevel1Boss(enemy, dt) {
-  if (enemy.hp <= LEVEL1_BOSS_STAGE_TWO_HP && enemy.bossStage === 1) {
-    enemy.bossStage = 2;
-    enemy.bossState = "chase";
-    enemy.bossStateTimer = 2.4;
-    enemy.bossNextSpecial = "shield";
-    enemy.vx *= 0.45;
-    enemy.vy *= 0.45;
-    spawnImpactBurst(enemy.x, enemy.y, { count: 34, speedMin: 130, speedMax: 420, lifeMin: 0.28, lifeMax: 0.58, sizeMin: 5, sizeMax: 12 });
-  }
-
   if (enemy.bossStage === 1) {
     enemy.x += enemy.vx * dt;
     enemy.y += enemy.vy * dt;
@@ -1735,7 +1796,28 @@ function updateBossChase(enemy, dt) {
 }
 
 function spawnBossCellExplosion(x, y) {
-  blastWaves.push({ owner: "enemy", x, y, radius: 8, maxRadius: getCellSize(), expandSpeed: getCellSize() * 1.8, hitEnemyIds: new Set(), hitPlayer: false });
+  blastWaves.push({
+    owner: "enemy",
+    x,
+    y,
+    radius: 6,
+    maxRadius: LEVEL1_BOSS_BLAST_MAX_RADIUS,
+    expandSpeed: LEVEL1_BOSS_BLAST_EXPAND_SPEED,
+    hitEnemyIds: new Set(),
+    hitPlayer: false,
+  });
+}
+
+function enterLevel1BossStageTwo(enemy) {
+  enemy.bossStage = 2;
+  enemy.hp = LEVEL1_BOSS_PHASE_TWO_HP;
+  enemy.maxHp = LEVEL1_BOSS_PHASE_TWO_HP;
+  enemy.bossState = "chase";
+  enemy.bossStateTimer = 2.4;
+  enemy.bossNextSpecial = "shield";
+  enemy.vx *= 0.45;
+  enemy.vy *= 0.45;
+  spawnImpactBurst(enemy.x, enemy.y, { count: 34, speedMin: 130, speedMax: 420, lifeMin: 0.28, lifeMax: 0.58, sizeMin: 5, sizeMax: 12 });
 }
 
 function fireBossRadialBurst(enemy) {
@@ -1801,8 +1883,8 @@ function createEnemy(kind, x, y) {
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isBoss ? LEVEL1_BOSS_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    maxHp: isBoss ? LEVEL1_BOSS_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    hp: isBoss ? LEVEL1_BOSS_PHASE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    maxHp: isBoss ? LEVEL1_BOSS_PHASE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
     renderWidth: isBoss ? LEVEL1_BOSS_SIZE * 1.12 : isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     renderHeight: isBoss ? LEVEL1_BOSS_SIZE * 1.12 : isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
@@ -2365,6 +2447,7 @@ function useShieldAbility() {
     timer: PLAYER_SHIELD_TIME,
     duration: PLAYER_SHIELD_TIME,
     radius: getShieldRadius(),
+    damagedBossIds: new Set(),
   };
   playerShieldCooldown = getShieldCooldown();
   consumeAbilityCharge(selected.slot);
@@ -3190,7 +3273,14 @@ function updateShieldAuras(dt) {
       const enemy = enemies[index];
       const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
       if (distance <= activePlayerShield.radius + enemy.size * 0.4) {
-        damageEnemy(enemy, enemy.hp);
+        if (isBossEnemy(enemy)) {
+          if (!activePlayerShield.damagedBossIds.has(enemy.id)) {
+            activePlayerShield.damagedBossIds.add(enemy.id);
+            damageEnemy(enemy, PLAYER_SHIELD_BOSS_DAMAGE);
+          }
+        } else {
+          damageEnemy(enemy, enemy.hp);
+        }
       }
     }
 
@@ -3957,6 +4047,10 @@ function damageEnemy(enemy, amount = 1) {
 
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
+    if (isBossEnemy(enemy) && enemy.bossStage === 1) {
+      enterLevel1BossStageTwo(enemy);
+      return false;
+    }
     return killEnemy(enemy);
   }
   return false;
@@ -4295,6 +4389,7 @@ function draw() {
     drawPlayer();
   }
   drawDragGuide();
+  drawEnemyTooltip();
 }
 
 function drawSky() {
@@ -4404,6 +4499,129 @@ function drawImpactBursts() {
     ctx.fillRect(-burst.size * 0.24, -burst.size * 0.1, burst.size * 0.48, burst.size * 0.2);
     ctx.restore();
   }
+}
+
+function wrapCanvasText(text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(testLine).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = testLine;
+    }
+  }
+
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawRoundedRectPath(x, y, width, height, radius) {
+  const safeRadius = Math.min(radius, width * 0.5, height * 0.5);
+  ctx.moveTo(x + safeRadius, y);
+  ctx.lineTo(x + width - safeRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  ctx.lineTo(x + width, y + height - safeRadius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  ctx.lineTo(x + safeRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  ctx.lineTo(x, y + safeRadius);
+  ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+}
+
+function getEnemyTooltipData(enemy) {
+  const meta = enemyMeta[enemy.kind] ?? { name: enemy.kind, color: "#ff5a5a" };
+  if (enemy.isIllusion) {
+    return {
+      title: "Иллюзия",
+      color: meta.color,
+      hp: "HP 1/1 | XP 0",
+      text: "Обманка трикстера. Исчезает при поедании.",
+      reward: "Ничего не дает.",
+    };
+  }
+
+  const info = enemyInfo[enemy.kind] ?? { text: "Обычный противник.", reward: "Только опыт." };
+  return {
+    title: meta.name,
+    color: meta.color,
+    hp: `HP ${Math.ceil(enemy.hp ?? 1)}/${Math.ceil(enemy.maxHp ?? 1)} | XP ${getEnemyXpValue(enemy)}`,
+    text: info.text,
+    reward: `При поедании: ${info.reward}`,
+  };
+}
+
+function drawEnemyTooltip() {
+  if (hoveredEnemyTimer < ENEMY_TOOLTIP_DELAY || gameState !== "playing" || player.dead) return;
+
+  const enemy = enemies.find((candidate) => candidate.id === hoveredEnemyId);
+  if (!enemy) return;
+
+  const data = getEnemyTooltipData(enemy);
+  const width = Math.min(286, Math.max(220, VIEW.width - 24));
+  const padding = 12;
+  const contentWidth = width - padding * 2;
+
+  ctx.save();
+  ctx.font = "700 15px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  const titleLine = data.title;
+  ctx.font = "700 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  const hpLine = data.hp;
+  ctx.font = "600 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  const textLines = wrapCanvasText(data.text, contentWidth);
+  const rewardLines = wrapCanvasText(data.reward, contentWidth);
+  const height = padding * 2 + 18 + 16 + textLines.length * 15 + rewardLines.length * 15 + 10;
+  let x = aimPoint.x + 18;
+  let y = aimPoint.y + 18;
+  x = clamp(x, 12, VIEW.width - width - 12);
+  if (y + height > VIEW.height - 12) y = aimPoint.y - height - 18;
+  y = clamp(y, 12, VIEW.height - height - 12);
+
+  ctx.shadowColor = "rgba(0, 0, 0, 0.32)";
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = "rgba(7, 12, 22, 0.9)";
+  ctx.beginPath();
+  drawRoundedRectPath(x, y, width, height, 8);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = data.color;
+  ctx.fillRect(x, y, 4, height);
+
+  let textY = y + padding + 13;
+  ctx.fillStyle = "rgba(246, 250, 255, 0.96)";
+  ctx.font = "700 15px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.fillText(titleLine, x + padding, textY);
+
+  textY += 17;
+  ctx.fillStyle = "rgba(205, 220, 235, 0.88)";
+  ctx.font = "700 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.fillText(hpLine, x + padding, textY);
+
+  textY += 18;
+  ctx.fillStyle = "rgba(234, 242, 250, 0.88)";
+  ctx.font = "600 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  for (const line of textLines) {
+    ctx.fillText(line, x + padding, textY);
+    textY += 15;
+  }
+
+  textY += 4;
+  ctx.fillStyle = "rgba(255, 226, 145, 0.94)";
+  for (const line of rewardLines) {
+    ctx.fillText(line, x + padding, textY);
+    textY += 15;
+  }
+
+  ctx.restore();
 }
 
 function drawDeathExplosion() {
@@ -5637,6 +5855,10 @@ function tick(now) {
 
 canvas.addEventListener("pointerdown", startDrag);
 canvas.addEventListener("pointermove", movePointer);
+canvas.addEventListener("pointerleave", () => {
+  pointerInCanvas = false;
+  resetEnemyHover();
+});
 canvas.addEventListener("wheel", handleWheel, { passive: false });
 canvas.addEventListener("contextmenu", (event) => {
   event.preventDefault();
