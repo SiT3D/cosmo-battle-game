@@ -61,7 +61,8 @@ const PLAYER_MISSILE_TURN_RATE = 7.4;
 const PLAYER_MISSILE_LIFETIME = 3.8;
 const PLAYER_MISSILE_COUNT = 3;
 const PLAYER_MISSILE_SPAWN_SPREAD = Math.PI * 0.18;
-const SPRAY_PROJECTILE_COUNT = 10;
+const ENEMY_SPRAY_PROJECTILE_COUNT = 7;
+const PLAYER_SPRAY_PROJECTILE_COUNT = 13;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
 const LASER_PROJECTILE_SPEED = 460;
@@ -951,7 +952,7 @@ function updateEnemies(dt) {
           enemy.phaseTimer = SPRAY_CHARGE_TIME;
           enemy.aimX = target.x;
           enemy.aimY = target.y;
-          enemy.shotsRemaining = SPRAY_PROJECTILE_COUNT;
+          enemy.shotsRemaining = ENEMY_SPRAY_PROJECTILE_COUNT;
           enemy.shotTimer = 0;
         } else if (enemy.kind === "sniper") {
           const target = getEnemyAggroTarget(enemy.x, enemy.y);
@@ -1665,7 +1666,7 @@ function useSprayAbility(targetPoint = aimPoint) {
     dirX: dx / distance,
     dirY: dy / distance,
     timer: PLAYER_SPRAY_CHARGE_TIME,
-    shotsRemaining: SPRAY_PROJECTILE_COUNT,
+    shotsRemaining: PLAYER_SPRAY_PROJECTILE_COUNT,
     shotTimer: 0,
     slot: selected.slot,
   };
