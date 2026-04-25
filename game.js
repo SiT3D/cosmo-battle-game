@@ -29,6 +29,8 @@ const ENEMY_MOVE_ACCELERATION = 632;
 const ENEMY_MOVE_BRAKE = 816;
 const ENEMY_DASH_MIN_DISTANCE = 220;
 const ENEMY_DASH_MAX_DISTANCE = 420;
+const MIN_ENEMIES_PER_LEVEL = 50;
+const MIN_ENEMY_TYPES_PER_LEVEL = 6;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
@@ -367,8 +369,42 @@ function getSpawnInterval() {
   return getCurrentLevel()?.spawnInterval ?? ENEMY_SPAWN_INTERVAL;
 }
 
+function getLevelRoster(level = getCurrentLevel()) {
+  const roster = { ...level.roster };
+  const enemyKinds = Object.keys(enemyMeta);
+
+  for (const kind of enemyKinds) {
+    if (Object.keys(roster).length >= MIN_ENEMY_TYPES_PER_LEVEL) break;
+    if (kind in roster) continue;
+    roster[kind] = 1;
+  }
+
+  const entries = Object.entries(roster);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  if (total >= MIN_ENEMIES_PER_LEVEL) return roster;
+
+  const scaledEntries = entries.map(([kind, count]) => {
+    const exactCount = (count / total) * MIN_ENEMIES_PER_LEVEL;
+    return {
+      kind,
+      count: Math.floor(exactCount),
+      remainder: exactCount % 1,
+    };
+  });
+
+  let remaining = MIN_ENEMIES_PER_LEVEL - scaledEntries.reduce((sum, entry) => sum + entry.count, 0);
+  const remainderOrder = [...scaledEntries].sort((left, right) => right.remainder - left.remainder);
+  for (const entry of remainderOrder) {
+    if (remaining <= 0) break;
+    entry.count += 1;
+    remaining -= 1;
+  }
+
+  return Object.fromEntries(scaledEntries.map((entry) => [entry.kind, entry.count]));
+}
+
 function getLevelTotalCount(level = getCurrentLevel()) {
-  return Object.values(level.roster).reduce((sum, count) => sum + count, 0);
+  return Object.values(getLevelRoster(level)).reduce((sum, count) => sum + count, 0);
 }
 
 function shuffleList(items) {
@@ -382,7 +418,7 @@ function shuffleList(items) {
 
 function buildLevelSpawnQueue(level = getCurrentLevel()) {
   const queue = [];
-  for (const [kind, count] of Object.entries(level.roster)) {
+  for (const [kind, count] of Object.entries(getLevelRoster(level))) {
     for (let index = 0; index < count; index += 1) {
       queue.push(kind);
     }
@@ -3088,7 +3124,7 @@ function damageEnemy(enemy, amount = 1) {
 }
 
 function getRosterHtml(level = getCurrentLevel()) {
-  return Object.entries(level.roster)
+  return Object.entries(getLevelRoster(level))
     .map(([kind, count]) => {
       const meta = enemyMeta[kind] ?? { name: kind, color: "#ff5a5a", glow: "rgba(255, 90, 90, 0.45)" };
       return `<span class="roster-chip" title="${meta.name}"><span class="roster-chip__swatch" style="--enemy-color:${meta.color};--enemy-glow:${meta.glow}"></span>${meta.name} ${count}</span>`;
@@ -3115,7 +3151,7 @@ function showCampaignMenu() {
   const cards = campaignLevels
     .map((level, index) => {
       const total = getLevelTotalCount(level);
-      const rosterText = Object.entries(level.roster)
+      const rosterText = Object.entries(getLevelRoster(level))
         .map(([kind, count]) => `${enemyMeta[kind]?.name ?? kind} ${count}`)
         .join(", ");
       return `<button class="level-card" type="button" data-level="${index}">
