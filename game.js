@@ -3908,7 +3908,11 @@ function addPlayerXp(amount) {
     player.xp -= player.xpNext;
     player.xpLevel += 1;
     player.xpNext = getXpNextForLevel(player.xpLevel);
-    showUpgradeChoices();
+    playerBaseGunCooldowns.push(0);
+    player.MOVE_TO_POINT_SPEED *= 1.05;
+    player.maxHp += 1;
+    player.hp = Math.min(player.maxHp, player.hp + 1);
+    player.upgrades.hookRangeMultiplier *= 1.15;
   }
 }
 
