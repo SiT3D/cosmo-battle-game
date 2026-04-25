@@ -51,7 +51,7 @@ const BASE_GUN_MAX_CHARGES = 3;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
-const SNIPER_CHARGE_TIME = 1.35;
+const SNIPER_CHARGE_TIME = 15;
 const PLAYER_SNIPER_CHARGE_TIME = 0.22;
 const SPRAY_CHARGE_TIME = 1;
 const PLAYER_SPRAY_CHARGE_TIME = 0.7;
@@ -97,7 +97,7 @@ const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
 const STOLEN_BLAST_CHARGES = 4;
-const STOLEN_SNIPER_CHARGES = 1;
+const STOLEN_SNIPER_CHARGES = 3;
 const STOLEN_DECOY_CHARGES = 3;
 const STOLEN_MISSILE_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
@@ -105,6 +105,8 @@ const BLAST_MAX_RADIUS = 311;
 const BLAST_EXPAND_SPEED = 44;
 const DECOY_DURATION = 5;
 const DECOY_SIZE = 24;
+const PLAYER_DECOY_PASSIVE_TOTAL = 3;
+const PLAYER_DECOY_PASSIVE_INTERVAL = 0.7;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
@@ -217,7 +219,8 @@ let activePlayerLaser = null;
 let activePlayerSniper = null;
 let activePlayerSpray = null;
 let activePlayerShield = null;
-let activePlayerDecoy = null;
+const activePlayerDecoys = [];
+let playerDecoyPassive = null;
 let playerMinePassive = null;
 let playerAbilityCapacity = 1;
 let playerShieldCooldown = 0;
@@ -304,7 +307,7 @@ function isSimulationActive() {
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
-    Boolean(activePlayerDecoy) ||
+    activePlayerDecoys.length > 0 ||
     beamEffects.length > 0 ||
     enemySeeds.length > 0 ||
     homingMissiles.length > 0
@@ -455,6 +458,7 @@ function update(dt) {
   updateEnemies(simDt);
   updateEnemySeeds(simDt);
   updatePlayerMinePassive(simDt);
+  updatePlayerDecoyPassive(simDt);
   updatePlayerShield(simDt);
   updatePlayerDecoy(simDt);
   updateBlastWaves(simDt);
@@ -587,11 +591,21 @@ function getPlayerSlowMultiplier() {
   return multiplier;
 }
 
-function getEnemyAggroTarget() {
-  if (activePlayerDecoy) {
+function getEnemyAggroTarget(fromX = player.x, fromY = player.y) {
+  let nearestDecoy = null;
+  let nearestDistance = Infinity;
+
+  for (const decoy of activePlayerDecoys) {
+    const distance = Math.hypot(decoy.x - fromX, decoy.y - fromY);
+    if (distance >= nearestDistance) continue;
+    nearestDistance = distance;
+    nearestDecoy = decoy;
+  }
+
+  if (nearestDecoy) {
     return {
-      x: activePlayerDecoy.x,
-      y: activePlayerDecoy.y,
+      x: nearestDecoy.x,
+      y: nearestDecoy.y,
       type: "decoy",
     };
   }
@@ -876,7 +890,7 @@ function updateEnemies(dt) {
 
     if (enemy.moving) {
       if (enemy.kind === "laser" && !enemy.turnShotLocked) {
-        const target = getEnemyAggroTarget();
+        const target = getEnemyAggroTarget(enemy.x, enemy.y);
         enemy.aimX = target.x;
         enemy.aimY = target.y;
         enemy.phaseTimer -= dt;
@@ -909,7 +923,7 @@ function updateEnemies(dt) {
           enemy.phase = "recover";
           enemy.phaseTimer = SLOW_ENEMY_RECOVER_DELAY;
         } else if (enemy.kind === "spray") {
-          const target = getEnemyAggroTarget();
+          const target = getEnemyAggroTarget(enemy.x, enemy.y);
           enemy.phase = "spray_charge";
           enemy.phaseTimer = SPRAY_CHARGE_TIME;
           enemy.aimX = target.x;
@@ -917,7 +931,7 @@ function updateEnemies(dt) {
           enemy.shotsRemaining = SPRAY_PROJECTILE_COUNT;
           enemy.shotTimer = 0;
         } else if (enemy.kind === "sniper") {
-          const target = getEnemyAggroTarget();
+          const target = getEnemyAggroTarget(enemy.x, enemy.y);
           enemy.phase = "sniper_charge";
           enemy.phaseTimer = SNIPER_CHARGE_TIME;
           enemy.aimX = target.x;
@@ -931,7 +945,7 @@ function updateEnemies(dt) {
             enemy.phaseTimer = ENEMY_DASH_DELAY_AFTER_SHOT;
           }
         } else {
-          const target = getEnemyAggroTarget();
+          const target = getEnemyAggroTarget(enemy.x, enemy.y);
           enemy.phase = "charge";
           enemy.phaseTimer = LASER_CHARGE_TIME;
           enemy.aimX = target.x;
@@ -943,7 +957,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "charge") {
-      const target = getEnemyAggroTarget();
+      const target = getEnemyAggroTarget(enemy.x, enemy.y);
       enemy.aimX = target.x;
       enemy.aimY = target.y;
       enemy.phaseTimer -= dt;
@@ -957,7 +971,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "sniper_charge") {
-      const target = getEnemyAggroTarget();
+      const target = getEnemyAggroTarget(enemy.x, enemy.y);
       enemy.aimX = target.x;
       enemy.aimY = target.y;
       enemy.phaseTimer -= dt;
@@ -1015,7 +1029,7 @@ function updateEnemies(dt) {
 }
 
 function updateBruteEnemy(enemy, dt) {
-  const target = getEnemyAggroTarget();
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
   const dx = target.x - enemy.x;
   const dy = target.y - enemy.y;
   const distance = Math.hypot(dx, dy);
@@ -1040,7 +1054,7 @@ function updateBruteEnemy(enemy, dt) {
 }
 
 function updateSproutlingEnemy(enemy, dt) {
-  const target = getEnemyAggroTarget();
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
   const dx = target.x - enemy.x;
   const dy = target.y - enemy.y;
   const distance = Math.hypot(dx, dy);
@@ -1110,7 +1124,7 @@ function launchEnemy(enemy) {
   let dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE, ENEMY_DASH_MAX_DISTANCE);
 
   if (enemy.kind === "shield") {
-    const target = getEnemyAggroTarget();
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
     const dx = target.x - enemy.x;
     const dy = target.y - enemy.y;
     const distance = Math.hypot(dx, dy);
@@ -1119,7 +1133,7 @@ function launchEnemy(enemy) {
       dashDistance = Math.min(distance, ENEMY_DASH_MAX_DISTANCE);
     }
   } else if (enemy.kind === "trickster") {
-    const target = getEnemyAggroTarget();
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
     const dx = target.x - enemy.x;
     const dy = target.y - enemy.y;
     const distance = Math.hypot(dx, dy);
@@ -1172,8 +1186,6 @@ function createEnemy(kind, x, y) {
             ? abilities.spray
             : kind === "grower"
               ? abilities.missiles
-            : kind === "trickster"
-              ? abilities.decoy
             : kind === "slow"
               ? abilities.blast
               : null,
@@ -1188,11 +1200,9 @@ function createEnemy(kind, x, y) {
             ? STOLEN_ABILITY_CHARGES
             : kind === "grower"
               ? STOLEN_MISSILE_CHARGES
-            : kind === "trickster"
-              ? STOLEN_DECOY_CHARGES
             : kind === "slow"
               ? STOLEN_BLAST_CHARGES
-            : null,
+              : null,
     phase: null,
     phaseTimer: 0,
     aimX: x,
@@ -1544,6 +1554,8 @@ function stealEnemyAbility(enemy) {
   } else if (enemy.kind === "replicator") {
     playerAbilityCapacity = 2;
     playerHookCooldown = 0;
+  } else if (enemy.kind === "trickster") {
+    activatePlayerDecoyPassive();
   } else if (enemy.kind === "mine") {
     activatePlayerMinePassive();
   } else if (enemy.ability) {
@@ -1687,13 +1699,13 @@ function useDecoyAbility(targetPoint = aimPoint) {
   const targetX = player.x + (dx / distance) * travel;
   const targetY = player.y + (dy / distance) * travel;
 
-  activePlayerDecoy = {
+  activePlayerDecoys.push({
     x: targetX,
     y: targetY,
     timer: DECOY_DURATION,
     duration: DECOY_DURATION,
     size: DECOY_SIZE,
-  };
+  });
   consumeAbilityCharge(selected.slot);
   return true;
 }
@@ -1795,6 +1807,30 @@ function activatePlayerMinePassive() {
   };
 }
 
+function activatePlayerDecoyPassive() {
+  playerDecoyPassive = {
+    remaining: PLAYER_DECOY_PASSIVE_TOTAL,
+    timer: 0.18,
+    interval: PLAYER_DECOY_PASSIVE_INTERVAL,
+  };
+}
+
+function spawnPlayerDecoyNearPlayer() {
+  const angle = Math.random() * Math.PI * 2;
+  const distance = randomRange(26, 64);
+  const half = DECOY_SIZE * 0.5;
+  const x = clamp(player.x + Math.cos(angle) * distance, ARENA.x + half, ARENA.x + ARENA.width - half);
+  const y = clamp(player.y + Math.sin(angle) * distance, ARENA.y + half, ARENA.y + ARENA.height - half);
+
+  activePlayerDecoys.push({
+    x,
+    y,
+    timer: DECOY_DURATION,
+    duration: DECOY_DURATION,
+    size: DECOY_SIZE,
+  });
+}
+
 function spawnMine(x, y, owner) {
   const minX = ARENA.x + MINE_RADIUS;
   const maxX = ARENA.x + ARENA.width - MINE_RADIUS;
@@ -1824,6 +1860,21 @@ function updatePlayerMinePassive(dt) {
       return;
     }
     playerMinePassive.timer += playerMinePassive.interval;
+  }
+}
+
+function updatePlayerDecoyPassive(dt) {
+  if (!playerDecoyPassive) return;
+
+  playerDecoyPassive.timer -= dt;
+  while (playerDecoyPassive && playerDecoyPassive.timer <= 0 && playerDecoyPassive.remaining > 0) {
+    spawnPlayerDecoyNearPlayer();
+    playerDecoyPassive.remaining -= 1;
+    if (playerDecoyPassive.remaining <= 0) {
+      playerDecoyPassive = null;
+      return;
+    }
+    playerDecoyPassive.timer += playerDecoyPassive.interval;
   }
 }
 
@@ -2095,11 +2146,12 @@ function updatePlayerShield(dt) {
 }
 
 function updatePlayerDecoy(dt) {
-  if (!activePlayerDecoy) return;
-
-  activePlayerDecoy.timer -= dt;
-  if (activePlayerDecoy.timer <= 0) {
-    activePlayerDecoy = null;
+  for (let index = activePlayerDecoys.length - 1; index >= 0; index -= 1) {
+    const decoy = activePlayerDecoys[index];
+    decoy.timer -= dt;
+    if (decoy.timer <= 0) {
+      activePlayerDecoys.splice(index, 1);
+    }
   }
 }
 
@@ -2471,11 +2523,18 @@ function fireEnemySniper(enemy) {
     life: 0.14,
   });
 
-  if (activePlayerDecoy) {
-    const decoyHit = getSegmentCircleHit(enemy.x, enemy.y, endX, endY, activePlayerDecoy.x, activePlayerDecoy.y, activePlayerDecoy.size * 0.65);
-    if (decoyHit) {
-      activePlayerDecoy = null;
-    }
+  let bestDecoyIndex = -1;
+  let bestDecoyT = Infinity;
+  for (let index = 0; index < activePlayerDecoys.length; index += 1) {
+    const decoy = activePlayerDecoys[index];
+    const decoyHit = getSegmentCircleHit(enemy.x, enemy.y, endX, endY, decoy.x, decoy.y, decoy.size * 0.65);
+    if (!decoyHit || decoyHit.t >= bestDecoyT) continue;
+    bestDecoyIndex = index;
+    bestDecoyT = decoyHit.t;
+  }
+  if (bestDecoyIndex !== -1) {
+    activePlayerDecoys.splice(bestDecoyIndex, 1);
+    return;
   }
 
   const playerHit = getSegmentCircleHit(enemy.x, enemy.y, endX, endY, player.x, player.y, player.size * 0.55);
@@ -2570,19 +2629,19 @@ function hitEnemyProjectileTarget(projectile) {
   const tail = getProjectileTail(projectile);
   let bestTarget = null;
 
-  if (activePlayerDecoy) {
+  for (let index = 0; index < activePlayerDecoys.length; index += 1) {
+    const decoy = activePlayerDecoys[index];
     const hitDecoy = getSegmentCircleHit(
       tail.x,
       tail.y,
       projectile.x,
       projectile.y,
-      activePlayerDecoy.x,
-      activePlayerDecoy.y,
-      activePlayerDecoy.size * 0.65
+      decoy.x,
+      decoy.y,
+      decoy.size * 0.65
     );
-    if (hitDecoy) {
-      bestTarget = { type: "decoy", t: hitDecoy.t };
-    }
+    if (!hitDecoy || (bestTarget && hitDecoy.t >= bestTarget.t)) continue;
+    bestTarget = { type: "decoy", t: hitDecoy.t, index };
   }
 
   const hitPlayer = getSegmentCircleHit(
@@ -2600,7 +2659,7 @@ function hitEnemyProjectileTarget(projectile) {
 
   if (!bestTarget) return false;
   if (bestTarget.type === "decoy") {
-    activePlayerDecoy = null;
+    activePlayerDecoys.splice(bestTarget.index, 1);
     return true;
   }
 
@@ -2640,7 +2699,8 @@ function startDeathSequence() {
   activePlayerSniper = null;
   activePlayerSpray = null;
   activePlayerShield = null;
-  activePlayerDecoy = null;
+  activePlayerDecoys.length = 0;
+  playerDecoyPassive = null;
   baseProjectiles.length = 0;
   blastWaves.length = 0;
   beamEffects.length = 0;
@@ -2715,7 +2775,8 @@ function resetGame() {
   activePlayerSniper = null;
   activePlayerSpray = null;
   activePlayerShield = null;
-  activePlayerDecoy = null;
+  activePlayerDecoys.length = 0;
+  playerDecoyPassive = null;
   baseProjectiles.length = 0;
   blastWaves.length = 0;
   beamEffects.length = 0;
@@ -2957,6 +3018,11 @@ function updateUi() {
   if (playerMinePassive) {
     passiveChips.push(
       `<div class="passive-chip"><span class="passive-chip__icon">M</span><span class="passive-chip__text">Мины ${playerMinePassive.remaining}/20</span></div>`
+    );
+  }
+  if (playerDecoyPassive) {
+    passiveChips.push(
+      `<div class="passive-chip"><span class="passive-chip__icon">D</span><span class="passive-chip__text">Приманки ${playerDecoyPassive.remaining}/3</span></div>`
     );
   }
   if (playerAbilityCapacity > 1) {
@@ -3774,13 +3840,13 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
-  if (activePlayerDecoy) {
-    const life = clamp(activePlayerDecoy.timer / activePlayerDecoy.duration, 0, 1);
-    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8);
-    const radius = activePlayerDecoy.size * (0.72 + pulse * 0.12);
+  for (const decoy of activePlayerDecoys) {
+    const life = clamp(decoy.timer / decoy.duration, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8 + decoy.x * 0.01 + decoy.y * 0.01);
+    const radius = decoy.size * (0.72 + pulse * 0.12);
 
     ctx.save();
-    ctx.translate(activePlayerDecoy.x, activePlayerDecoy.y);
+    ctx.translate(decoy.x, decoy.y);
     ctx.rotate(Math.PI * 0.25);
     ctx.globalAlpha = 0.82;
 
@@ -3800,7 +3866,7 @@ function drawLaserEffects() {
     ctx.lineWidth = 2;
     ctx.setLineDash([8, 8]);
     ctx.beginPath();
-    ctx.arc(activePlayerDecoy.x, activePlayerDecoy.y, activePlayerDecoy.size + 8 + pulse * 4, 0, Math.PI * 2);
+    ctx.arc(decoy.x, decoy.y, decoy.size + 8 + pulse * 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
