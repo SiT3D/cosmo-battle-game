@@ -294,7 +294,7 @@ const campaignLevels = [
   {
     name: "Разминка",
     roster: { laser: 5, shield: 2 },
-    minEnemies: 25,
+    minEnemies: 12,
     maxEnemies: 4,
     spawnInterval: [1.6, 2.7],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -302,7 +302,7 @@ const campaignLevels = [
   {
     name: "Броня",
     roster: { shield: 5, laser: 4, heal: 1, medic: 1 },
-    minEnemies: 30,
+    minEnemies: 14,
     maxEnemies: 5,
     spawnInterval: [1.45, 2.5],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -310,7 +310,7 @@ const campaignLevels = [
   {
     name: "Фиолетовый дождь",
     roster: { spray: 5, laser: 3, trickster: 1 },
-    minEnemies: 35,
+    minEnemies: 18,
     maxEnemies: 5,
     spawnInterval: [1.35, 2.35],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -318,6 +318,7 @@ const campaignLevels = [
   {
     name: "Минное поле",
     roster: { mine: 5, bomber: 3, shield: 3, laser: 3 },
+    minEnemies: 20,
     maxEnemies: 6,
     spawnInterval: [1.25, 2.2],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -325,6 +326,7 @@ const campaignLevels = [
   {
     name: "Тяжелые",
     roster: { brute: 4, bomber: 3, shield: 4, heal: 2, medic: 2 },
+    minEnemies: 25,
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -332,6 +334,7 @@ const campaignLevels = [
   {
     name: "Дальняя линия",
     roster: { sniper: 4, mirror: 3, laser: 4, spray: 3, splitter: 3 },
+    minEnemies: 30,
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -339,6 +342,7 @@ const campaignLevels = [
   {
     name: "Сад",
     roster: { commander: 2, grower: 4, slow: 2, shield: 3, laser: 3 },
+    minEnemies: 35,
     maxEnemies: 6,
     spawnInterval: [1.35, 2.4],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -346,6 +350,7 @@ const campaignLevels = [
   {
     name: "Обманки",
     roster: { trickster: 5, splitter: 4, spray: 4, sniper: 2 },
+    minEnemies: 40,
     maxEnemies: 6,
     spawnInterval: [1.2, 2.15],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -353,6 +358,7 @@ const campaignLevels = [
   {
     name: "Размножение",
     roster: { commander: 3, medic: 3, replicator: 3, grower: 3, mine: 4, slow: 2 },
+    minEnemies: 50,
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -360,6 +366,7 @@ const campaignLevels = [
   {
     name: "Финальная смесь",
     roster: { commander: 3, medic: 3, mirror: 4, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
+    minEnemies: 50,
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
@@ -626,11 +633,11 @@ function getLevelRoster(level = getCurrentLevel()) {
 
   const entries = Object.entries(roster);
   const total = entries.reduce((sum, [, count]) => sum + count, 0);
-  const minEnemies = level.minEnemies ?? MIN_ENEMIES_PER_LEVEL;
-  if (total >= minEnemies) return roster;
+  const targetEnemies = level.minEnemies ?? MIN_ENEMIES_PER_LEVEL;
+  if (total === targetEnemies) return roster;
 
   const scaledEntries = entries.map(([kind, count]) => {
-    const exactCount = (count / total) * minEnemies;
+    const exactCount = (count / total) * targetEnemies;
     return {
       kind,
       count: Math.floor(exactCount),
@@ -638,7 +645,7 @@ function getLevelRoster(level = getCurrentLevel()) {
     };
   });
 
-  let remaining = minEnemies - scaledEntries.reduce((sum, entry) => sum + entry.count, 0);
+  let remaining = targetEnemies - scaledEntries.reduce((sum, entry) => sum + entry.count, 0);
   const remainderOrder = [...scaledEntries].sort((left, right) => right.remainder - left.remainder);
   for (const entry of remainderOrder) {
     if (remaining <= 0) break;
@@ -646,7 +653,7 @@ function getLevelRoster(level = getCurrentLevel()) {
     remaining -= 1;
   }
 
-  return Object.fromEntries(scaledEntries.map((entry) => [entry.kind, entry.count]));
+  return Object.fromEntries(scaledEntries.filter((entry) => entry.count > 0).map((entry) => [entry.kind, entry.count]));
 }
 
 function getLevelTotalCount(level = getCurrentLevel()) {
