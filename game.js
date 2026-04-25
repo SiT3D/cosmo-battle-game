@@ -103,10 +103,10 @@ const STOLEN_MISSILE_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
 const BLAST_MAX_RADIUS = 311;
 const BLAST_EXPAND_SPEED = 44;
-const DECOY_DURATION = 5;
+const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
 const PLAYER_DECOY_PASSIVE_TOTAL = 3;
-const PLAYER_DECOY_PASSIVE_INTERVAL = 0.7;
+const PLAYER_DECOY_PASSIVE_INTERVAL = 5;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
@@ -307,7 +307,6 @@ function isSimulationActive() {
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
-    activePlayerDecoys.length > 0 ||
     beamEffects.length > 0 ||
     homingMissiles.length > 0
   );
@@ -1833,7 +1832,7 @@ function activatePlayerMinePassive() {
 function activatePlayerDecoyPassive() {
   playerDecoyPassive = {
     remaining: PLAYER_DECOY_PASSIVE_TOTAL,
-    timer: 0.18,
+    timer: PLAYER_DECOY_PASSIVE_INTERVAL,
     interval: PLAYER_DECOY_PASSIVE_INTERVAL,
   };
 }
@@ -2181,6 +2180,8 @@ function updatePlayerDecoy(dt) {
 function updateBlastWaves(dt) {
   for (let index = blastWaves.length - 1; index >= 0; index -= 1) {
     const blast = blastWaves[index];
+    if (!blast) continue;
+
     blast.radius = Math.min(blast.maxRadius, blast.radius + blast.expandSpeed * dt);
 
     for (const enemy of enemies) {
@@ -2196,6 +2197,7 @@ function updateBlastWaves(dt) {
       const distanceToPlayer = Math.hypot(player.x - blast.x, player.y - blast.y);
       if (distanceToPlayer <= blast.radius + player.size * 0.45) {
         applyPlayerHit();
+        if (player.dead) return;
         blast.hitPlayer = true;
       }
     }
@@ -2418,6 +2420,8 @@ function resolveEnemyCollisions() {
 function updateMines(dt) {
   for (let index = mines.length - 1; index >= 0; index -= 1) {
     const mine = mines[index];
+    if (!mine) continue;
+
     mine.ttl -= dt;
     if (mine.ttl <= 0) {
       mines.splice(index, 1);
@@ -2429,6 +2433,7 @@ function updateMines(dt) {
       const distanceToPlayer = Math.hypot(mine.x - player.x, mine.y - player.y);
       if (distanceToPlayer <= hitDistance) {
         applyPlayerHit();
+        if (player.dead) return;
         mines.splice(index, 1);
       }
       continue;
@@ -2624,6 +2629,8 @@ function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width, sp
 function updateLaserProjectiles(dt) {
   for (let index = laserProjectiles.length - 1; index >= 0; index -= 1) {
     const projectile = laserProjectiles[index];
+    if (!projectile) continue;
+
     projectile.prevX = projectile.x;
     projectile.prevY = projectile.y;
 
@@ -2633,6 +2640,8 @@ function updateLaserProjectiles(dt) {
     projectile.traveled += step;
 
     const hit = projectile.owner === "player" ? hitEnemyWithProjectile(projectile) : hitEnemyProjectileTarget(projectile);
+    if (player.dead) return;
+
     if (hit || projectile.traveled >= projectile.range + projectile.length || isProjectileOutOfArena(projectile)) {
       laserProjectiles.splice(index, 1);
     }
