@@ -101,7 +101,7 @@ const STOLEN_SNIPER_CHARGES = 3;
 const STOLEN_DECOY_CHARGES = 3;
 const STOLEN_MISSILE_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
-const BLAST_MAX_RADIUS = 311;
+const BLAST_MAX_RADIUS = 311 * 1.5;
 const BLAST_EXPAND_SPEED = 44;
 const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
@@ -307,8 +307,7 @@ function isSimulationActive() {
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
-    beamEffects.length > 0 ||
-    homingMissiles.length > 0
+    beamEffects.length > 0
   );
 }
 
