@@ -309,7 +309,6 @@ function isSimulationActive() {
     Boolean(activePlayerSpray) ||
     activePlayerDecoys.length > 0 ||
     beamEffects.length > 0 ||
-    enemySeeds.length > 0 ||
     homingMissiles.length > 0
   );
 }
@@ -456,18 +455,42 @@ function update(dt) {
   updateBaseProjectiles(simDt);
   updateEnemySpawns(simDt);
   updateEnemies(simDt);
+  if (player.dead) {
+    updateUi();
+    return;
+  }
   updateEnemySeeds(simDt);
   updatePlayerMinePassive(simDt);
   updatePlayerDecoyPassive(simDt);
   updatePlayerShield(simDt);
   updatePlayerDecoy(simDt);
   updateBlastWaves(simDt);
+  if (player.dead) {
+    updateUi();
+    return;
+  }
   updateBeamEffects(simDt);
   updateHomingMissiles(simDt);
   updateShieldAuras(simDt);
+  if (player.dead) {
+    updateUi();
+    return;
+  }
   resolveEnemyCollisions();
+  if (player.dead) {
+    updateUi();
+    return;
+  }
   updateLaserProjectiles(simDt);
+  if (player.dead) {
+    updateUi();
+    return;
+  }
   updateMines(simDt);
+  if (player.dead) {
+    updateUi();
+    return;
+  }
   playerShieldCooldown = Math.max(0, playerShieldCooldown - simDt);
   playerHookCooldown = Math.max(0, playerHookCooldown - simDt);
   playerBaseGunCooldowns = playerBaseGunCooldowns.map((cooldown) => Math.max(0, cooldown - simDt));
@@ -2684,6 +2707,8 @@ function applyPlayerHit() {
 }
 
 function startDeathSequence() {
+  if (player.dead) return;
+
   player.dead = true;
   player.hp = 0;
   player.vx = 0;
