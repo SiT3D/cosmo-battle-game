@@ -20,8 +20,12 @@ const INACTIVE_TIME_SCALE = 0.1;
 const TIME_SCALE_TRANSITION = 1.2;
 const MOVE_TO_POINT_SPEED = 490;
 const MOVE_STOP_DISTANCE = 10;
-const MOVE_ACCELERATION = 1140;
-const MOVE_BRAKE = 1470;
+const MOVE_ACCELERATION = 741;
+const MOVE_BRAKE = 956;
+const PLAYER_TURN_RATE = 4.2;
+const PLAYER_TRAJECTORY_STEPS = 42;
+const PLAYER_TRAJECTORY_STEP_TIME = 1 / 30;
+const PLAYER_TURN_BRAKE_ANGLE = Math.PI * 0.55;
 const ENEMY_SIZE = 22;
 const ENEMY_DASH_SPEED = 816;
 const ENEMY_MOVE_STOP_DISTANCE = 10;
@@ -36,8 +40,11 @@ const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
 const SPROUTLING_CHASE_SPEED = 206;
 const SPROUTLING_CHASE_ACCELERATION = 520;
+const SPLITTER_CHILD_LIMIT = 8;
 const SLOW_ENEMY_CHASE_SPEED = 148;
 const SLOW_ENEMY_CHASE_ACCELERATION = 420;
+const COMMANDER_HP = 2;
+const COMMANDER_SPEED_MULTIPLIER = 1.45;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
@@ -105,9 +112,12 @@ const STOLEN_BLAST_CHARGES = 4;
 const STOLEN_SNIPER_CHARGES = 3;
 const STOLEN_DECOY_CHARGES = 3;
 const STOLEN_MISSILE_CHARGES = 2;
+const STOLEN_BOMBER_BLAST_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
 const BLAST_MAX_RADIUS = 311 * 1.5;
 const BLAST_EXPAND_SPEED = 44;
+const BOMBER_BLAST_MAX_RADIUS = 132;
+const BOMBER_BLAST_EXPAND_SPEED = 120;
 const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
 const PLAYER_DECOY_PASSIVE_TOTAL = 3;
@@ -128,6 +138,7 @@ const player = {
   y: 0,
   vx: 0,
   vy: 0,
+  facingAngle: -Math.PI * 0.5,
   size: 30,
   dragging: false,
   moving: false,
@@ -201,6 +212,9 @@ const enemyMeta = {
   shield: { name: "Желтые", color: "#ffc94d", glow: "rgba(255, 201, 77, 0.55)" },
   spray: { name: "Фиолетовые", color: "#b758ff", glow: "rgba(183, 88, 255, 0.55)" },
   mine: { name: "Мины", color: "#51d86b", glow: "rgba(81, 216, 107, 0.5)" },
+  bomber: { name: "Подрывники", color: "#ff8f35", glow: "rgba(255, 143, 53, 0.55)" },
+  splitter: { name: "Делители", color: "#4ee6a8", glow: "rgba(78, 230, 168, 0.55)" },
+  commander: { name: "Командиры", color: "#2ad3ff", glow: "rgba(42, 211, 255, 0.55)" },
   brute: { name: "Танки", color: "#ffd44f", glow: "rgba(255, 212, 79, 0.55)" },
   sniper: { name: "Снайперы", color: "#a71d32", glow: "rgba(167, 29, 50, 0.55)" },
   trickster: { name: "Иллюзии", color: "#ff74ca", glow: "rgba(255, 116, 202, 0.5)" },
@@ -231,43 +245,43 @@ const campaignLevels = [
   },
   {
     name: "Минное поле",
-    roster: { mine: 5, shield: 3, laser: 3 },
+    roster: { mine: 5, bomber: 3, shield: 3, laser: 3 },
     maxEnemies: 6,
     spawnInterval: [1.25, 2.2],
   },
   {
     name: "Тяжелые",
-    roster: { brute: 4, shield: 4, heal: 2 },
+    roster: { brute: 4, bomber: 3, shield: 4, heal: 2 },
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
   },
   {
     name: "Дальняя линия",
-    roster: { sniper: 4, laser: 4, spray: 3 },
+    roster: { sniper: 4, laser: 4, spray: 3, splitter: 3 },
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
   },
   {
     name: "Сад",
-    roster: { grower: 4, slow: 2, shield: 3, laser: 3 },
+    roster: { commander: 2, grower: 4, slow: 2, shield: 3, laser: 3 },
     maxEnemies: 6,
     spawnInterval: [1.35, 2.4],
   },
   {
     name: "Обманки",
-    roster: { trickster: 5, spray: 4, sniper: 2 },
+    roster: { trickster: 5, splitter: 4, spray: 4, sniper: 2 },
     maxEnemies: 6,
     spawnInterval: [1.2, 2.15],
   },
   {
     name: "Размножение",
-    roster: { replicator: 3, grower: 3, mine: 4, slow: 2 },
+    roster: { commander: 3, replicator: 3, grower: 3, mine: 4, slow: 2 },
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
   },
   {
     name: "Финальная смесь",
-    roster: { laser: 4, shield: 4, spray: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
+    roster: { commander: 3, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
   },
@@ -355,6 +369,24 @@ function resize() {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeAngle(angle) {
+  let normalized = angle;
+  while (normalized > Math.PI) normalized -= Math.PI * 2;
+  while (normalized < -Math.PI) normalized += Math.PI * 2;
+  return normalized;
+}
+
+function turnAngleToward(currentAngle, targetAngle, maxTurn) {
+  const delta = normalizeAngle(targetAngle - currentAngle);
+  return currentAngle + clamp(delta, -maxTurn, maxTurn);
+}
+
+function getTurnAdjustedTargetSpeed(baseSpeed, angleDelta) {
+  if (angleDelta >= PLAYER_TURN_BRAKE_ANGLE) return 0;
+  const alignment = 1 - angleDelta / PLAYER_TURN_BRAKE_ANGLE;
+  return baseSpeed * clamp(alignment * alignment, 0, 1);
 }
 
 function getCurrentLevel() {
@@ -694,6 +726,10 @@ function updatePlayerMotion(dt) {
     const maxSpeed = MOVE_TO_POINT_SPEED * slowMultiplier;
     const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
     const targetSpeed = Math.min(maxSpeed, brakingSpeed);
+    const targetAngle = Math.atan2(dirY, dirX);
+    const currentAngle = player.facingAngle ?? (currentSpeed > 1 ? Math.atan2(player.vy, player.vx) : targetAngle);
+    const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * dt);
+    player.facingAngle = nextAngle;
 
     let nextSpeed = currentSpeed;
     if (currentSpeed < targetSpeed) {
@@ -703,28 +739,50 @@ function updatePlayerMotion(dt) {
     }
 
     const step = Math.min(nextSpeed * dt, distance);
-    player.vx = dirX * nextSpeed;
-    player.vy = dirY * nextSpeed;
-    player.x += dirX * step;
-    player.y += dirY * step;
+    player.vx = Math.cos(nextAngle) * nextSpeed;
+    player.vy = Math.sin(nextAngle) * nextSpeed;
+    player.x += Math.cos(nextAngle) * step;
+    player.y += Math.sin(nextAngle) * step;
 
-    handleWallBounce(player);
+    handlePlayerWallSlide();
     updateTrail();
 
-    if (player.x <= ARENA.x + player.size * 0.5 || player.x >= ARENA.x + ARENA.width - player.size * 0.5) {
-      player.moveTarget = null;
-    }
-    if (player.y <= ARENA.y + player.size * 0.5 || player.y >= ARENA.y + ARENA.height - player.size * 0.5) {
-      player.moveTarget = null;
+    const nextDistance = Math.hypot(player.moveTarget.x - player.x, player.moveTarget.y - player.y);
+    if (nextDistance <= MOVE_STOP_DISTANCE || (nextDistance > distance && distance <= MOVE_STOP_DISTANCE + step * 1.2)) {
+      player.x = player.moveTarget.x;
+      player.y = player.moveTarget.y;
+      settlePlayer();
+      return;
     }
 
-    if (!player.moveTarget) {
-      settlePlayer();
-    }
     return;
   }
 
   settlePlayer();
+}
+
+function handlePlayerWallSlide() {
+  const half = player.size * 0.5;
+  const minX = ARENA.x + half;
+  const maxX = ARENA.x + ARENA.width - half;
+  const minY = ARENA.y + half;
+  const maxY = ARENA.y + ARENA.height - half;
+
+  if (player.x < minX) {
+    player.x = minX;
+    player.vx = Math.max(0, player.vx);
+  } else if (player.x > maxX) {
+    player.x = maxX;
+    player.vx = Math.min(0, player.vx);
+  }
+
+  if (player.y < minY) {
+    player.y = minY;
+    player.vy = Math.max(0, player.vy);
+  } else if (player.y > maxY) {
+    player.y = maxY;
+    player.vy = Math.min(0, player.vy);
+  }
 }
 
 function handleWallBounce(entity) {
@@ -921,6 +979,16 @@ function getEnemyRecoverDelay(enemy) {
   return ENEMY_DASH_DELAY_AFTER_SHOT;
 }
 
+function getEnemyCommandMultiplier(enemy = null) {
+  const hasCommander = enemies.some(
+    (candidate) =>
+      candidate.kind === "commander" &&
+      !candidate.isIllusion &&
+      (!enemy || candidate.id !== enemy.id)
+  );
+  return hasCommander ? COMMANDER_SPEED_MULTIPLIER : 1;
+}
+
 function beginEnemyActionCycle() {
   for (const enemy of enemies) {
     enemy.turnShotLocked = false;
@@ -1037,12 +1105,15 @@ function updateEnemies(dt) {
       continue;
     }
 
+    const commandMultiplier = getEnemyCommandMultiplier(enemy);
+    const timerDt = dt * commandMultiplier;
+
     if (enemy.kind === "brute") {
       updateBruteEnemy(enemy, dt);
       continue;
     }
 
-    if (enemy.kind === "sproutling") {
+    if (enemy.kind === "sproutling" || enemy.kind === "splitter_child") {
       updateSproutlingEnemy(enemy, dt);
       continue;
     }
@@ -1053,7 +1124,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.kind === "replicator") {
-      enemy.replicateTimer -= dt;
+      enemy.replicateTimer -= timerDt;
       if (enemy.replicateTimer <= 0) {
         spawnReplicatorClone(enemy);
         enemy.replicateTimer += REPLICATOR_CLONE_TIME;
@@ -1061,7 +1132,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.kind === "mine") {
-      enemy.mineTimer -= dt;
+      enemy.mineTimer -= timerDt;
       if (enemy.mineTimer <= 0) {
         spawnMine(enemy.x, enemy.y, "enemy");
         enemy.mineTimer = randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX);
@@ -1069,7 +1140,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.kind === "grower") {
-      enemy.seedTimer -= dt;
+      enemy.seedTimer -= timerDt;
       if (enemy.seedTimer <= 0) {
         spawnGrowerSeed(enemy.x, enemy.y);
         enemy.seedTimer = randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX);
@@ -1085,7 +1156,7 @@ function updateEnemies(dt) {
         const target = getEnemyAggroTarget(enemy.x, enemy.y);
         enemy.aimX = target.x;
         enemy.aimY = target.y;
-        enemy.phaseTimer -= dt;
+        enemy.phaseTimer -= timerDt;
         if (enemy.phaseTimer <= 0) {
           fireEnemyLaser(enemy);
           enemy.turnShotLocked = true;
@@ -1152,7 +1223,7 @@ function updateEnemies(dt) {
       const target = getEnemyAggroTarget(enemy.x, enemy.y);
       enemy.aimX = target.x;
       enemy.aimY = target.y;
-      enemy.phaseTimer -= dt;
+      enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         fireEnemyLaser(enemy);
         enemy.phase = "turn_wait";
@@ -1166,7 +1237,7 @@ function updateEnemies(dt) {
       const target = getEnemyAggroTarget(enemy.x, enemy.y);
       enemy.aimX = target.x;
       enemy.aimY = target.y;
-      enemy.phaseTimer -= dt;
+      enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         fireEnemySniper(enemy);
         enemy.phase = "turn_wait";
@@ -1178,7 +1249,7 @@ function updateEnemies(dt) {
 
     if (enemy.phase === "spray_charge") {
       // Lock spray aim when the warning lines appear so the attack does not keep rotating.
-      enemy.phaseTimer -= dt;
+      enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         enemy.phase = "spray_fire";
         enemy.shotTimer = 0;
@@ -1187,7 +1258,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "spray_fire") {
-      enemy.shotTimer -= dt;
+      enemy.shotTimer -= timerDt;
       while (enemy.phase === "spray_fire" && enemy.shotTimer <= 0 && enemy.shotsRemaining > 0) {
         fireEnemySprayShot(enemy);
         enemy.shotsRemaining -= 1;
@@ -1203,7 +1274,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "recover") {
-      enemy.phaseTimer -= dt;
+      enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         launchEnemy(enemy);
       }
@@ -1211,7 +1282,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "shield_up") {
-      enemy.phaseTimer -= dt;
+      enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         enemy.phase = "turn_wait";
         enemy.phaseTimer = 0;
@@ -1352,21 +1423,23 @@ function launchEnemy(enemy) {
 function createEnemy(kind, x, y) {
   const isBrute = kind === "brute";
   const isSproutling = kind === "sproutling";
+  const isSplitterChild = kind === "splitter_child";
+  const isCommander = kind === "commander";
   const enemy = {
     id: enemyId += 1,
     x,
     y,
     vx: 0,
     vy: 0,
-    size: isBrute ? ENEMY_SIZE * 1.18 : isSproutling ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
+    size: isBrute ? ENEMY_SIZE * 1.18 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isBrute ? BRUTE_CONTACT_HP : 1,
-    maxHp: isBrute ? BRUTE_CONTACT_HP : 1,
-    renderWidth: isBrute ? ENEMY_SIZE * 1.85 : isSproutling ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
-    renderHeight: isBrute ? ENEMY_SIZE * 1.1 : isSproutling ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    hp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : 1,
+    maxHp: isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : 1,
+    renderWidth: isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
@@ -1376,6 +1449,8 @@ function createEnemy(kind, x, y) {
             ? abilities.sniper
           : kind === "spray"
             ? abilities.spray
+          : kind === "bomber"
+            ? abilities.blast
             : kind === "grower"
               ? abilities.missiles
             : kind === "slow"
@@ -1390,6 +1465,8 @@ function createEnemy(kind, x, y) {
             ? STOLEN_SNIPER_CHARGES
           : kind === "spray"
             ? STOLEN_ABILITY_CHARGES
+            : kind === "bomber"
+              ? STOLEN_BOMBER_BLAST_CHARGES
             : kind === "grower"
               ? STOLEN_MISSILE_CHARGES
             : kind === "slow"
@@ -1503,6 +1580,31 @@ function spawnSproutling(x, y) {
   const sproutling = createEnemy("sproutling", x, y);
   sproutling.moving = true;
   enemies.push(sproutling);
+  return true;
+}
+
+function spawnSplitterChildren(source) {
+  const childCount = enemies.filter((enemy) => enemy.kind === "splitter_child").length;
+  const count = Math.min(2, Math.max(0, SPLITTER_CHILD_LIMIT - childCount));
+  if (count <= 0) return false;
+
+  for (let index = 0; index < count; index += 1) {
+    const angle = (Math.PI * 2 * index) / count + Math.random() * 0.8;
+    const distance = randomRange(24, 46);
+    const half = ENEMY_SIZE * 0.36;
+    const child = createEnemy(
+      "splitter_child",
+      clamp(source.x + Math.cos(angle) * distance, ARENA.x + half, ARENA.x + ARENA.width - half),
+      clamp(source.y + Math.sin(angle) * distance, ARENA.y + half, ARENA.y + ARENA.height - half)
+    );
+
+    child.power = source.power * 0.55;
+    child.moving = true;
+    child.vx = Math.cos(angle) * SPROUTLING_CHASE_SPEED * 0.45;
+    child.vy = Math.sin(angle) * SPROUTLING_CHASE_SPEED * 0.45;
+    enemies.push(child);
+  }
+
   return true;
 }
 
@@ -1884,6 +1986,18 @@ function useBlastAbility(targetPoint = aimPoint) {
   return true;
 }
 
+function spawnBomberBlast(x, y) {
+  blastWaves.push({
+    x,
+    y,
+    radius: 8,
+    maxRadius: BOMBER_BLAST_MAX_RADIUS,
+    expandSpeed: BOMBER_BLAST_EXPAND_SPEED,
+    hitEnemyIds: new Set(),
+    hitPlayer: false,
+  });
+}
+
 function useDecoyAbility(targetPoint = aimPoint) {
   const selected = getSelectedAbilityState();
   const dx = targetPoint.x - player.x;
@@ -2142,7 +2256,6 @@ function tryUseAbilityFromClick(point) {
 function canStartKeyboardMove() {
   return (
     !player.dead &&
-    !player.moving &&
     !activeHook &&
     !activePlayerTeleport &&
     !activePlayerLaser &&
@@ -2161,6 +2274,7 @@ function launchPlayerTowardPoint(point) {
   const distance = Math.hypot(targetX - player.x, targetY - player.y);
   if (distance <= MOVE_STOP_DISTANCE) return;
 
+  const wasMoving = player.moving;
   player.moveTarget = { x: targetX, y: targetY };
   moveMarker = {
     x: targetX,
@@ -2171,7 +2285,9 @@ function launchPlayerTowardPoint(point) {
   player.moving = true;
   player.launched = true;
   player.restingFor = 0;
-  trail.length = 0;
+  if (!wasMoving) {
+    trail.length = 0;
+  }
 }
 
 function updateMoveMarker(dt) {
@@ -2972,6 +3088,7 @@ function resetGame() {
   player.hp = player.maxHp;
   player.vx = 0;
   player.vy = 0;
+  player.facingAngle = -Math.PI * 0.5;
   player.moving = false;
   player.launched = false;
   player.restingFor = 0;
@@ -3090,15 +3207,22 @@ function removeEnemy(id) {
 function killEnemy(enemy, { explode = true } = {}) {
   if (!enemy) return false;
 
+  if (explode && enemy.kind === "bomber") {
+    spawnBomberBlast(enemy.x, enemy.y);
+  }
+  if (explode && enemy.kind === "splitter") {
+    spawnSplitterChildren(enemy);
+  }
+
   if (explode) {
     spawnImpactBurst(enemy.x, enemy.y, {
-      count: enemy.kind === "brute" ? 30 : enemy.kind === "sproutling" ? 14 : 22,
+      count: enemy.kind === "brute" ? 30 : enemy.kind === "sproutling" || enemy.kind === "splitter_child" ? 14 : 22,
       speedMin: 110,
       speedMax: enemy.kind === "brute" ? 380 : 300,
       lifeMin: 0.55,
       lifeMax: 0.95,
-      sizeMin: enemy.kind === "sproutling" ? 12 : 20,
-      sizeMax: enemy.kind === "brute" ? 48 : enemy.kind === "sproutling" ? 22 : 38,
+      sizeMin: enemy.kind === "sproutling" || enemy.kind === "splitter_child" ? 12 : 20,
+      sizeMax: enemy.kind === "brute" ? 48 : enemy.kind === "sproutling" || enemy.kind === "splitter_child" ? 22 : 38,
     });
   }
 
@@ -3123,8 +3247,33 @@ function damageEnemy(enemy, amount = 1) {
   return false;
 }
 
-function getRosterHtml(level = getCurrentLevel()) {
-  return Object.entries(getLevelRoster(level))
+function getRemainingLevelRoster(level = getCurrentLevel()) {
+  const remainingRoster = Object.fromEntries(
+    Object.keys(getLevelRoster(level)).map((kind) => [kind, 0])
+  );
+
+  const addEnemyKind = (kind) => {
+    remainingRoster[kind] = (remainingRoster[kind] ?? 0) + 1;
+  };
+
+  for (const kind of levelSpawnQueue) {
+    addEnemyKind(kind);
+  }
+
+  for (const marker of spawnMarkers) {
+    addEnemyKind(marker.kind);
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.isIllusion) continue;
+    addEnemyKind(enemy.kind);
+  }
+
+  return remainingRoster;
+}
+
+function getRosterHtml(level = getCurrentLevel(), roster = getLevelRoster(level)) {
+  return Object.entries(roster)
     .map(([kind, count]) => {
       const meta = enemyMeta[kind] ?? { name: kind, color: "#ff5a5a", glow: "rgba(255, 90, 90, 0.45)" };
       return `<span class="roster-chip" title="${meta.name}"><span class="roster-chip__swatch" style="--enemy-color:${meta.color};--enemy-glow:${meta.glow}"></span>${meta.name} ${count}</span>`;
@@ -3135,7 +3284,10 @@ function getRosterHtml(level = getCurrentLevel()) {
 function updateLevelHud() {
   if (!levelHudEl) return;
   const level = getCurrentLevel();
-  levelHudEl.innerHTML = `<span class="level-chip">Уровень ${currentLevelIndex + 1}/10: ${level.name}</span>${getRosterHtml(level)}`;
+  const remainingRoster = getRemainingLevelRoster(level);
+  const remainingCount = Object.values(remainingRoster).reduce((sum, count) => sum + count, 0);
+  const totalCount = getLevelTotalCount(level);
+  levelHudEl.innerHTML = `<span class="level-chip">Уровень ${currentLevelIndex + 1}/10: ${level.name} | Осталось ${remainingCount}/${totalCount}</span>${getRosterHtml(level, remainingRoster)}`;
 }
 
 function hideCampaignOverlay() {
@@ -3354,6 +3506,7 @@ function draw() {
   drawArenaGlow();
   drawArena();
   drawMoveMarker();
+  drawPlayerTrajectory();
   drawSpawnMarkers();
   drawTrail();
   drawMines();
@@ -3596,6 +3749,93 @@ function drawMoveMarker() {
   ctx.restore();
 }
 
+function getPredictedPlayerTrajectory() {
+  if (!player.moveTarget) return [];
+
+  const half = player.size * 0.5;
+  const slowMultiplier = getPlayerSlowMultiplier();
+  const moveBrake = MOVE_BRAKE * slowMultiplier;
+  const moveAcceleration = MOVE_ACCELERATION * slowMultiplier;
+  const maxSpeed = MOVE_TO_POINT_SPEED * slowMultiplier;
+  const state = {
+    x: player.x,
+    y: player.y,
+    vx: player.vx,
+    vy: player.vy,
+    facingAngle: player.facingAngle,
+  };
+  const points = [{ x: state.x, y: state.y }];
+
+  for (let stepIndex = 0; stepIndex < PLAYER_TRAJECTORY_STEPS; stepIndex += 1) {
+    const dx = player.moveTarget.x - state.x;
+    const dy = player.moveTarget.y - state.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= MOVE_STOP_DISTANCE) {
+      points.push({ x: player.moveTarget.x, y: player.moveTarget.y });
+      break;
+    }
+
+    const currentSpeed = Math.hypot(state.vx, state.vy);
+    const targetAngle = Math.atan2(dy, dx);
+    const currentAngle = state.facingAngle ?? (currentSpeed > 1 ? Math.atan2(state.vy, state.vx) : targetAngle);
+    const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * PLAYER_TRAJECTORY_STEP_TIME);
+    const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
+    const targetSpeed = Math.min(maxSpeed, brakingSpeed);
+    const nextSpeed = currentSpeed < targetSpeed
+      ? Math.min(targetSpeed, currentSpeed + moveAcceleration * PLAYER_TRAJECTORY_STEP_TIME)
+      : Math.max(targetSpeed, currentSpeed - moveBrake * PLAYER_TRAJECTORY_STEP_TIME);
+    const travel = Math.min(nextSpeed * PLAYER_TRAJECTORY_STEP_TIME, distance);
+
+    state.vx = Math.cos(nextAngle) * nextSpeed;
+    state.vy = Math.sin(nextAngle) * nextSpeed;
+    state.facingAngle = nextAngle;
+    state.x = clamp(state.x + Math.cos(nextAngle) * travel, ARENA.x + half, ARENA.x + ARENA.width - half);
+    state.y = clamp(state.y + Math.sin(nextAngle) * travel, ARENA.y + half, ARENA.y + ARENA.height - half);
+    points.push({ x: state.x, y: state.y });
+  }
+
+  return points;
+}
+
+function drawPlayerTrajectory() {
+  const points = getPredictedPlayerTrajectory();
+  if (points.length < 2) return;
+
+  const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8);
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = `rgba(42, 211, 255, ${0.14 + pulse * 0.08})`;
+  ctx.lineWidth = 9;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let index = 1; index < points.length; index += 1) {
+    ctx.lineTo(points[index].x, points[index].y);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(220, 250, 255, ${0.62 + pulse * 0.2})`;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([12, 10]);
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let index = 1; index < points.length; index += 1) {
+    ctx.lineTo(points[index].x, points[index].y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (let index = 5; index < points.length; index += 7) {
+    const point = points[index];
+    ctx.fillStyle = `rgba(122, 232, 255, ${0.2 + pulse * 0.16})`;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawAbilityRange() {
   const selectedAbility = getSelectedAbilityState().ability;
   if (
@@ -3674,6 +3914,19 @@ function drawHookTargetPreview() {
 
 function drawEnemies() {
   for (const enemy of enemies) {
+    if (enemy.kind === "commander") {
+      const pulse = 0.5 + 0.5 * Math.sin(worldTime * 5 + enemy.x * 0.01);
+      ctx.save();
+      ctx.strokeStyle = `rgba(42, 211, 255, ${0.16 + pulse * 0.12})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 7]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, 76 + pulse * 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     if (enemy.kind === "slow") {
       const pulse = 0.5 + 0.5 * Math.sin(worldTime * 3 + enemy.x * 0.01);
       ctx.save();
@@ -3730,6 +3983,14 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#efffd2");
     gradient.addColorStop(0.45, "#9aea44");
     gradient.addColorStop(1, "#3d7b0f");
+  } else if (enemy.kind === "splitter" || enemy.kind === "splitter_child") {
+    gradient.addColorStop(0, "#d8fff0");
+    gradient.addColorStop(0.45, "#4ee6a8");
+    gradient.addColorStop(1, "#0a7855");
+  } else if (enemy.kind === "commander") {
+    gradient.addColorStop(0, "#d8f8ff");
+    gradient.addColorStop(0.45, "#2ad3ff");
+    gradient.addColorStop(1, "#075273");
   } else if (enemy.kind === "sniper") {
     gradient.addColorStop(0, "#ffccd4");
     gradient.addColorStop(0.45, "#a71d32");
@@ -3746,6 +4007,10 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#b6ffbb");
     gradient.addColorStop(0.45, "#51d86b");
     gradient.addColorStop(1, "#125f25");
+  } else if (enemy.kind === "bomber") {
+    gradient.addColorStop(0, "#ffe0b6");
+    gradient.addColorStop(0.45, "#ff8f35");
+    gradient.addColorStop(1, "#8f2f08");
   } else {
     gradient.addColorStop(0, "#ffb4b4");
     gradient.addColorStop(0.45, "#ff5a5a");
@@ -3765,6 +4030,10 @@ function drawEnemy(enemy) {
         ? "rgba(245, 248, 255, 0.45)"
       : enemy.kind === "grower" || enemy.kind === "sproutling"
         ? "rgba(166, 255, 92, 0.46)"
+      : enemy.kind === "splitter" || enemy.kind === "splitter_child"
+        ? "rgba(78, 230, 168, 0.46)"
+      : enemy.kind === "commander"
+        ? "rgba(42, 211, 255, 0.48)"
       : enemy.kind === "sniper"
         ? "rgba(156, 18, 42, 0.48)"
       : enemy.kind === "trickster"
@@ -3773,6 +4042,8 @@ function drawEnemy(enemy) {
         ? "rgba(203, 100, 255, 0.45)"
         : enemy.kind === "mine"
           ? "rgba(84, 255, 118, 0.42)"
+        : enemy.kind === "bomber"
+          ? "rgba(255, 143, 53, 0.46)"
           : "rgba(255, 54, 84, 0.45)";
   ctx.shadowBlur = enemy.moving ? 18 : 10;
   ctx.fillStyle = gradient;
@@ -3829,6 +4100,20 @@ function drawEnemy(enemy) {
     ctx.moveTo(0, -6);
     ctx.lineTo(0, 6);
     ctx.stroke();
+  } else if (enemy.kind === "bomber") {
+    ctx.strokeStyle = "rgba(255, 244, 224, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.moveTo(0, -10);
+    ctx.lineTo(0, -4);
+    ctx.moveTo(0, 4);
+    ctx.lineTo(0, 10);
+    ctx.moveTo(-10, 0);
+    ctx.lineTo(-4, 0);
+    ctx.moveTo(4, 0);
+    ctx.lineTo(10, 0);
+    ctx.stroke();
   } else if (enemy.kind === "slow") {
     ctx.strokeStyle = "rgba(246, 249, 255, 0.92)";
     ctx.lineWidth = 2;
@@ -3855,6 +4140,33 @@ function drawEnemy(enemy) {
     ctx.moveTo(-4, 2);
     ctx.lineTo(0, -4);
     ctx.lineTo(4, 2);
+    ctx.stroke();
+  } else if (enemy.kind === "splitter" || enemy.kind === "splitter_child") {
+    ctx.strokeStyle = "rgba(224, 255, 242, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-7, -5);
+    ctx.lineTo(0, -9);
+    ctx.lineTo(7, -5);
+    ctx.moveTo(-7, 5);
+    ctx.lineTo(0, 9);
+    ctx.lineTo(7, 5);
+    if (enemy.kind === "splitter") {
+      ctx.moveTo(-8, 0);
+      ctx.lineTo(8, 0);
+    }
+    ctx.stroke();
+  } else if (enemy.kind === "commander") {
+    ctx.strokeStyle = "rgba(228, 250, 255, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, 3);
+    ctx.lineTo(-3, -7);
+    ctx.lineTo(0, -2);
+    ctx.lineTo(3, -7);
+    ctx.lineTo(8, 3);
+    ctx.moveTo(-6, 7);
+    ctx.lineTo(6, 7);
     ctx.stroke();
   } else if (enemy.kind === "sniper") {
     ctx.strokeStyle = "rgba(255, 228, 236, 0.9)";
@@ -4310,37 +4622,56 @@ function drawLaserEffects() {
 
 function drawPlayer() {
   const radius = player.size * 0.5;
-  const angle = Math.atan2(player.vy, player.vx);
+  const angle = player.facingAngle ?? Math.atan2(player.vy, player.vx);
   const shakePower = player.hitShake > 0 ? player.hitShake * 8 : 0;
   const shakeX = shakePower > 0 ? (Math.random() - 0.5) * shakePower : 0;
   const shakeY = shakePower > 0 ? (Math.random() - 0.5) * shakePower : 0;
 
   ctx.save();
   ctx.translate(player.x + shakeX, player.y + shakeY);
-  ctx.rotate(player.moving ? angle : Math.PI * 0.25);
+  ctx.rotate(angle);
 
-  const gradient = ctx.createRadialGradient(-6, -8, 6, 0, 0, player.size);
+  if (player.moving) {
+    const flamePulse = 0.5 + 0.5 * Math.sin(worldTime * 24);
+    ctx.fillStyle = `rgba(122, 232, 255, ${0.35 + flamePulse * 0.32})`;
+    ctx.beginPath();
+    ctx.moveTo(-radius * 0.78, 0);
+    ctx.lineTo(-radius * (1.26 + flamePulse * 0.3), -radius * 0.18);
+    ctx.lineTo(-radius * (1.26 + flamePulse * 0.3), radius * 0.18);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const gradient = ctx.createLinearGradient(-radius, -radius, radius * 1.25, radius);
   gradient.addColorStop(0, player.hitFlash > 0 ? "#ffe4e4" : "#fff2a8");
-  gradient.addColorStop(0.38, player.hitFlash > 0 ? "#ff7a7a" : "#ff9f45");
+  gradient.addColorStop(0.48, player.hitFlash > 0 ? "#ff7a7a" : "#ff9f45");
   gradient.addColorStop(1, player.hitFlash > 0 ? "#ff315f" : "#ff3d81");
 
   ctx.shadowColor = "rgba(255, 88, 136, 0.35)";
   ctx.shadowBlur = 24;
   ctx.fillStyle = gradient;
   ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.moveTo(radius * 1.25, 0);
+  ctx.lineTo(-radius * 0.45, -radius * 0.72);
+  ctx.lineTo(-radius * 0.95, -radius * 0.24);
+  ctx.lineTo(-radius * 0.58, 0);
+  ctx.lineTo(-radius * 0.95, radius * 0.24);
+  ctx.lineTo(-radius * 0.45, radius * 0.72);
+  ctx.closePath();
   ctx.fill();
 
   ctx.shadowBlur = 0;
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(255,255,255,0.8)";
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillStyle = "rgba(255,255,255,0.32)";
   ctx.beginPath();
-  ctx.arc(-radius * 0.36, -radius * 0.34, radius * 0.28, 0, Math.PI * 2);
+  ctx.moveTo(radius * 0.38, 0);
+  ctx.lineTo(-radius * 0.2, -radius * 0.26);
+  ctx.lineTo(-radius * 0.08, 0);
+  ctx.lineTo(-radius * 0.2, radius * 0.26);
+  ctx.closePath();
   ctx.fill();
   ctx.restore();
 }
