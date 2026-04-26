@@ -70,7 +70,7 @@ const LEVEL2_BOSS_PULL_AFTER_DASH_DELAY = 1;
 const LEVEL2_BOSS_BOUNCE_SPEED = 620;
 const LEVEL2_BOSS_MINE_INTERVAL = 0.13;
 const LEVEL2_BOSS_MINE_ARM_TIME = 2;
-const LEVEL2_BOSS_MINE_BLAST_RADIUS_CELLS = 1;
+const LEVEL2_BOSS_MINE_BLAST_RADIUS_CELLS = 2.5;
 const LEVEL2_BOSS_MINE_BLAST_SPEED = 260;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
@@ -85,6 +85,7 @@ const COMMANDER_AURA_RADIUS = 76 * 4;
 const COMMANDER_RALLY_DISTANCE = COMMANDER_AURA_RADIUS * 0.45;
 const COMMANDER_SPEED_MULTIPLIER = 1.5;
 const MEDIC_HP = 3;
+const MEDIC_MOVE_SPEED_MULTIPLIER = 1.2;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
 const MEDIC_SUPPORT_RANGE = 210;
 const ENEMY_MAX_COUNT = 8;
@@ -574,6 +575,8 @@ let aimPoint = { x: 0, y: 0 };
 let pointerInCanvas = false;
 let hoveredEnemyId = null;
 let hoveredEnemyTimer = 0;
+let hoverAnchorPoint = { x: 0, y: 0 };
+let pointerMovedSinceHover = false;
 let moveMarker = null;
 let deathResetTimer = 0;
 let deathExplosion = null;
@@ -805,6 +808,7 @@ function movePointer(event) {
   const point = getCanvasPoint(event);
   pointerInCanvas = true;
   aimPoint = point;
+  pointerMovedSinceHover = true;
 }
 
 function endDrag() {
@@ -813,6 +817,7 @@ function endDrag() {
 function resetEnemyHover() {
   hoveredEnemyId = null;
   hoveredEnemyTimer = 0;
+  pointerMovedSinceHover = false;
 }
 
 function findEnemyAtPoint(point) {
@@ -833,15 +838,23 @@ function updateEnemyHover(dt) {
     return;
   }
 
-  const enemy = findEnemyAtPoint(aimPoint);
-  if (!enemy) {
-    resetEnemyHover();
+  const hoveredEnemy = enemies.find((candidate) => candidate.id === hoveredEnemyId);
+  if (hoveredEnemy && !pointerMovedSinceHover) {
+    hoveredEnemyTimer += dt;
     return;
   }
 
-  if (hoveredEnemyId !== enemy.id) {
+  const enemy = findEnemyAtPoint(aimPoint);
+  if (!enemy) {
+    if (pointerMovedSinceHover) resetEnemyHover();
+    return;
+  }
+
+  if (hoveredEnemyId !== enemy.id || pointerMovedSinceHover) {
     hoveredEnemyId = enemy.id;
     hoveredEnemyTimer = 0;
+    hoverAnchorPoint = { x: aimPoint.x, y: aimPoint.y };
+    pointerMovedSinceHover = false;
     return;
   }
 
@@ -1213,13 +1226,14 @@ function updateEnemyMotion(enemy, dt) {
       : enemy.kind === "laser"
         ? LASER_ENEMY_MOVE_ACCELERATION
         : ENEMY_MOVE_ACCELERATION;
+  const speedMultiplier = enemy.kind === "medic" ? MEDIC_MOVE_SPEED_MULTIPLIER : 1;
   const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - ENEMY_MOVE_STOP_DISTANCE));
   const maxSpeed =
-    enemy.kind === "spray"
-      ? SPRAY_ENEMY_DASH_SPEED
-      : enemy.kind === "laser"
-        ? LASER_ENEMY_DASH_SPEED
-        : ENEMY_DASH_SPEED;
+    (enemy.kind === "spray"
+        ? SPRAY_ENEMY_DASH_SPEED
+        : enemy.kind === "laser"
+          ? LASER_ENEMY_DASH_SPEED
+          : ENEMY_DASH_SPEED) * speedMultiplier;
   const targetSpeed = Math.min(maxSpeed, brakingSpeed);
 
   let nextSpeed = currentSpeed;
@@ -1358,6 +1372,25 @@ function supportEnemyFromMedic(medic) {
   });
 
   return true;
+}
+
+function getMedicWoundedAllyTarget(medic) {
+  let bestTarget = null;
+  let bestDistance = Infinity;
+
+  for (const enemy of enemies) {
+    if (enemy.id === medic.id || enemy.isIllusion) continue;
+    if (enemy.kind === "medic" || enemy.kind === "splitter_child" || enemy.kind === "sproutling") continue;
+    if ((enemy.hp ?? 1) >= (enemy.maxHp ?? 1)) continue;
+
+    const distance = Math.hypot(enemy.x - medic.x, enemy.y - medic.y);
+    if (distance >= bestDistance) continue;
+
+    bestTarget = enemy;
+    bestDistance = distance;
+  }
+
+  return bestTarget;
 }
 
 function beginEnemyActionCycle() {
@@ -2025,6 +2058,7 @@ function updateLevel2BossStageThree(enemy, dt) {
   enemy.x += enemy.vx * dt;
   enemy.y += enemy.vy * dt;
   handleWallBounce(enemy);
+  pullPlayerTowardBoss(enemy, getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS, dt);
 
   enemy.bossMineTimer -= dt;
   while (enemy.bossMineTimer <= 0) {
@@ -2172,6 +2206,17 @@ function launchEnemy(enemy) {
         const angle = Math.atan2(dy, dx) + randomRange(-0.7, 0.7);
         direction = { x: Math.cos(angle), y: Math.sin(angle) };
         dashDistance = ENEMY_DASH_MIN_DISTANCE * 0.45;
+      }
+    }
+  } else if (enemy.kind === "medic") {
+    const target = getMedicWoundedAllyTarget(enemy);
+    if (target) {
+      const dx = target.x - enemy.x;
+      const dy = target.y - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > 1) {
+        direction = { x: dx / distance, y: dy / distance };
+        dashDistance = Math.min(distance, ENEMY_DASH_MAX_DISTANCE);
       }
     }
   }
@@ -5157,10 +5202,10 @@ function drawEnemyTooltip() {
   const textLines = wrapCanvasText(data.text, contentWidth);
   const rewardLines = wrapCanvasText(data.reward, contentWidth);
   const height = padding * 2 + 18 + 16 + textLines.length * 15 + rewardLines.length * 15 + 10;
-  let x = aimPoint.x + 18;
-  let y = aimPoint.y + 18;
+  let x = hoverAnchorPoint.x + 18;
+  let y = hoverAnchorPoint.y + 18;
   x = clamp(x, 12, VIEW.width - width - 12);
-  if (y + height > VIEW.height - 12) y = aimPoint.y - height - 18;
+  if (y + height > VIEW.height - 12) y = hoverAnchorPoint.y - height - 18;
   y = clamp(y, 12, VIEW.height - height - 12);
 
   ctx.shadowColor = "rgba(0, 0, 0, 0.32)";
@@ -5550,6 +5595,8 @@ function drawBoss(enemy) {
         ? getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS
         : enemy.bossStage === 2 && enemy.bossState === "pull_wait"
           ? getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS
+        : enemy.bossStage === 3
+          ? getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS
           : 0;
     if (pullRadius > 0) {
       const castProgress = enemy.bossState === "pull_cast"
@@ -5562,6 +5609,28 @@ function drawBoss(enemy) {
       ctx.arc(0, 0, pullRadius * (0.35 + castProgress * 0.65), 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      if (enemy.bossStage === 2 && enemy.bossState === "pull_wait") {
+        const pullProgress = 1 - clamp(enemy.bossStateTimer / LEVEL2_BOSS_PULL_AFTER_DASH_DELAY, 0, 1);
+        for (let index = 0; index < 3; index += 1) {
+          const ringProgress = (pullProgress + index / 3) % 1;
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(255, 220, 155, ${0.52 * (1 - ringProgress)})`;
+          ctx.lineWidth = 2 + (1 - ringProgress) * 2;
+          ctx.arc(0, 0, pullRadius * (1 - ringProgress * 0.78), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        ctx.strokeStyle = `rgba(255, 246, 210, ${0.2 + pullProgress * 0.42})`;
+        ctx.lineWidth = 2;
+        for (let index = 0; index < 10; index += 1) {
+          const angle = (Math.PI * 2 * index) / 10 + worldTime * 1.8;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * pullRadius * 0.92, Math.sin(angle) * pullRadius * 0.92);
+          ctx.lineTo(Math.cos(angle) * pullRadius * 0.34, Math.sin(angle) * pullRadius * 0.34);
+          ctx.stroke();
+        }
+      }
     }
     if (enemy.bossStage === 2 && enemy.bossState === "charge") {
       const progress = 1 - clamp(enemy.bossStateTimer / LEVEL2_BOSS_CHARGE_TIME, 0, 1);
