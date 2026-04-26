@@ -55,9 +55,12 @@ const LEVEL1_BOSS_RADIAL_SHOTS = 30;
 const LEVEL1_BOSS_RADIAL_SPEED = 520;
 const LEVEL2_BOSS_PHASE_HP = 10;
 const LEVEL2_BOSS_SIZE = 48;
-const LEVEL2_BOSS_CHASE_SPEED = 182;
-const LEVEL2_BOSS_CHASE_ACCELERATION = 480;
+const LEVEL2_BOSS_CHASE_SPEED = 118;
+const LEVEL2_BOSS_CHASE_ACCELERATION = 320;
 const LEVEL2_BOSS_PULL_DELAY = 3;
+const LEVEL2_BOSS_PULL_CAST_TIME = 0.75;
+const LEVEL2_BOSS_PULL_DURATION = 1.1;
+const LEVEL2_BOSS_PULL_SPEED = MOVE_TO_POINT_SPEED * 0.8;
 const LEVEL2_BOSS_PULL_RADIUS_CELLS = 3;
 const LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS = 2;
 const LEVEL2_BOSS_CHARGE_TIME = 2;
@@ -133,9 +136,10 @@ const SLOW_FIELD_RADIUS = 92;
 const SLOW_FIELD_SPEED_MULTIPLIER = 0.38;
 const SLOW_ENEMY_RECOVER_DELAY = 0.4;
 const SLOW_ENEMY_HOLD_DISTANCE = 54;
+const ENEMY_SHIELD_WINDUP_TIME = 0.5;
 const ENEMY_SHIELD_UP_TIME = 1.2;
-const ENEMY_MINE_INTERVAL_MIN = 10;
-const ENEMY_MINE_INTERVAL_MAX = 20;
+const ENEMY_MINE_INTERVAL_MIN = 3;
+const ENEMY_MINE_INTERVAL_MAX = 10;
 const GROWER_SEED_INTERVAL_MIN = 4.8;
 const GROWER_SEED_INTERVAL_MAX = 7.2;
 const GROWER_SEED_HATCH_TIME = 2.9;
@@ -1610,8 +1614,8 @@ function updateEnemies(dt) {
       updateEnemyMotion(enemy, timerDt);
       if (!enemy.moving) {
         if (enemy.kind === "shield") {
-          enemy.phase = "shield_up";
-          enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_SHIELD_UP_TIME);
+          enemy.phase = "shield_windup";
+          enemy.phaseTimer = ENEMY_SHIELD_WINDUP_TIME;
           enemy.phaseDuration = enemy.phaseTimer;
         } else if (enemy.kind === "trickster") {
           spawnTricksterIllusions(enemy);
@@ -1717,6 +1721,16 @@ function updateEnemies(dt) {
       enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
         launchEnemy(enemy);
+      }
+      continue;
+    }
+
+    if (enemy.phase === "shield_windup") {
+      enemy.phaseTimer -= timerDt;
+      if (enemy.phaseTimer <= 0) {
+        enemy.phase = "shield_up";
+        enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_SHIELD_UP_TIME);
+        enemy.phaseDuration = enemy.phaseTimer;
       }
       continue;
     }
@@ -1905,11 +1919,36 @@ function updateBossChase(enemy, dt) {
 
 function updateLevel2Boss(enemy, dt) {
   if (enemy.bossStage === 1) {
+    if (enemy.bossState === "pull_cast") {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.bossStateTimer -= dt;
+      if (enemy.bossStateTimer <= 0) {
+        enemy.bossState = "pull_active";
+        enemy.bossStateTimer = LEVEL2_BOSS_PULL_DURATION;
+      }
+      return;
+    }
+
+    if (enemy.bossState === "pull_active") {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      pullPlayerTowardBoss(enemy, getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS, dt);
+      enemy.bossStateTimer -= dt;
+      if (enemy.bossStateTimer <= 0) {
+        enemy.bossState = "chase";
+        enemy.bossPullTimer = LEVEL2_BOSS_PULL_DELAY;
+      }
+      return;
+    }
+
     updateLevel2BossChase(enemy, dt, LEVEL2_BOSS_CHASE_SPEED, LEVEL2_BOSS_CHASE_ACCELERATION);
     enemy.bossPullTimer -= dt;
     if (enemy.bossPullTimer <= 0) {
-      pullPlayerToBoss(enemy, getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS);
-      enemy.bossPullTimer += LEVEL2_BOSS_PULL_DELAY;
+      enemy.bossState = "pull_cast";
+      enemy.bossStateTimer = LEVEL2_BOSS_PULL_CAST_TIME;
+      enemy.vx = 0;
+      enemy.vy = 0;
     }
     return;
   }
@@ -1976,7 +2015,7 @@ function updateLevel2BossStageTwo(enemy, dt) {
 
   enemy.bossStateTimer -= dt;
   if (enemy.bossStateTimer <= 0) {
-    pullPlayerToBoss(enemy, getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS);
+    pullPlayerTowardBoss(enemy, getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS, LEVEL2_BOSS_PULL_DURATION);
     enemy.bossState = "charge";
     enemy.bossStateTimer = LEVEL2_BOSS_CHARGE_TIME;
   }
@@ -1994,18 +2033,22 @@ function updateLevel2BossStageThree(enemy, dt) {
   }
 }
 
-function pullPlayerToBoss(enemy, radius) {
+function pullPlayerTowardBoss(enemy, radius, dt) {
   const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
   if (distance > radius + player.size * 0.5) return false;
+  if (distance <= 1) return true;
 
+  const step = Math.min(distance, LEVEL2_BOSS_PULL_SPEED * dt);
   const half = player.size * 0.5;
-  player.x = clamp(enemy.x, ARENA.x + half, ARENA.x + ARENA.width - half);
-  player.y = clamp(enemy.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+  player.x = clamp(player.x + ((enemy.x - player.x) / distance) * step, ARENA.x + half, ARENA.x + ARENA.width - half);
+  player.y = clamp(player.y + ((enemy.y - player.y) / distance) * step, ARENA.y + half, ARENA.y + ARENA.height - half);
   player.vx = 0;
   player.vy = 0;
   player.moveTarget = null;
   player.moving = false;
-  spawnImpactBurst(player.x, player.y, { count: 18, speedMin: 90, speedMax: 260, lifeMin: 0.16, lifeMax: 0.34, sizeMin: 3, sizeMax: 8 });
+  if (Math.random() < dt * 8) {
+    spawnImpactBurst(player.x, player.y, { count: 3, speedMin: 40, speedMax: 120, lifeMin: 0.1, lifeMax: 0.2, sizeMin: 2, sizeMax: 5 });
+  }
   return true;
 }
 
@@ -5507,17 +5550,20 @@ function drawBoss(enemy) {
 
   if (isLevel2Boss) {
     const pullRadius =
-      enemy.bossStage === 1
+      enemy.bossStage === 1 && (enemy.bossState === "pull_cast" || enemy.bossState === "pull_active")
         ? getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS
-        : enemy.bossStage === 2
+        : enemy.bossStage === 2 && enemy.bossState === "pull_wait"
           ? getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS
           : 0;
     if (pullRadius > 0) {
-      ctx.strokeStyle = `rgba(255, 154, 84, ${0.16 + pulse * 0.16})`;
-      ctx.lineWidth = 2;
+      const castProgress = enemy.bossState === "pull_cast"
+        ? 1 - clamp(enemy.bossStateTimer / LEVEL2_BOSS_PULL_CAST_TIME, 0, 1)
+        : 1;
+      ctx.strokeStyle = `rgba(255, 154, 84, ${0.2 + castProgress * 0.32 + pulse * 0.1})`;
+      ctx.lineWidth = 2 + castProgress * 3;
       ctx.setLineDash([9, 10]);
       ctx.beginPath();
-      ctx.arc(0, 0, pullRadius, 0, Math.PI * 2);
+      ctx.arc(0, 0, pullRadius * (0.35 + castProgress * 0.65), 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -5888,6 +5934,22 @@ function drawEnemy(enemy) {
     ctx.strokeStyle = "rgba(255, 210, 210, 0.9)";
     ctx.lineWidth = 3;
     ctx.arc(0, 0, half + 9, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
+    ctx.stroke();
+  } else if (enemy.phase === "shield_windup") {
+    const windupProgress = 1 - clamp(enemy.phaseTimer / (enemy.phaseDuration || ENEMY_SHIELD_WINDUP_TIME), 0, 1);
+    const shieldRadius = getEnemyShieldRadius(enemy);
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(255, 224, 122, ${0.24 + windupProgress * 0.42})`;
+    ctx.lineWidth = 2 + windupProgress * 3;
+    ctx.setLineDash([8, 7]);
+    ctx.arc(0, 0, shieldRadius * (0.25 + windupProgress * 0.75), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(255, 246, 198, ${0.28 + windupProgress * 0.42})`;
+    ctx.lineWidth = 2;
+    ctx.arc(0, 0, half + 10 + windupProgress * 10, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * windupProgress);
     ctx.stroke();
   } else if (enemy.phase === "shield_up") {
     const shieldProgress = clamp(enemy.phaseTimer / (enemy.phaseDuration || ENEMY_SHIELD_UP_TIME), 0, 1);
