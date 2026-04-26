@@ -3258,6 +3258,7 @@ function spawnBlastWave(x, y, {
   radius = 6,
   maxRadius = BLAST_MAX_RADIUS,
   expandSpeed = BLAST_EXPAND_SPEED,
+  hitsPlayer = false,
 } = {}) {
   blastWaves.push({
     owner,
@@ -3268,6 +3269,7 @@ function spawnBlastWave(x, y, {
     expandSpeed,
     hitEnemyIds: new Set(),
     hitPlayer: false,
+    hitsPlayer,
   });
 }
 
@@ -4092,6 +4094,7 @@ function triggerPulseBombExplosion(bomb) {
     radius: 8,
     maxRadius: BOMBER_BLAST_MAX_RADIUS,
     expandSpeed: BOMBER_BLAST_EXPAND_SPEED,
+    hitsPlayer: true,
   });
 }
 
@@ -4138,7 +4141,7 @@ function updateBlastWaves(dt) {
       }
     }
 
-    if (blast.owner !== "player" && !blast.hitPlayer) {
+    if ((blast.owner !== "player" || blast.hitsPlayer) && !blast.hitPlayer) {
       const distanceToPlayer = Math.hypot(player.x - blast.x, player.y - blast.y);
       if (distanceToPlayer <= blast.radius + player.size * 0.45) {
         applyPlayerHit();
