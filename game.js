@@ -2929,20 +2929,64 @@ function findNearestHookTarget() {
   return bestTarget;
 }
 
-function getAbilityIconKey(abilityKey) {
-  if (abilityKey === abilities.teleport.key) return "T";
-  if (abilityKey === abilities.hook.key) return "H";
-  if (abilityKey === abilities.sidearm.key) return "G";
-  if (abilityKey === abilities.shield.key) return "S";
-  if (abilityKey === abilities.sniper.key) return "N";
-  if (abilityKey === abilities.decoy.key) return "D";
-  if (abilityKey === abilities.missiles.key) return "R";
-  if (abilityKey === abilities.spray.key) return "V";
-  if (abilityKey === abilities.blast.key) return "B";
-  if (abilityKey === abilities.pulse_bomb.key) return "P";
-  if (abilityKey === abilities.splitter.key) return "Z";
-  if (abilityKey === abilities.tripwire.key) return "X";
-  return "L";
+function getIconSvg(paths, viewBox = "0 0 24 24") {
+  return `<svg class="game-icon" viewBox="${viewBox}" aria-hidden="true" focusable="false">${paths}</svg>`;
+}
+
+function getAbilityIconMarkup(abilityKey) {
+  if (abilityKey === abilities.teleport.key) {
+    return getIconSvg(`<path d="M7 7.5a7 7 0 0 1 9.8 0"/><path d="M17 16.5a7 7 0 0 1-9.8 0"/><path d="M16.8 7.5h-4.2"/><path d="M16.8 7.5v-4.2"/><path d="M7.2 16.5h4.2"/><path d="M7.2 16.5v4.2"/><circle cx="12" cy="12" r="2.4"/>`);
+  }
+  if (abilityKey === abilities.hook.key) {
+    return getIconSvg(`<path d="M15.5 4.5v8.1a4.8 4.8 0 1 1-7.6-3.9"/><path d="M15.5 4.5l3.2 3.2"/><path d="M15.5 4.5l-3.2 3.2"/>`);
+  }
+  if (abilityKey === abilities.sidearm.key) {
+    return getIconSvg(`<path d="M4 10.5h9.5l2.2 2.1h4.3v2.8h-5.5l-1.8-1.7h-2.3l-1.1 5H6.2l1-5H4z"/><path d="M13.5 10.5l1.2-3.1h3.7"/>`);
+  }
+  if (abilityKey === abilities.shield.key) {
+    return getIconSvg(`<path d="M12 3.5l7 2.5v5.2c0 4.4-2.7 7.4-7 9.3-4.3-1.9-7-4.9-7-9.3V6z"/><path d="M12 7v9.5"/>`);
+  }
+  if (abilityKey === abilities.sniper.key) {
+    return getIconSvg(`<circle cx="12" cy="12" r="6.5"/><path d="M12 2.8v4"/><path d="M12 17.2v4"/><path d="M2.8 12h4"/><path d="M17.2 12h4"/><circle cx="12" cy="12" r="1.6"/>`);
+  }
+  if (abilityKey === abilities.decoy.key) {
+    return getIconSvg(`<path d="M12 4.2a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2z"/><path d="M6.2 20c.8-4.2 3-6.3 5.8-6.3s5 2.1 5.8 6.3"/><path d="M4.2 8.2c1.1-.8 2.2-1.2 3.4-1.2"/><path d="M19.8 8.2c-1.1-.8-2.2-1.2-3.4-1.2"/>`);
+  }
+  if (abilityKey === abilities.missiles.key) {
+    return getIconSvg(`<path d="M13.2 3.8c3.2.7 5.3 2.8 6 6l-7.7 7.7-5-5z"/><path d="M7 17l-2.6 2.6"/><path d="M9.8 19.1l-1 2.1"/><path d="M4.9 14.2l-2.1 1"/><circle cx="15.4" cy="7.6" r="1.4"/>`);
+  }
+  if (abilityKey === abilities.spray.key) {
+    return getIconSvg(`<path d="M5 18.5L19 5"/><path d="M8.5 19.2L20 12"/><path d="M4.8 15.5L12 4"/><circle cx="19" cy="5" r="1.4"/><circle cx="20" cy="12" r="1.3"/><circle cx="12" cy="4" r="1.3"/>`);
+  }
+  if (abilityKey === abilities.blast.key) {
+    return getIconSvg(`<path d="M12 3.5l1.7 5.1 5.3-1.4-3.5 4.3 4.6 3-5.4.4.5 5.4-3.2-4.4-3.2 4.4.5-5.4-5.4-.4 4.6-3-3.5-4.3 5.3 1.4z"/>`);
+  }
+  if (abilityKey === abilities.pulse_bomb.key) {
+    return getIconSvg(`<circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="12" r="7.2"/><path d="M12 1.8v3"/><path d="M12 19.2v3"/><path d="M1.8 12h3"/><path d="M19.2 12h3"/>`);
+  }
+  if (abilityKey === abilities.splitter.key) {
+    return getIconSvg(`<path d="M5 5l5 4-4 4 6 6"/><path d="M13 5l5 4-4 4 5 6"/><path d="M9.8 9h6.7"/><path d="M6 13h8"/>`);
+  }
+  if (abilityKey === abilities.tripwire.key) {
+    return getIconSvg(`<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="12" r="2.4"/><path d="M7.4 12h9.2"/><path d="M12 8.5v7"/>`);
+  }
+  if (abilityKey === "empty") {
+    return getIconSvg(`<path d="M12 6v12"/><path d="M6 12h12"/>`);
+  }
+  return getIconSvg(`<path d="M4 12h16"/><path d="M16 8l4 4-4 4"/>`);
+}
+
+function getPassiveIconMarkup(passiveKey) {
+  if (passiveKey === "mine") {
+    return getIconSvg(`<circle cx="12" cy="13" r="5.4"/><path d="M12 4v3"/><path d="M7.2 6.2l1.7 2.3"/><path d="M16.8 6.2l-1.7 2.3"/><path d="M8.8 13h.1"/><path d="M15.2 13h.1"/>`);
+  }
+  if (passiveKey === "mirror") {
+    return getIconSvg(`<path d="M7 4h10l2 16H5z"/><path d="M10 7h5"/><path d="M9 12h6"/>`);
+  }
+  if (passiveKey === "slot") {
+    return getIconSvg(`<rect x="4" y="5" width="6" height="14" rx="2"/><rect x="14" y="5" width="6" height="14" rx="2"/>`);
+  }
+  return getAbilityIconMarkup(passiveKey);
 }
 
 function getAbilityCooldownState(abilityKey) {
@@ -5685,7 +5729,7 @@ function updateUi() {
   } else {
     abilityHintEl.textContent = `Click${switchHint}`;
   }
-  abilityIconEl.textContent = getAbilityIconKey(selectedAbility.key);
+  abilityIconEl.innerHTML = getAbilityIconMarkup(selectedAbility.key);
   hpLabelEl.textContent = `HP ${player.hp}/${player.maxHp}`;
   const xpText = `XP ${player.xp}/${player.xpNext} | Ур.${player.xpLevel}`;
   powerLabelEl.textContent = playerMinePassive
@@ -5696,7 +5740,7 @@ function updateUi() {
     {
       mode: "teleport",
       abilityKey: abilities.teleport.key,
-      icon: getAbilityIconKey(abilities.teleport.key),
+      icon: getAbilityIconMarkup(abilities.teleport.key),
       charges: null,
       active: abilityMode === "teleport",
       empty: false,
@@ -5704,7 +5748,7 @@ function updateUi() {
     {
       mode: "hook",
       abilityKey: abilities.hook.key,
-      icon: getAbilityIconKey(abilities.hook.key),
+      icon: getAbilityIconMarkup(abilities.hook.key),
       charges: null,
       active: abilityMode === "hook",
       empty: false,
@@ -5712,7 +5756,7 @@ function updateUi() {
     {
       mode: "base",
       abilityKey: abilities.sidearm.key,
-      icon: getAbilityIconKey(abilities.sidearm.key),
+      icon: getAbilityIconMarkup(abilities.sidearm.key),
       charges: getReadyBaseGunCharges(),
       active: abilityMode === "base",
       empty: false,
@@ -5723,7 +5767,7 @@ function updateUi() {
     abilityTiles.push({
       mode: "primary",
       abilityKey: currentAbility.key,
-      icon: getAbilityIconKey(currentAbility.key),
+      icon: getAbilityIconMarkup(currentAbility.key),
       charges: currentAbilityCharges,
       active: abilityMode === "primary",
       empty: false,
@@ -5735,7 +5779,7 @@ function updateUi() {
       abilityTiles.push({
         mode: "secondary",
         abilityKey: reserveAbility.key,
-        icon: getAbilityIconKey(reserveAbility.key),
+        icon: getAbilityIconMarkup(reserveAbility.key),
         charges: reserveAbilityCharges,
         active: abilityMode === "secondary",
         empty: false,
@@ -5744,7 +5788,7 @@ function updateUi() {
       abilityTiles.push({
         mode: "secondary",
         abilityKey: null,
-        icon: "+",
+        icon: getAbilityIconMarkup("empty"),
         charges: null,
         active: false,
         empty: true,
@@ -5757,7 +5801,7 @@ function updateUi() {
       (tile, index) => {
         const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
         const cooldownRatio = cooldown ? clamp(cooldown.remaining / cooldown.duration, 0, 1) : 0;
-        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__hotkey">${index + 1}</span><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
+        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""} title="${tile.abilityKey ? abilities[tile.abilityKey]?.name ?? "" : "Пустой слот"}">${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__hotkey">${index + 1}</span><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
       }
     )
     .join("");
@@ -5765,41 +5809,37 @@ function updateUi() {
   const passiveChips = [];
   if (playerMinePassive) {
     passiveChips.push(
-      `<div class="passive-chip"><span class="passive-chip__icon">M</span><span class="passive-chip__text">Мины ${playerMinePassive.remaining}/20</span></div>`
+      `<div class="passive-chip" title="Мины"><span class="passive-chip__icon">${getPassiveIconMarkup("mine")}</span><span class="passive-chip__badge">${playerMinePassive.remaining}</span></div>`
     );
   }
   if (playerDecoyPassive) {
     passiveChips.push(
-      `<div class="passive-chip"><span class="passive-chip__icon">D</span><span class="passive-chip__text">Приманки ${playerDecoyPassive.remaining}/3</span></div>`
+      `<div class="passive-chip" title="Приманки"><span class="passive-chip__icon">${getAbilityIconMarkup(abilities.decoy.key)}</span><span class="passive-chip__badge">${playerDecoyPassive.remaining}</span></div>`
     );
   }
   if (playerMirrorPassive) {
     passiveChips.push(
-      `<div class="passive-chip"><span class="passive-chip__icon">R</span><span class="passive-chip__text">Зеркало ${playerMirrorPassive.timer.toFixed(1)}s</span></div>`
+      `<div class="passive-chip" title="Зеркало"><span class="passive-chip__icon">${getPassiveIconMarkup("mirror")}</span><span class="passive-chip__badge">${Math.ceil(playerMirrorPassive.timer)}</span></div>`
     );
   }
   if (playerAbilityCapacity > 1) {
     passiveChips.push(
-      `<div class="passive-chip"><span class="passive-chip__icon">2</span><span class="passive-chip__text">2 слота</span></div>`
+      `<div class="passive-chip" title="2 слота"><span class="passive-chip__icon">${getPassiveIconMarkup("slot")}</span><span class="passive-chip__badge">2</span></div>`
     );
   }
   if (currentAbility.key !== abilities.hook.key) {
-    const currentLabel =
-      currentAbilityCharges === null ? currentAbility.name : `${currentAbility.name} x${currentAbilityCharges}`;
     passiveChips.push(
-      `<div class="passive-chip"><span class="passive-chip__icon">${getAbilityIconKey(currentAbility.key)}</span><span class="passive-chip__text">${abilityMode === "primary" ? "Активно" : "Слот 1"} ${currentLabel}</span></div>`
+      `<div class="passive-chip${abilityMode === "primary" ? " is-active" : ""}" title="${currentAbility.name}"><span class="passive-chip__icon">${getAbilityIconMarkup(currentAbility.key)}</span>${currentAbilityCharges !== null ? `<span class="passive-chip__badge">${currentAbilityCharges}</span>` : ""}</div>`
     );
   }
   if (playerAbilityCapacity > 1) {
     if (reserveAbility) {
-      const reserveLabel =
-        reserveAbilityCharges === null ? reserveAbility.name : `${reserveAbility.name} x${reserveAbilityCharges}`;
       passiveChips.push(
-        `<div class="passive-chip"><span class="passive-chip__icon">${getAbilityIconKey(reserveAbility.key)}</span><span class="passive-chip__text">${abilityMode === "secondary" ? "Активно" : "Слот 2"} ${reserveLabel}</span></div>`
+        `<div class="passive-chip${abilityMode === "secondary" ? " is-active" : ""}" title="${reserveAbility.name}"><span class="passive-chip__icon">${getAbilityIconMarkup(reserveAbility.key)}</span>${reserveAbilityCharges !== null ? `<span class="passive-chip__badge">${reserveAbilityCharges}</span>` : ""}</div>`
       );
     } else {
       passiveChips.push(
-        `<div class="passive-chip"><span class="passive-chip__icon">+</span><span class="passive-chip__text">Слот 2 пусто</span></div>`
+        `<div class="passive-chip is-empty" title="Пустой слот"><span class="passive-chip__icon">${getAbilityIconMarkup("empty")}</span></div>`
       );
     }
   }
