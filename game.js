@@ -201,6 +201,7 @@ const DECOY_SIZE = 24;
 const PLAYER_DECOY_PASSIVE_TOTAL = 3;
 const PLAYER_DECOY_PASSIVE_INTERVAL = 5;
 const PASSIVE_XP_INTERVAL = 10;
+const PASSIVE_XP_AMOUNT = 2;
 const PLAYER_MIRROR_PASSIVE_DURATION = 10;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
@@ -5340,7 +5341,7 @@ function updatePassiveXp(dt) {
   passiveXpTimer += dt;
   while (passiveXpTimer >= PASSIVE_XP_INTERVAL) {
     passiveXpTimer -= PASSIVE_XP_INTERVAL;
-    addPlayerXp(1);
+    addPlayerXp(PASSIVE_XP_AMOUNT);
   }
 }
 
