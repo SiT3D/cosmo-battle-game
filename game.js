@@ -60,7 +60,7 @@ const LEVEL2_BOSS_CHASE_ACCELERATION = 320;
 const LEVEL2_BOSS_PULL_DELAY = 3;
 const LEVEL2_BOSS_PULL_CAST_TIME = 0.75;
 const LEVEL2_BOSS_PULL_DURATION = 1.1;
-const LEVEL2_BOSS_PULL_SPEED = MOVE_TO_POINT_SPEED * 0.8;
+const LEVEL2_BOSS_PULL_SPEED = MOVE_TO_POINT_SPEED * 0.5;
 const LEVEL2_BOSS_PULL_RADIUS_CELLS = 3;
 const LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS = 2;
 const LEVEL2_BOSS_CHARGE_TIME = 2;
@@ -2042,10 +2042,6 @@ function pullPlayerTowardBoss(enemy, radius, dt) {
   const half = player.size * 0.5;
   player.x = clamp(player.x + ((enemy.x - player.x) / distance) * step, ARENA.x + half, ARENA.x + ARENA.width - half);
   player.y = clamp(player.y + ((enemy.y - player.y) / distance) * step, ARENA.y + half, ARENA.y + ARENA.height - half);
-  player.vx = 0;
-  player.vy = 0;
-  player.moveTarget = null;
-  player.moving = false;
   if (Math.random() < dt * 8) {
     spawnImpactBurst(player.x, player.y, { count: 3, speedMin: 40, speedMax: 120, lifeMin: 0.1, lifeMax: 0.2, sizeMin: 2, sizeMax: 5 });
   }
