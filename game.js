@@ -696,6 +696,10 @@ function getEnemyMaxCount() {
   return ENEMY_MAX_COUNT + Math.max(1, levelNumber - ENEMY_MAX_COUNT_LEVEL_OFFSET) + Math.floor(player.xpLevel / 2);
 }
 
+function getSpawnLimitedEnemyCount() {
+  return enemies.filter((enemy) => !enemy.isIllusion).length + spawnMarkers.length;
+}
+
 function getSpawnInterval() {
   const interval = getCurrentLevel()?.spawnInterval ?? ENEMY_SPAWN_INTERVAL;
   const upgradeMultiplier = getPlayerUpgrades().enemySpawnIntervalMultiplier;
@@ -1612,7 +1616,7 @@ function updateEnemySpawns(dt) {
   }
 
   if (levelSpawnQueue.length === 0) return;
-  if (enemies.length + spawnMarkers.length >= getEnemyMaxCount()) return;
+  if (getSpawnLimitedEnemyCount() >= getEnemyMaxCount()) return;
 
   spawnClock -= dt;
   if (spawnClock > 0) return;
@@ -2820,7 +2824,7 @@ function spawnSplitterChildren(source) {
 }
 
 function spawnReplicatorClone(source) {
-  if (enemies.length + spawnMarkers.length >= getEnemyMaxCount()) return false;
+  if (getSpawnLimitedEnemyCount() >= getEnemyMaxCount()) return false;
 
   const padding = ENEMY_SIZE * 2.1;
   for (let attempt = 0; attempt < 14; attempt += 1) {
