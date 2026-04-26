@@ -598,6 +598,7 @@ let reserveAbility = null;
 let reserveAbilityCharges = null;
 let abilityMode = "hook";
 let activeHook = null;
+let pendingPlayerTeleport = null;
 let activePlayerTeleport = null;
 let activePlayerLaser = null;
 let activePlayerSniper = null;
@@ -874,6 +875,10 @@ function startDrag(event) {
   aimPoint = point;
   if (event.button === 2) {
     event.preventDefault();
+    if (pendingPlayerTeleport) {
+      cancelPendingTeleport();
+      return;
+    }
     launchPlayerTowardPoint(point);
     return;
   }
@@ -945,6 +950,7 @@ function canSwitchAbilities() {
     !player.dead &&
     !player.moving &&
     !activeHook &&
+    !pendingPlayerTeleport &&
     !activePlayerTeleport &&
     !activePlayerLaser &&
     !activePlayerSniper &&
@@ -984,6 +990,12 @@ function selectAbilityModeByIndex(index) {
 
 function handleKeyDown(event) {
   if (gameState !== "playing") return;
+
+  if (event.code === "Escape" && pendingPlayerTeleport) {
+    event.preventDefault();
+    cancelPendingTeleport();
+    return;
+  }
 
   if (event.code === "KeyQ") {
     event.preventDefault();
@@ -3449,19 +3461,39 @@ function useHookAbility() {
 }
 
 function useTeleportAbility(targetPoint = aimPoint) {
+  if (pendingPlayerTeleport) {
+    return confirmPendingTeleport();
+  }
+
   const half = player.size * 0.5;
   const targetX = clamp(targetPoint.x, ARENA.x + half, ARENA.x + ARENA.width - half);
   const targetY = clamp(targetPoint.y, ARENA.y + half, ARENA.y + ARENA.height - half);
   const distance = Math.hypot(targetX - player.x, targetY - player.y);
   if (distance < 2) return false;
 
-  activePlayerTeleport = {
+  pendingPlayerTeleport = {
     targetX,
     targetY,
+    pulseSeed: Math.random() * Math.PI * 2,
+  };
+  return true;
+}
+
+function confirmPendingTeleport() {
+  if (!pendingPlayerTeleport || activePlayerTeleport) return false;
+
+  activePlayerTeleport = {
+    targetX: pendingPlayerTeleport.targetX,
+    targetY: pendingPlayerTeleport.targetY,
     timer: TELEPORT_CHARGE_TIME,
     duration: TELEPORT_CHARGE_TIME,
   };
+  pendingPlayerTeleport = null;
   return true;
+}
+
+function cancelPendingTeleport() {
+  pendingPlayerTeleport = null;
 }
 
 function activatePlayerMinePassive() {
@@ -3607,6 +3639,10 @@ function tryUseAbilityFromClick(point) {
   }
   const selected = getSelectedAbilityState();
   const selectedAbility = selected.ability;
+
+  if (selectedAbility.key === abilities.teleport.key && pendingPlayerTeleport) {
+    return useTeleportAbility(point);
+  }
 
   if (selectedAbility.key === abilities.hook.key) {
     return useHookAbility();
@@ -5110,6 +5146,7 @@ function startDeathSequence() {
   player.moveTarget = null;
   player.hitInvuln = 0;
   activeHook = null;
+  pendingPlayerTeleport = null;
   activePlayerTeleport = null;
   activePlayerLaser = null;
   activePlayerSniper = null;
@@ -5203,6 +5240,7 @@ function resetGame() {
   player.dead = false;
 
   activeHook = null;
+  pendingPlayerTeleport = null;
   activePlayerTeleport = null;
   activePlayerLaser = null;
   activePlayerSniper = null;
@@ -5609,6 +5647,8 @@ function updateUi() {
     abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
     abilityHintEl.textContent = `${activePlayerTeleport.timer.toFixed(1)}s`;
+  } else if (selectedAbility.key === abilities.teleport.key && pendingPlayerTeleport) {
+    abilityHintEl.textContent = "Confirm | Esc/RMB";
   } else {
     abilityHintEl.textContent = `Click${switchHint}`;
   }
@@ -7070,6 +7110,32 @@ function drawLaserEffects() {
     ctx.fillStyle = "rgba(255, 236, 190, 0.96)";
     ctx.beginPath();
     ctx.arc(activeHook.tipX, activeHook.tipY, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (pendingPlayerTeleport) {
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 10 + pendingPlayerTeleport.pulseSeed);
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(118, 244, 255, ${0.28 + pulse * 0.28})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([8, 7]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(pendingPlayerTeleport.targetX, pendingPlayerTeleport.targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = `rgba(212, 252, 255, ${0.46 + pulse * 0.3})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(pendingPlayerTeleport.targetX, pendingPlayerTeleport.targetY, 18 + pulse * 7, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = `rgba(212, 252, 255, ${0.28 + pulse * 0.28})`;
+    ctx.beginPath();
+    ctx.arc(pendingPlayerTeleport.targetX, pendingPlayerTeleport.targetY, 5 + pulse * 2, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
