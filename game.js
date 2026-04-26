@@ -109,7 +109,8 @@ const MEDIC_HP = 3;
 const MEDIC_MOVE_SPEED_MULTIPLIER = 1.2;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
 const MEDIC_SUPPORT_RANGE = 420;
-const ENEMY_MAX_COUNT = 8;
+const ENEMY_MAX_COUNT = 1;
+const ENEMY_MAX_COUNT_LEVEL_OFFSET = 3;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
 const ENEMY_SPAWN_INTERVAL_MULTIPLIER = 0.9;
@@ -687,7 +688,7 @@ function getCurrentLevel() {
 
 function getEnemyMaxCount() {
   const levelNumber = currentLevelIndex + 1;
-  return 3 + levelNumber + Math.floor(player.xpLevel / 2);
+  return ENEMY_MAX_COUNT + Math.max(1, levelNumber - ENEMY_MAX_COUNT_LEVEL_OFFSET) + Math.floor(player.xpLevel / 2);
 }
 
 function getSpawnInterval() {
