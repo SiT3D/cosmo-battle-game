@@ -1055,8 +1055,8 @@ function update(dt) {
   const simDt = dt * currentTimeScale;
 
   worldTime += simDt;
+  actionTime += simDt;
   if (startedActive) {
-    actionTime += simDt;
     updatePassiveXp(simDt);
   }
   if (player.moving) {
