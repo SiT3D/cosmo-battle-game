@@ -111,6 +111,13 @@ const MEDIC_HP = 3;
 const MEDIC_MOVE_SPEED_MULTIPLIER = 1.2;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
 const MEDIC_SUPPORT_RANGE = 420;
+const CHARGER_HP = 2;
+const CHARGER_SPEED_MULTIPLIER = 1.32;
+const CHARGER_RECOVER_DELAY = 0.55;
+const ROCKETEER_HP = 3;
+const ROCKETEER_CHARGE_TIME = 1.15;
+const ROCKETEER_RECOVER_DELAY = 1.4;
+const ROCKETEER_MISSILE_SPEED_MULTIPLIER = 0.86;
 const ENEMY_MAX_COUNT = 1;
 const ENEMY_MAX_COUNT_LEVEL_OFFSET = 3;
 const ENEMY_SPAWN_TELEGRAPH = 3;
@@ -209,6 +216,16 @@ const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
 const STOLEN_TRIPWIRE_CHARGES = 3;
+const STOLEN_DASH_CHARGES = 1;
+const STOLEN_TURRET_CHARGES = 1;
+const PLAYER_DASH_SPEED = 980;
+const PLAYER_DASH_DAMAGE = 3;
+const PLAYER_DASH_MAX_DISTANCE_CELLS = 2.8;
+const PLAYER_TURRET_HP = 5;
+const PLAYER_TURRET_SIZE = 28;
+const PLAYER_TURRET_RANGE_CELLS = 4.2;
+const PLAYER_TURRET_FIRE_INTERVAL = 1;
+const PLAYER_TURRET_LIFETIME = 35;
 const TRIPWIRE_LIFETIME = 30;
 const TRIPWIRE_DAMAGE = 3;
 const TRIPWIRE_LENGTH_CELLS = 1.25;
@@ -300,6 +317,16 @@ const abilities = {
     name: "Приманка",
     hint: "Click",
   },
+  dash: {
+    key: "dash",
+    name: "Рывок",
+    hint: "Click",
+  },
+  turret: {
+    key: "turret",
+    name: "Турель",
+    hint: "Click",
+  },
   missiles: {
     key: "missiles",
     name: "Ракеты",
@@ -335,6 +362,8 @@ const enemyMeta = {
   bomber: { name: "Подрывники", color: "#ff8f35", glow: "rgba(255, 143, 53, 0.55)" },
   splitter: { name: "Делители", color: "#4ee6a8", glow: "rgba(78, 230, 168, 0.55)" },
   commander: { name: "Командиры", color: "#2ad3ff", glow: "rgba(42, 211, 255, 0.55)" },
+  charger: { name: "Рывки", color: "#ff4f7a", glow: "rgba(255, 79, 122, 0.52)" },
+  rocketeer: { name: "Ракетчики", color: "#8b7cff", glow: "rgba(139, 124, 255, 0.52)" },
   mirror: { name: "Зеркала", color: "#c9f3ff", glow: "rgba(201, 243, 255, 0.58)" },
   brute: { name: "Танки", color: "#ffd44f", glow: "rgba(255, 212, 79, 0.55)" },
   sniper: { name: "Снайперы", color: "#a71d32", glow: "rgba(167, 29, 50, 0.55)" },
@@ -358,6 +387,8 @@ const enemyInfo = {
   splitter: { text: "После смерти делится на мелкие цели.", reward: `Зигзаг, ${STOLEN_SPLITTER_CHARGES} заряда.` },
   splitter_child: { text: "Мелкий осколок делителя.", reward: "Только опыт." },
   commander: { text: "Ускоряет ближайших союзников.", reward: "Больше опыта." },
+  charger: { text: "Бьет прямым быстрым рывком в игрока.", reward: "Рывок с бессмертием, 1 заряд." },
+  rocketeer: { text: "После остановки запускает самонаводящуюся ракету.", reward: "Турель с 5 HP, 1 заряд." },
   mirror: { text: "На 10 секунд ставит перед собой плоский отражающий щит.", reward: `Растяжки, ${STOLEN_TRIPWIRE_CHARGES} заряда.` },
   brute: { text: "Крепкий враг с большим запасом HP.", reward: "Нельзя съесть хуком." },
   sniper: { text: "Долго целится и стреляет точным выстрелом.", reward: `Снайпер, ${STOLEN_SNIPER_CHARGES} заряда.` },
@@ -424,7 +455,7 @@ const campaignLevels = [
   },
   {
     name: "Сад",
-    roster: { commander: 2, grower: 4, slow: 2, shield: 3, laser: 3 },
+    roster: { commander: 2, grower: 4, slow: 2, charger: 2, shield: 3, laser: 3 },
     minEnemies: 35,
     maxEnemies: 6,
     spawnInterval: [1.35, 2.4],
@@ -432,7 +463,7 @@ const campaignLevels = [
   },
   {
     name: "Обманки",
-    roster: { trickster: 5, splitter: 4, spray: 4, sniper: 2 },
+    roster: { trickster: 5, splitter: 4, spray: 4, sniper: 2, charger: 3 },
     minEnemies: 40,
     maxEnemies: 6,
     spawnInterval: [1.2, 2.15],
@@ -440,7 +471,7 @@ const campaignLevels = [
   },
   {
     name: "Размножение",
-    roster: { commander: 3, medic: 3, replicator: 3, grower: 3, mine: 4, slow: 2 },
+    roster: { commander: 3, medic: 3, replicator: 3, grower: 3, rocketeer: 3, mine: 4, slow: 2 },
     minEnemies: 50,
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
@@ -448,7 +479,7 @@ const campaignLevels = [
   },
   {
     name: "Финальная смесь",
-    roster: { commander: 3, medic: 3, mirror: 4, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, trickster: 3, slow: 2, brute: 2, replicator: 1 },
+    roster: { commander: 3, medic: 3, mirror: 4, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, rocketeer: 3, trickster: 3, charger: 3, slow: 2, brute: 2, replicator: 1 },
     minEnemies: 50,
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
@@ -607,7 +638,9 @@ let activePlayerLaser = null;
 let activePlayerSniper = null;
 let activePlayerSpray = null;
 let activePlayerShield = null;
+let activePlayerDash = null;
 const activePlayerDecoys = [];
+const activePlayerTurrets = [];
 let playerDecoyPassive = null;
 let playerMinePassive = null;
 let playerMirrorPassive = null;
@@ -820,6 +853,14 @@ function getDecoyRange() {
   return getCellSize() * DECOY_RANGE_CELLS * getPlayerUpgrades().decoyRangeMultiplier;
 }
 
+function getDashRange() {
+  return getCellSize() * PLAYER_DASH_MAX_DISTANCE_CELLS;
+}
+
+function getTurretRange() {
+  return getCellSize() * PLAYER_TURRET_RANGE_CELLS;
+}
+
 function getArenaProjectileReach() {
   return Math.hypot(ARENA.width, ARENA.height) + 120;
 }
@@ -837,6 +878,8 @@ function isSimulationActive() {
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
+    Boolean(activePlayerDash) ||
+    activePlayerTurrets.length > 0 ||
     beamEffects.length > 0
   );
 }
@@ -959,7 +1002,8 @@ function canSwitchAbilities() {
     !activePlayerBaseGun &&
     !activePlayerLaser &&
     !activePlayerSniper &&
-    !activePlayerSpray
+    !activePlayerSpray &&
+    !activePlayerDash
   );
 }
 
@@ -1073,6 +1117,8 @@ function update(dt) {
   updatePlayerLaser(simDt);
   updatePlayerSniper(simDt);
   updatePlayerSpray(simDt);
+  updatePlayerDash(simDt);
+  updatePlayerTurrets(simDt);
   updateBaseProjectiles(simDt);
   updateEnemySpawns(simDt);
   updateLevelBossSpawn();
@@ -1289,6 +1335,22 @@ function getEnemyAggroTarget(fromX = player.x, fromY = player.y) {
     };
   }
 
+  let nearestTurret = null;
+  for (const turret of activePlayerTurrets) {
+    const distance = Math.hypot(turret.x - fromX, turret.y - fromY);
+    if (distance >= nearestDistance) continue;
+    nearestDistance = distance;
+    nearestTurret = turret;
+  }
+
+  if (nearestTurret) {
+    return {
+      x: nearestTurret.x,
+      y: nearestTurret.y,
+      type: "turret",
+    };
+  }
+
   return {
     x: player.x,
     y: player.y,
@@ -1328,7 +1390,12 @@ function updateEnemyMotion(enemy, dt) {
       : enemy.kind === "laser"
         ? LASER_ENEMY_MOVE_ACCELERATION
         : ENEMY_MOVE_ACCELERATION;
-  const speedMultiplier = isHealingEnemy(enemy) ? MEDIC_MOVE_SPEED_MULTIPLIER : 1;
+  const speedMultiplier =
+    enemy.kind === "charger"
+      ? CHARGER_SPEED_MULTIPLIER
+      : isHealingEnemy(enemy)
+        ? MEDIC_MOVE_SPEED_MULTIPLIER
+        : 1;
   const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - ENEMY_MOVE_STOP_DISTANCE));
   const maxSpeed =
     (enemy.kind === "spray"
@@ -1408,6 +1475,8 @@ function getEnemyRecoverDelay(enemy) {
   if (enemy.kind === "replicator") return REPLICATOR_HOP_DELAY;
   if (enemy.kind === "spray") return SPRAY_ENEMY_RECOVER_DELAY;
   if (enemy.kind === "slow") return SLOW_ENEMY_RECOVER_DELAY;
+  if (enemy.kind === "charger") return CHARGER_RECOVER_DELAY;
+  if (enemy.kind === "rocketeer") return ROCKETEER_RECOVER_DELAY;
   return ENEMY_DASH_DELAY_AFTER_SHOT;
 }
 
@@ -1823,6 +1892,15 @@ function updateEnemies(dt) {
         } else if (enemy.kind === "replicator") {
           enemy.phase = "recover";
           enemy.phaseTimer = getStaggeredEnemyDelay(REPLICATOR_HOP_DELAY);
+        } else if (enemy.kind === "charger") {
+          enemy.phase = "recover";
+          enemy.phaseTimer = getStaggeredEnemyDelay(CHARGER_RECOVER_DELAY);
+        } else if (enemy.kind === "rocketeer") {
+          const target = getEnemyAggroTarget(enemy.x, enemy.y);
+          enemy.phase = "missile_charge";
+          enemy.phaseTimer = getStaggeredEnemyDelay(ROCKETEER_CHARGE_TIME);
+          enemy.aimX = target.x;
+          enemy.aimY = target.y;
         } else if (enemy.kind === "grower") {
           enemy.phase = "recover";
           enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
@@ -1916,6 +1994,19 @@ function updateEnemies(dt) {
           break;
         }
         enemy.shotTimer += SPRAY_SHOT_INTERVAL;
+      }
+      continue;
+    }
+
+    if (enemy.phase === "missile_charge") {
+      const target = getEnemyAggroTarget(enemy.x, enemy.y);
+      enemy.aimX = target.x;
+      enemy.aimY = target.y;
+      enemy.phaseTimer -= timerDt;
+      if (enemy.phaseTimer <= 0) {
+        fireEnemyHomingMissile(enemy, null, { speedMultiplier: ROCKETEER_MISSILE_SPEED_MULTIPLIER });
+        setEnemyTurnWait(enemy, ROCKETEER_RECOVER_DELAY);
+        enemy.turnShotLocked = true;
       }
       continue;
     }
@@ -2480,6 +2571,20 @@ function fireEnemyInstantBeam(fromX, fromY, toX, toY, options = {}) {
     return;
   }
 
+  let bestTurretIndex = -1;
+  let bestTurretT = Infinity;
+  for (let index = 0; index < activePlayerTurrets.length; index += 1) {
+    const turret = activePlayerTurrets[index];
+    const turretHit = getSegmentCircleHit(fromX, fromY, endX, endY, turret.x, turret.y, turret.size * 0.55);
+    if (!turretHit || turretHit.t >= bestTurretT) continue;
+    bestTurretIndex = index;
+    bestTurretT = turretHit.t;
+  }
+  if (bestTurretIndex !== -1) {
+    damagePlayerTurret(bestTurretIndex, 1);
+    return;
+  }
+
   const playerHit = getSegmentCircleHit(fromX, fromY, endX, endY, player.x, player.y, player.size * 0.55);
   if (playerHit) applyPlayerHit();
 }
@@ -2572,6 +2677,27 @@ function launchEnemy(enemy) {
       direction = { x: Math.cos(angle), y: Math.sin(angle) };
       dashDistance = clamp(distance * 0.9, ENEMY_DASH_MIN_DISTANCE * 0.8, ENEMY_DASH_MAX_DISTANCE);
     }
+  } else if (enemy.kind === "charger") {
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 1) {
+      direction = { x: dx / distance, y: dy / distance };
+      dashDistance = clamp(distance * 1.08, ENEMY_DASH_MIN_DISTANCE * 0.85, ENEMY_DASH_MAX_DISTANCE * 1.2);
+    }
+  } else if (enemy.kind === "rocketeer") {
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 1) {
+      const baseAngle = Math.atan2(dy, dx);
+      const keepAway = distance < 320 ? Math.PI : randomRange(-0.8, 0.8);
+      const angle = baseAngle + keepAway;
+      direction = { x: Math.cos(angle), y: Math.sin(angle) };
+      dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE * 0.65, ENEMY_DASH_MAX_DISTANCE * 0.75);
+    }
   } else if (enemy.kind === "commander") {
     const target = getCommanderRallyTarget(enemy);
     if (target) {
@@ -2623,6 +2749,8 @@ function createEnemy(kind, x, y) {
   const isSplitterChild = kind === "splitter_child";
   const isCommander = kind === "commander";
   const isMedic = kind === "medic";
+  const isCharger = kind === "charger";
+  const isRocketeer = kind === "rocketeer";
   const isLevel1Boss = kind === LEVEL1_BOSS_KIND;
   const isLevel2Boss = kind === LEVEL2_BOSS_KIND;
   const isLevel3Boss = kind === LEVEL3_BOSS_KIND;
@@ -2633,15 +2761,15 @@ function createEnemy(kind, x, y) {
     y,
     vx: 0,
     vy: 0,
-    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isLevel3Boss ? LEVEL3_BOSS_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
+    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isLevel3Boss ? LEVEL3_BOSS_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isCharger ? ENEMY_SIZE * 0.92 : isRocketeer ? ENEMY_SIZE * 1.05 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
-    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.85 : isCharger ? ENEMY_SIZE * 1.3 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.1 : isCharger ? ENEMY_SIZE * 0.82 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
@@ -2657,6 +2785,10 @@ function createEnemy(kind, x, y) {
             ? abilities.splitter
             : kind === "grower"
               ? abilities.missiles
+            : kind === "charger"
+              ? abilities.dash
+            : kind === "rocketeer"
+              ? abilities.turret
             : kind === "slow"
               ? abilities.blast
               : null,
@@ -2675,6 +2807,10 @@ function createEnemy(kind, x, y) {
               ? STOLEN_SPLITTER_CHARGES
             : kind === "grower"
               ? STOLEN_MISSILE_CHARGES
+            : kind === "charger"
+              ? STOLEN_DASH_CHARGES
+            : kind === "rocketeer"
+              ? STOLEN_TURRET_CHARGES
             : kind === "slow"
               ? STOLEN_BLAST_CHARGES
               : null,
@@ -2730,23 +2866,27 @@ function getRandomEnemyKind() {
       ? "replicator"
       : roll < 0.06
         ? "heal"
-        : roll < 0.1
-          ? "slow"
-        : roll < 0.15
-          ? "grower"
-          : roll < 0.2
-            ? "trickster"
-            : roll < 0.25
-              ? "sniper"
-              : roll < 0.34
-              ? "brute"
-              : roll < 0.48
-                ? "mine"
-                : roll < 0.63
-                  ? "shield"
-                  : roll < 0.82
-                    ? "spray"
-                    : "laser"
+      : roll < 0.1
+        ? "slow"
+      : roll < 0.15
+        ? "grower"
+      : roll < 0.2
+        ? "trickster"
+      : roll < 0.25
+        ? "sniper"
+      : roll < 0.31
+        ? "charger"
+      : roll < 0.38
+        ? "rocketeer"
+      : roll < 0.48
+        ? "brute"
+      : roll < 0.62
+        ? "mine"
+      : roll < 0.76
+        ? "shield"
+      : roll < 0.9
+        ? "spray"
+        : "laser"
   );
 }
 
@@ -2967,6 +3107,12 @@ function getAbilityIconMarkup(abilityKey) {
   if (abilityKey === abilities.decoy.key) {
     return getIconSvg(`<path d="M12 4.2a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2z"/><path d="M6.2 20c.8-4.2 3-6.3 5.8-6.3s5 2.1 5.8 6.3"/><path d="M4.2 8.2c1.1-.8 2.2-1.2 3.4-1.2"/><path d="M19.8 8.2c-1.1-.8-2.2-1.2-3.4-1.2"/>`);
   }
+  if (abilityKey === abilities.dash.key) {
+    return getIconSvg(`<path d="M4 12h12"/><path d="M12 6l6 6-6 6"/><path d="M4 6h4"/><path d="M4 18h4"/>`);
+  }
+  if (abilityKey === abilities.turret.key) {
+    return getIconSvg(`<path d="M7 11h10v5H7z"/><path d="M12 16v4"/><path d="M8 20h8"/><path d="M17 12l4-2"/><path d="M9 11V7h6v4"/><circle cx="12" cy="7" r="2"/>`);
+  }
   if (abilityKey === abilities.missiles.key) {
     return getIconSvg(`<path d="M13.2 3.8c3.2.7 5.3 2.8 6 6l-7.7 7.7-5-5z"/><path d="M7 17l-2.6 2.6"/><path d="M9.8 19.1l-1 2.1"/><path d="M4.9 14.2l-2.1 1"/><circle cx="15.4" cy="7.6" r="1.4"/>`);
   }
@@ -3151,6 +3297,17 @@ function consumeAbilityCharge(slot = "primary") {
   }
 }
 
+function grantPlayerAbility(ability, charges) {
+  if (currentAbility.key === abilities.hook.key) {
+    setCurrentAbility(ability, charges);
+  } else if (playerAbilityCapacity > 1 && !reserveAbility) {
+    reserveAbility = ability;
+    reserveAbilityCharges = charges;
+  } else {
+    setCurrentAbility(ability, charges);
+  }
+}
+
 function stealEnemyAbility(enemy) {
   if (enemy.isIllusion) {
     removeEnemy(enemy.id);
@@ -3167,24 +3324,14 @@ function stealEnemyAbility(enemy) {
     activatePlayerDecoyPassive();
   } else if (enemy.kind === "mine") {
     activatePlayerMinePassive();
+  } else if (enemy.kind === "charger") {
+    grantPlayerAbility(abilities.dash, STOLEN_DASH_CHARGES);
+  } else if (enemy.kind === "rocketeer") {
+    grantPlayerAbility(abilities.turret, STOLEN_TURRET_CHARGES);
   } else if (enemy.kind === "mirror") {
-    if (currentAbility.key === abilities.hook.key) {
-      setCurrentAbility(abilities.tripwire, STOLEN_TRIPWIRE_CHARGES);
-    } else if (playerAbilityCapacity > 1 && !reserveAbility) {
-      reserveAbility = abilities.tripwire;
-      reserveAbilityCharges = STOLEN_TRIPWIRE_CHARGES;
-    } else {
-      setCurrentAbility(abilities.tripwire, STOLEN_TRIPWIRE_CHARGES);
-    }
+    grantPlayerAbility(abilities.tripwire, STOLEN_TRIPWIRE_CHARGES);
   } else if (enemy.ability) {
-    if (currentAbility.key === abilities.hook.key) {
-      setCurrentAbility(enemy.ability, enemy.abilityCharges);
-    } else if (playerAbilityCapacity > 1 && !reserveAbility) {
-      reserveAbility = enemy.ability;
-      reserveAbilityCharges = enemy.abilityCharges;
-    } else {
-      setCurrentAbility(enemy.ability, enemy.abilityCharges);
-    }
+    grantPlayerAbility(enemy.ability, enemy.abilityCharges);
   }
   removeEnemy(enemy.id);
 }
@@ -3235,6 +3382,72 @@ function firePlayerBaseGun(baseGun) {
     color: "rgba(255, 214, 128, 0.96)",
     innerColor: "rgba(255, 245, 214, 0.96)",
   });
+}
+
+function spawnPlayerBaseProjectile(x, y, dirX, dirY, options = {}) {
+  baseProjectiles.push({
+    owner: "player",
+    x,
+    y,
+    vx: dirX * BASE_GUN_PROJECTILE_SPEED,
+    vy: dirY * BASE_GUN_PROJECTILE_SPEED,
+    radius: BASE_GUN_PROJECTILE_RADIUS,
+    ttl: BASE_GUN_PROJECTILE_LIFETIME,
+    life: BASE_GUN_PROJECTILE_LIFETIME,
+    color: options.color ?? "rgba(255, 214, 128, 0.96)",
+    innerColor: options.innerColor ?? "rgba(255, 245, 214, 0.96)",
+  });
+}
+
+function useDashAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  if (activePlayerDash) return false;
+
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  activePlayerDash = {
+    dirX,
+    dirY,
+    remaining: Math.min(distance, getDashRange()),
+    hitEnemyIds: new Set(),
+  };
+  player.moveTarget = null;
+  player.moving = false;
+  player.launched = true;
+  player.hitInvuln = Math.max(player.hitInvuln, 0.18);
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function useTurretAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const half = PLAYER_TURRET_SIZE * 0.5;
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const travel = Math.min(distance, getDecoyRange());
+  const x = clamp(player.x + (dx / distance) * travel, ARENA.x + half, ARENA.x + ARENA.width - half);
+  const y = clamp(player.y + (dy / distance) * travel, ARENA.y + half, ARENA.y + ARENA.height - half);
+  activePlayerTurrets.push({
+    x,
+    y,
+    hp: PLAYER_TURRET_HP,
+    maxHp: PLAYER_TURRET_HP,
+    size: PLAYER_TURRET_SIZE,
+    fireTimer: 0,
+    ttl: PLAYER_TURRET_LIFETIME,
+    duration: PLAYER_TURRET_LIFETIME,
+  });
+  spawnImpactBurst(x, y, { count: 14, speedMin: 60, speedMax: 170, lifeMin: 0.14, lifeMax: 0.3, sizeMin: 2, sizeMax: 6 });
+  consumeAbilityCharge(selected.slot);
+  return true;
 }
 
 function useSniperAbility(targetPoint = aimPoint) {
@@ -3713,6 +3926,7 @@ function tryUseAbilityFromClick(point) {
     activePlayerLaser ||
     activePlayerSniper ||
     activePlayerSpray ||
+    activePlayerDash ||
     player.dragging
   ) {
     return false;
@@ -3749,6 +3963,14 @@ function tryUseAbilityFromClick(point) {
 
   if (selectedAbility.key === abilities.decoy.key) {
     return useDecoyAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.dash.key) {
+    return useDashAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.turret.key) {
+    return useTurretAbility(point);
   }
 
   if (selectedAbility.key === abilities.missiles.key) {
@@ -3793,6 +4015,7 @@ function canStartKeyboardMove() {
     !activePlayerLaser &&
     !activePlayerSniper &&
     !activePlayerSpray &&
+    !activePlayerDash &&
     !player.dragging
   );
 }
@@ -3988,6 +4211,20 @@ function updateBaseProjectiles(dt) {
         continue;
       }
 
+      let hitTurretIndex = -1;
+      for (let turretIndex = 0; turretIndex < activePlayerTurrets.length; turretIndex += 1) {
+        const turret = activePlayerTurrets[turretIndex];
+        if (Math.hypot(projectile.x - turret.x, projectile.y - turret.y) <= projectile.radius + turret.size * 0.55) {
+          hitTurretIndex = turretIndex;
+          break;
+        }
+      }
+      if (hitTurretIndex !== -1) {
+        damagePlayerTurret(hitTurretIndex, 1);
+        baseProjectiles.splice(index, 1);
+        continue;
+      }
+
       const hitDistance = player.size * 0.5 + projectile.radius;
       const distanceToPlayer = Math.hypot(projectile.x - player.x, projectile.y - player.y);
       if (distanceToPlayer <= hitDistance) {
@@ -4131,6 +4368,98 @@ function updatePlayerDecoy(dt) {
       activePlayerDecoys.splice(index, 1);
     }
   }
+}
+
+function updatePlayerDash(dt) {
+  if (!activePlayerDash) return;
+
+  const step = Math.min(activePlayerDash.remaining, PLAYER_DASH_SPEED * dt);
+  player.x += activePlayerDash.dirX * step;
+  player.y += activePlayerDash.dirY * step;
+  player.vx = activePlayerDash.dirX * PLAYER_DASH_SPEED;
+  player.vy = activePlayerDash.dirY * PLAYER_DASH_SPEED;
+  player.facingAngle = Math.atan2(activePlayerDash.dirY, activePlayerDash.dirX);
+  activePlayerDash.remaining -= step;
+  player.hitInvuln = Math.max(player.hitInvuln, 0.08);
+
+  const half = player.size * 0.5;
+  player.x = clamp(player.x, ARENA.x + half, ARENA.x + ARENA.width - half);
+  player.y = clamp(player.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+
+  for (const enemy of enemies) {
+    if (enemy.isIllusion || activePlayerDash.hitEnemyIds.has(enemy.id)) continue;
+    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (distance > enemy.size * 0.65 + player.size * 0.55) continue;
+    activePlayerDash.hitEnemyIds.add(enemy.id);
+    damageEnemy(enemy, PLAYER_DASH_DAMAGE);
+  }
+
+  const hitWall =
+    player.x <= ARENA.x + half ||
+    player.x >= ARENA.x + ARENA.width - half ||
+    player.y <= ARENA.y + half ||
+    player.y >= ARENA.y + ARENA.height - half;
+  if (activePlayerDash.remaining <= 0 || hitWall) {
+    activePlayerDash = null;
+    settlePlayer();
+  }
+}
+
+function findNearestTurretTarget(turret) {
+  let bestTarget = null;
+  let bestDistance = getTurretRange();
+
+  for (const enemy of enemies) {
+    if (enemy.isIllusion) continue;
+    const distance = Math.hypot(enemy.x - turret.x, enemy.y - turret.y);
+    if (distance >= bestDistance) continue;
+    bestDistance = distance;
+    bestTarget = enemy;
+  }
+
+  return bestTarget;
+}
+
+function firePlayerTurret(turret, target) {
+  const dx = target.x - turret.x;
+  const dy = target.y - turret.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  spawnPlayerBaseProjectile(turret.x, turret.y, dx / distance, dy / distance, {
+    color: "rgba(146, 222, 255, 0.96)",
+    innerColor: "rgba(240, 252, 255, 0.96)",
+  });
+}
+
+function updatePlayerTurrets(dt) {
+  for (let index = activePlayerTurrets.length - 1; index >= 0; index -= 1) {
+    const turret = activePlayerTurrets[index];
+    turret.ttl -= dt;
+    if (turret.ttl <= 0 || turret.hp <= 0) {
+      activePlayerTurrets.splice(index, 1);
+      continue;
+    }
+
+    turret.fireTimer -= dt;
+    if (turret.fireTimer > 0) continue;
+
+    const target = findNearestTurretTarget(turret);
+    if (!target) continue;
+    firePlayerTurret(turret, target);
+    turret.fireTimer += PLAYER_TURRET_FIRE_INTERVAL;
+  }
+}
+
+function damagePlayerTurret(index, amount = 1) {
+  const turret = activePlayerTurrets[index];
+  if (!turret) return false;
+
+  turret.hp -= amount;
+  spawnImpactBurst(turret.x, turret.y, { count: 8, speedMin: 50, speedMax: 140, lifeMin: 0.1, lifeMax: 0.22, sizeMin: 2, sizeMax: 5 });
+  if (turret.hp <= 0) {
+    spawnImpactBurst(turret.x, turret.y, { count: 16, speedMin: 90, speedMax: 260, lifeMin: 0.16, lifeMax: 0.34, sizeMin: 3, sizeMax: 8 });
+    activePlayerTurrets.splice(index, 1);
+  }
+  return true;
 }
 
 function triggerPulseBombExplosion(bomb) {
@@ -4428,6 +4757,20 @@ function updateEnemyHomingMissiles(dt) {
       continue;
     }
 
+    let hitTurretIndex = -1;
+    for (let turretIndex = 0; turretIndex < activePlayerTurrets.length; turretIndex += 1) {
+      const turret = activePlayerTurrets[turretIndex];
+      if (Math.hypot(missile.x - turret.x, missile.y - turret.y) <= missile.radius + turret.size * 0.55) {
+        hitTurretIndex = turretIndex;
+        break;
+      }
+    }
+    if (hitTurretIndex !== -1) {
+      damagePlayerTurret(hitTurretIndex, 1);
+      destroyEnemyHomingMissile(index);
+      continue;
+    }
+
     if (Math.hypot(missile.x - player.x, missile.y - player.y) <= missile.radius + player.size * 0.5) {
       if (!reflectProjectileFromPlayerMirror(missile, "laser")) {
         applyPlayerHit();
@@ -4445,6 +4788,12 @@ function getEnemyMissileTarget(missile) {
     if (distance >= bestDistance) continue;
     bestDistance = distance;
     bestTarget = decoy;
+  }
+  for (const turret of activePlayerTurrets) {
+    const distance = Math.hypot(missile.x - turret.x, missile.y - turret.y);
+    if (distance >= bestDistance) continue;
+    bestDistance = distance;
+    bestTarget = turret;
   }
   return bestTarget;
 }
@@ -4594,9 +4943,22 @@ function resolveEnemyCollisions() {
     if (enemy.kind === "slow") continue;
     if (enemy.isIllusion) continue;
 
+    let hitTurret = false;
+    for (let turretIndex = activePlayerTurrets.length - 1; turretIndex >= 0; turretIndex -= 1) {
+      const turret = activePlayerTurrets[turretIndex];
+      const turretDistance = Math.hypot(enemy.x - turret.x, enemy.y - turret.y);
+      if (turretDistance > enemy.size * 0.6 + turret.size * 0.55) continue;
+      damagePlayerTurret(turretIndex, 1);
+      if (!isBossEnemy(enemy)) killEnemy(enemy);
+      hitTurret = true;
+      break;
+    }
+    if (hitTurret) continue;
+
     const collisionDistance = player.size * 0.5 + enemy.size * 0.6;
     const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
     if (distance > collisionDistance) continue;
+    if (activePlayerDash) continue;
 
     applyPlayerHit(isBossEnemy(enemy) && isBossShieldActive(enemy) ? player.maxHp : 1, { ignoreInvuln: isBossEnemy(enemy) && isBossShieldActive(enemy) });
     if (isBossEnemy(enemy)) continue;
@@ -5182,6 +5544,21 @@ function hitEnemyProjectileTarget(projectile) {
     bestTarget = { type: "decoy", t: hitDecoy.t, index };
   }
 
+  for (let index = 0; index < activePlayerTurrets.length; index += 1) {
+    const turret = activePlayerTurrets[index];
+    const hitTurret = getSegmentCircleHit(
+      tail.x,
+      tail.y,
+      projectile.x,
+      projectile.y,
+      turret.x,
+      turret.y,
+      turret.size * 0.55
+    );
+    if (!hitTurret || (bestTarget && hitTurret.t >= bestTarget.t)) continue;
+    bestTarget = { type: "turret", t: hitTurret.t, index };
+  }
+
   const hitPlayer = getSegmentCircleHit(
     tail.x,
     tail.y,
@@ -5200,6 +5577,10 @@ function hitEnemyProjectileTarget(projectile) {
     activePlayerDecoys.splice(bestTarget.index, 1);
     return true;
   }
+  if (bestTarget.type === "turret") {
+    damagePlayerTurret(bestTarget.index, 1);
+    return true;
+  }
 
   if (reflectProjectileFromPlayerMirror(projectile, "laser")) {
     return true;
@@ -5210,6 +5591,7 @@ function hitEnemyProjectileTarget(projectile) {
 }
 
 function applyPlayerHit(amount = 1, { ignoreInvuln = false } = {}) {
+  if (activePlayerDash && !ignoreInvuln) return false;
   if (player.dead || (!ignoreInvuln && player.hitInvuln > 0)) return false;
 
   player.hp = Math.max(0, player.hp - amount);
@@ -5245,7 +5627,9 @@ function startDeathSequence() {
   activePlayerSniper = null;
   activePlayerSpray = null;
   activePlayerShield = null;
+  activePlayerDash = null;
   activePlayerDecoys.length = 0;
+  activePlayerTurrets.length = 0;
   playerDecoyPassive = null;
   playerMirrorPassive = null;
   baseProjectiles.length = 0;
@@ -5340,7 +5724,9 @@ function resetGame() {
   activePlayerSniper = null;
   activePlayerSpray = null;
   activePlayerShield = null;
+  activePlayerDash = null;
   activePlayerDecoys.length = 0;
+  activePlayerTurrets.length = 0;
   playerDecoyPassive = null;
   playerMirrorPassive = null;
   baseProjectiles.length = 0;
@@ -5447,6 +5833,7 @@ function getEnemyXpValue(enemy) {
   if (!enemy || enemy.isIllusion) return 0;
   if (isBossEnemy(enemy)) return 8;
   if (enemy.kind === "commander" || enemy.kind === "medic") return 5;
+  if (enemy.kind === "charger" || enemy.kind === "rocketeer") return 2;
   if (enemy.kind === "brute") return 2;
   if (enemy.kind === "splitter_child" || enemy.kind === "sproutling") return 1;
   return 1;
@@ -6364,6 +6751,10 @@ function drawAbilityRange() {
       ? getHookRange()
       : selectedAbility.key === abilities.decoy.key
         ? getDecoyRange()
+      : selectedAbility.key === abilities.dash.key
+        ? getDashRange()
+      : selectedAbility.key === abilities.turret.key
+        ? getDecoyRange()
       : selectedAbility.key === abilities.blast.key || selectedAbility.key === abilities.pulse_bomb.key
         ? getBlastRange()
       : selectedAbility.key === abilities.shield.key
@@ -6375,6 +6766,10 @@ function drawAbilityRange() {
       ? "rgba(255, 210, 120, 0.18)"
       : selectedAbility.key === abilities.decoy.key
         ? "rgba(255, 178, 218, 0.24)"
+      : selectedAbility.key === abilities.dash.key
+        ? "rgba(255, 92, 132, 0.24)"
+      : selectedAbility.key === abilities.turret.key
+        ? "rgba(146, 222, 255, 0.24)"
       : selectedAbility.key === abilities.blast.key || selectedAbility.key === abilities.pulse_bomb.key
         ? "rgba(255, 174, 84, 0.24)"
       : selectedAbility.key === abilities.shield.key
@@ -6694,6 +7089,14 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#d8f8ff");
     gradient.addColorStop(0.45, "#2ad3ff");
     gradient.addColorStop(1, "#075273");
+  } else if (enemy.kind === "charger") {
+    gradient.addColorStop(0, "#ffd4df");
+    gradient.addColorStop(0.45, "#ff4f7a");
+    gradient.addColorStop(1, "#82102f");
+  } else if (enemy.kind === "rocketeer") {
+    gradient.addColorStop(0, "#eeeaff");
+    gradient.addColorStop(0.45, "#8b7cff");
+    gradient.addColorStop(1, "#312070");
   } else if (enemy.kind === "mirror") {
     gradient.addColorStop(0, "#ffffff");
     gradient.addColorStop(0.45, "#c9f3ff");
@@ -6743,6 +7146,10 @@ function drawEnemy(enemy) {
         ? "rgba(78, 230, 168, 0.46)"
       : enemy.kind === "commander"
         ? "rgba(42, 211, 255, 0.48)"
+      : enemy.kind === "charger"
+        ? "rgba(255, 79, 122, 0.48)"
+      : enemy.kind === "rocketeer"
+        ? "rgba(139, 124, 255, 0.48)"
       : enemy.kind === "mirror"
         ? "rgba(201, 243, 255, 0.5)"
       : enemy.kind === "sniper"
@@ -6897,6 +7304,29 @@ function drawEnemy(enemy) {
     ctx.moveTo(-6, 7);
     ctx.lineTo(6, 7);
     ctx.stroke();
+  } else if (enemy.kind === "charger") {
+    ctx.strokeStyle = "rgba(255, 235, 240, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, -6);
+    ctx.lineTo(8, 0);
+    ctx.lineTo(-8, 6);
+    ctx.moveTo(-1, -5);
+    ctx.lineTo(8, 0);
+    ctx.lineTo(-1, 5);
+    ctx.stroke();
+  } else if (enemy.kind === "rocketeer") {
+    ctx.strokeStyle = "rgba(242, 238, 255, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-7, 5);
+    ctx.lineTo(5, -7);
+    ctx.lineTo(8, -2);
+    ctx.lineTo(-4, 8);
+    ctx.closePath();
+    ctx.moveTo(-2, -1);
+    ctx.lineTo(4, 5);
+    ctx.stroke();
   } else if (enemy.kind === "mirror") {
     ctx.strokeStyle = enemy.phase === "mirror_shield" ? "rgba(255, 255, 255, 0.96)" : "rgba(205, 225, 235, 0.65)";
     ctx.lineWidth = 2;
@@ -6944,10 +7374,11 @@ function drawEnemy(enemy) {
     ctx.stroke();
   }
 
-  if (enemy.phase === "charge") {
-    const charge = 1 - clamp(enemy.phaseTimer / LASER_CHARGE_TIME, 0, 1);
+  if (enemy.phase === "charge" || enemy.phase === "missile_charge") {
+    const chargeDuration = enemy.phase === "missile_charge" ? ROCKETEER_CHARGE_TIME : LASER_CHARGE_TIME;
+    const charge = 1 - clamp(enemy.phaseTimer / chargeDuration, 0, 1);
     ctx.beginPath();
-    ctx.strokeStyle = "rgba(255, 210, 210, 0.9)";
+    ctx.strokeStyle = enemy.phase === "missile_charge" ? "rgba(210, 202, 255, 0.9)" : "rgba(255, 210, 210, 0.9)";
     ctx.lineWidth = 3;
     ctx.arc(0, 0, half + 9, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
     ctx.stroke();
@@ -7376,6 +7807,49 @@ function drawLaserEffects() {
     ctx.arc(decoy.x, decoy.y, decoy.size + 8 + pulse * 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  for (const turret of activePlayerTurrets) {
+    const hpRatio = clamp(turret.hp / turret.maxHp, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 7 + turret.x * 0.01);
+    const radius = turret.size * 0.5;
+
+    ctx.save();
+    ctx.translate(turret.x, turret.y);
+    ctx.rotate(Math.PI * 0.25);
+    const gradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
+    gradient.addColorStop(0, "#e5fbff");
+    gradient.addColorStop(0.45, "#92deff");
+    gradient.addColorStop(1, "#1d5f8e");
+    ctx.shadowColor = "rgba(146, 222, 255, 0.45)";
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = gradient;
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(240, 252, 255, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(8, 0);
+    ctx.moveTo(0, -7);
+    ctx.lineTo(0, 7);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(146, 222, 255, ${0.1 + pulse * 0.14})`;
+    ctx.setLineDash([8, 8]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(turret.x, turret.y, getTurretRange(), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(8, 16, 26, 0.72)";
+    ctx.fillRect(turret.x - radius, turret.y - radius - 9, radius * 2, 4);
+    ctx.fillStyle = "rgba(146, 222, 255, 0.92)";
+    ctx.fillRect(turret.x - radius, turret.y - radius - 9, radius * 2 * hpRatio, 4);
     ctx.restore();
   }
 
