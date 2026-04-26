@@ -29,6 +29,7 @@ const PLAYER_TURN_BRAKE_ANGLE = Math.PI * 0.55;
 const PLAYER_TURN_MIN_SPEED_FACTOR = 0.22;
 const ENEMY_SIZE = 22;
 const DEFAULT_ENEMY_HP = 2;
+const SHIELD_ENEMY_HP = 4;
 const ENEMY_DASH_SPEED = 816;
 const ENEMY_MOVE_STOP_DISTANCE = 10;
 const ENEMY_MOVE_ACCELERATION = 632;
@@ -187,6 +188,9 @@ const LEVEL1_BOSS_BLAST_MAX_RADIUS = BLAST_MAX_RADIUS * 0.7;
 const LEVEL1_BOSS_BLAST_EXPAND_SPEED = BLAST_EXPAND_SPEED * 0.7;
 const BOMBER_BLAST_MAX_RADIUS = 132 * 4;
 const BOMBER_BLAST_EXPAND_SPEED = 120;
+const PULSE_BOMB_INTERVAL = 1;
+const PULSE_BOMB_EXPLOSIONS = 5;
+const PULSE_BOMB_OFFSET_CELLS = 0.28;
 const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
 const PLAYER_DECOY_PASSIVE_TOTAL = 3;
@@ -219,6 +223,7 @@ const REPLICATOR_HOP_DELAY = 0.28;
 const TRICKSTER_ILLUSION_LIFETIME = 8;
 const TRICKSTER_ILLUSION_LIMIT = 4;
 const DEATH_RESET_DELAY = 0.8;
+const ENEMY_HIT_FLASH_TIME = 0.18;
 
 const player = {
   x: 0,
@@ -295,6 +300,11 @@ const abilities = {
     name: "Взрыв",
     hint: "Click",
   },
+  pulse_bomb: {
+    key: "pulse_bomb",
+    name: "Пульс-бомба",
+    hint: "Click",
+  },
   splitter: {
     key: "splitter",
     name: "Зигзаг",
@@ -334,7 +344,7 @@ const enemyInfo = {
   shield: { text: "Поднимает защитную ауру и давит сближением.", reward: `Щит, ${STOLEN_SHIELD_CHARGES} заряда.` },
   spray: { text: "Выпускает веер быстрых снарядов.", reward: `Спрей, ${STOLEN_ABILITY_CHARGES} заряда.` },
   mine: { text: "Оставляет опасные мины на поле.", reward: "Пассив: серия мин вокруг игрока." },
-  bomber: { text: "Взрывается волной при гибели.", reward: `Взрыв, ${STOLEN_BOMBER_BLAST_CHARGES} заряда.` },
+  bomber: { text: "Взрывается волной при гибели.", reward: `Пульс-бомба, ${STOLEN_BOMBER_BLAST_CHARGES} заряда.` },
   splitter: { text: "После смерти делится на мелкие цели.", reward: `Зигзаг, ${STOLEN_SPLITTER_CHARGES} заряда.` },
   splitter_child: { text: "Мелкий осколок делителя.", reward: "Только опыт." },
   commander: { text: "Ускоряет ближайших союзников.", reward: "Больше опыта." },
@@ -360,7 +370,7 @@ const campaignLevels = [
     minEnemies: 12,
     maxEnemies: 4,
     spawnInterval: [1.6, 2.7],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Броня",
@@ -368,7 +378,7 @@ const campaignLevels = [
     minEnemies: 14,
     maxEnemies: 5,
     spawnInterval: [1.45, 2.5],
-    boss: { kind: LEVEL2_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL2_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Фиолетовый дождь",
@@ -376,7 +386,7 @@ const campaignLevels = [
     minEnemies: 18,
     maxEnemies: 5,
     spawnInterval: [1.35, 2.35],
-    boss: { kind: LEVEL3_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL3_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Минное поле",
@@ -384,7 +394,7 @@ const campaignLevels = [
     minEnemies: 20,
     maxEnemies: 6,
     spawnInterval: [1.25, 2.2],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Тяжелые",
@@ -392,7 +402,7 @@ const campaignLevels = [
     minEnemies: 25,
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Дальняя линия",
@@ -400,7 +410,7 @@ const campaignLevels = [
     minEnemies: 30,
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Сад",
@@ -408,7 +418,7 @@ const campaignLevels = [
     minEnemies: 35,
     maxEnemies: 6,
     spawnInterval: [1.35, 2.4],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Обманки",
@@ -416,7 +426,7 @@ const campaignLevels = [
     minEnemies: 40,
     maxEnemies: 6,
     spawnInterval: [1.2, 2.15],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Размножение",
@@ -424,7 +434,7 @@ const campaignLevels = [
     minEnemies: 50,
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
   {
     name: "Финальная смесь",
@@ -432,7 +442,7 @@ const campaignLevels = [
     minEnemies: 50,
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
   },
 ];
 
@@ -565,6 +575,7 @@ const laserProjectiles = [];
 const baseProjectiles = [];
 const zigzagProjectiles = [];
 const blastWaves = [];
+const activePulseBombs = [];
 const beamEffects = [];
 const enemySeeds = [];
 const homingMissiles = [];
@@ -808,7 +819,9 @@ function isSimulationActive() {
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
-    beamEffects.length > 0
+    beamEffects.length > 0 ||
+    blastWaves.length > 0 ||
+    activePulseBombs.length > 0
   );
 }
 
@@ -819,6 +832,19 @@ function randomRange(min, max) {
 function randomDirection() {
   const angle = Math.random() * Math.PI * 2;
   return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+function hexToRgb(hex, fallback = [255, 202, 110]) {
+  const normalized = hex?.replace("#", "");
+  if (!normalized || normalized.length !== 6) return fallback;
+  const value = Number.parseInt(normalized, 16);
+  if (Number.isNaN(value)) return fallback;
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+function colorWithAlpha(color, alpha) {
+  const [red, green, blue] = color;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function getCanvasPoint(event) {
@@ -1030,6 +1056,7 @@ function update(dt) {
   updatePlayerShield(simDt);
   updatePlayerDecoy(simDt);
   updateZigzagProjectiles(simDt);
+  updatePulseBombs(simDt);
   updateBlastWaves(simDt);
   if (player.dead) {
     updateUi();
@@ -1375,24 +1402,25 @@ function getEnemyCommandMultiplier(enemy = null) {
 }
 
 function supportEnemyFromMedic(medic) {
-  let bestTarget = null;
-  let bestDistance = Infinity;
+  const supportTargets = enemies
+    .filter((enemy) => {
+      if (enemy.id === medic.id || enemy.isIllusion) return false;
+      if (enemy.kind === "medic" || enemy.kind === "splitter_child" || enemy.kind === "sproutling") return false;
+      return Math.hypot(enemy.x - medic.x, enemy.y - medic.y) <= MEDIC_SUPPORT_RANGE;
+    })
+    .map((enemy) => ({
+      enemy,
+      distance: Math.hypot(enemy.x - medic.x, enemy.y - medic.y),
+      canHeal: (enemy.hp ?? 1) < (enemy.maxHp ?? 1),
+      canFortify: (enemy.maxHp ?? 1) < 3 && enemy.kind !== "brute",
+    }))
+    .filter((target) => target.canHeal || target.canFortify)
+    .sort((left, right) => {
+      if (left.canHeal !== right.canHeal) return left.canHeal ? -1 : 1;
+      return left.distance - right.distance;
+    });
 
-  for (const enemy of enemies) {
-    if (enemy.id === medic.id || enemy.isIllusion) continue;
-    if (enemy.kind === "medic" || enemy.kind === "splitter_child" || enemy.kind === "sproutling") continue;
-
-    const distance = Math.hypot(enemy.x - medic.x, enemy.y - medic.y);
-    if (distance > MEDIC_SUPPORT_RANGE || distance >= bestDistance) continue;
-
-    const canHeal = (enemy.hp ?? 1) < (enemy.maxHp ?? 1);
-    const canFortify = (enemy.maxHp ?? 1) < 3 && enemy.kind !== "brute";
-    if (!canHeal && !canFortify) continue;
-
-    bestTarget = enemy;
-    bestDistance = distance;
-  }
-
+  const bestTarget = supportTargets[0]?.enemy;
   if (!bestTarget) return false;
 
   if (bestTarget.hp < bestTarget.maxHp) {
@@ -1457,6 +1485,9 @@ function spawnImpactBurst(
     lifeMax = 0.38,
     sizeMin = 3,
     sizeMax = 7,
+    outerColor = [255, 96, 96],
+    midColor = [255, 202, 110],
+    innerColor = [255, 245, 220],
   } = {}
 ) {
   for (let index = 0; index < count; index += 1) {
@@ -1473,8 +1504,56 @@ function spawnImpactBurst(
       size: randomRange(sizeMin, sizeMax),
       spin: randomRange(-8, 8),
       angle: Math.random() * Math.PI * 2,
+      outerColor,
+      midColor,
+      innerColor,
     });
   }
+
+  if (impactBursts.length > 180) {
+    impactBursts.splice(0, impactBursts.length - 180);
+  }
+}
+
+function spawnEnemyHitBurst(enemy, amount = 1) {
+  const metaColor = hexToRgb(enemyMeta[enemy.kind]?.color);
+  const isBoss = isBossEnemy(enemy);
+  const hitSize = enemy.size || ENEMY_SIZE;
+  const offsetRadius = hitSize * (isBoss ? 0.22 : 0.32);
+  const angle = Math.random() * Math.PI * 2;
+  const x = enemy.x + Math.cos(angle) * randomRange(0, offsetRadius);
+  const y = enemy.y + Math.sin(angle) * randomRange(0, offsetRadius);
+  const count = Math.round((isBoss ? 13 : 8) + amount * 3);
+
+  enemy.hitFlash = 1;
+  spawnImpactBurst(x, y, {
+    count,
+    speedMin: isBoss ? 95 : 75,
+    speedMax: isBoss ? 290 : 230,
+    lifeMin: 0.12,
+    lifeMax: 0.28,
+    sizeMin: isBoss ? 4 : 2.6,
+    sizeMax: isBoss ? 9 : 6,
+    outerColor: [255, 72, 52],
+    midColor: metaColor,
+    innerColor: [255, 250, 226],
+  });
+
+  impactBursts.push({
+    kind: "ring",
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    ttl: isBoss ? 0.24 : 0.18,
+    life: isBoss ? 0.24 : 0.18,
+    size: hitSize * (isBoss ? 0.4 : 0.34),
+    spin: 0,
+    angle: 0,
+    outerColor: [255, 250, 226],
+    midColor: metaColor,
+    innerColor: [255, 255, 255],
+  });
 
   if (impactBursts.length > 180) {
     impactBursts.splice(0, impactBursts.length - 180);
@@ -1572,7 +1651,7 @@ function updateLevelBossSpawn() {
   const bossKind = getCurrentLevelBossKind(level);
   if (!bossKind) return;
 
-  const triggerRemaining = Math.floor(getLevelNormalEnemyCount(level) * (level.boss.triggerRemainingRatio ?? 0.5));
+  const triggerRemaining = Math.floor(getLevelNormalEnemyCount(level) * (level.boss.triggerRemainingRatio ?? 0.7));
   if (getRemainingNormalLevelEnemies() > triggerRemaining) return;
 
   const point = findFreePoint(LEVEL1_BOSS_SIZE * 1.2) ?? {
@@ -1585,6 +1664,8 @@ function updateLevelBossSpawn() {
 
 function updateEnemies(dt) {
   for (const enemy of enemies) {
+    enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt / ENEMY_HIT_FLASH_TIME);
+
     if (enemy.isIllusion) {
       enemy.illusionTimer -= dt;
       if (enemy.illusionTimer <= 0) {
@@ -2450,6 +2531,7 @@ function launchEnemy(enemy) {
 
 function createEnemy(kind, x, y) {
   const isBrute = kind === "brute";
+  const isShield = kind === "shield";
   const isSproutling = kind === "sproutling";
   const isSplitterChild = kind === "splitter_child";
   const isCommander = kind === "commander";
@@ -2469,8 +2551,8 @@ function createEnemy(kind, x, y) {
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
     renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
@@ -2483,7 +2565,7 @@ function createEnemy(kind, x, y) {
           : kind === "spray"
             ? abilities.spray
           : kind === "bomber"
-            ? abilities.blast
+            ? abilities.pulse_bomb
           : kind === "splitter"
             ? abilities.splitter
             : kind === "grower"
@@ -2785,6 +2867,7 @@ function getAbilityIconKey(abilityKey) {
   if (abilityKey === abilities.missiles.key) return "R";
   if (abilityKey === abilities.spray.key) return "V";
   if (abilityKey === abilities.blast.key) return "B";
+  if (abilityKey === abilities.pulse_bomb.key) return "P";
   if (abilityKey === abilities.splitter.key) return "Z";
   if (abilityKey === abilities.tripwire.key) return "X";
   return "L";
@@ -3092,15 +3175,54 @@ function useBlastAbility(targetPoint = aimPoint) {
   return true;
 }
 
-function spawnBomberBlast(x, y) {
+function spawnBlastWave(x, y, {
+  owner = "player",
+  radius = 6,
+  maxRadius = BLAST_MAX_RADIUS,
+  expandSpeed = BLAST_EXPAND_SPEED,
+} = {}) {
   blastWaves.push({
+    owner,
     x,
     y,
+    radius,
+    maxRadius,
+    expandSpeed,
+    hitEnemyIds: new Set(),
+    hitPlayer: false,
+  });
+}
+
+function usePulseBombAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const range = getBlastRange();
+  const travel = Math.min(distance, range);
+  const targetX = player.x + (dx / distance) * travel;
+  const targetY = player.y + (dy / distance) * travel;
+
+  activePulseBombs.push({
+    x: targetX,
+    y: targetY,
+    timer: 0,
+    interval: PULSE_BOMB_INTERVAL,
+    remaining: PULSE_BOMB_EXPLOSIONS,
+    pulseSeed: Math.random() * Math.PI * 2,
+  });
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function spawnBomberBlast(x, y) {
+  spawnBlastWave(x, y, {
+    owner: "enemy",
     radius: 8,
     maxRadius: BOMBER_BLAST_MAX_RADIUS,
     expandSpeed: BOMBER_BLAST_EXPAND_SPEED,
-    hitEnemyIds: new Set(),
-    hitPlayer: false,
   });
 }
 
@@ -3447,6 +3569,10 @@ function tryUseAbilityFromClick(point) {
 
   if (selectedAbility.key === abilities.blast.key) {
     return useBlastAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.pulse_bomb.key) {
+    return usePulseBombAbility(point);
   }
 
   if (selectedAbility.key === abilities.sidearm.key) {
@@ -3824,6 +3950,50 @@ function updatePlayerDecoy(dt) {
     decoy.timer -= dt;
     if (decoy.timer <= 0) {
       activePlayerDecoys.splice(index, 1);
+    }
+  }
+}
+
+function triggerPulseBombExplosion(bomb) {
+  const offsetRadius = getCellSize() * PULSE_BOMB_OFFSET_CELLS;
+  const angle = Math.random() * Math.PI * 2;
+  const distance = randomRange(0, offsetRadius);
+  const x = clamp(bomb.x + Math.cos(angle) * distance, ARENA.x + 8, ARENA.x + ARENA.width - 8);
+  const y = clamp(bomb.y + Math.sin(angle) * distance, ARENA.y + 8, ARENA.y + ARENA.height - 8);
+
+  spawnImpactBurst(x, y, {
+    count: 18,
+    speedMin: 90,
+    speedMax: 260,
+    lifeMin: 0.14,
+    lifeMax: 0.34,
+    sizeMin: 3,
+    sizeMax: 8,
+    outerColor: [255, 72, 34],
+    midColor: [255, 143, 53],
+    innerColor: [255, 246, 214],
+  });
+  spawnBlastWave(x, y, {
+    owner: "player",
+    radius: 8,
+    maxRadius: BOMBER_BLAST_MAX_RADIUS,
+    expandSpeed: BOMBER_BLAST_EXPAND_SPEED,
+  });
+}
+
+function updatePulseBombs(dt) {
+  for (let index = activePulseBombs.length - 1; index >= 0; index -= 1) {
+    const bomb = activePulseBombs[index];
+    bomb.timer -= dt;
+
+    while (bomb.timer <= 0 && bomb.remaining > 0) {
+      triggerPulseBombExplosion(bomb);
+      bomb.remaining -= 1;
+      bomb.timer += bomb.interval;
+    }
+
+    if (bomb.remaining <= 0) {
+      activePulseBombs.splice(index, 1);
     }
   }
 }
@@ -4896,6 +5066,7 @@ function startDeathSequence() {
   playerMirrorPassive = null;
   baseProjectiles.length = 0;
   blastWaves.length = 0;
+  activePulseBombs.length = 0;
   beamEffects.length = 0;
   enemySeeds.length = 0;
   homingMissiles.length = 0;
@@ -4987,6 +5158,7 @@ function resetGame() {
   playerMirrorPassive = null;
   baseProjectiles.length = 0;
   blastWaves.length = 0;
+  activePulseBombs.length = 0;
   beamEffects.length = 0;
   enemySeeds.length = 0;
   homingMissiles.length = 0;
@@ -5159,6 +5331,7 @@ function damageEnemy(enemy, amount = 1) {
 
   if (isBossShieldActive(enemy)) return false;
 
+  spawnEnemyHitBurst(enemy, amount);
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
     if (enemy.kind === LEVEL3_BOSS_KIND && enemy.bossStage < 3) {
@@ -5214,9 +5387,10 @@ function getRemainingLevelRoster(level = getCurrentLevel()) {
 
 function getRosterHtml(level = getCurrentLevel(), roster = getLevelRoster(level)) {
   return Object.entries(roster)
+    .filter(([, count]) => count > 0)
     .map(([kind, count]) => {
       const meta = enemyMeta[kind] ?? { name: kind, color: "#ff5a5a", glow: "rgba(255, 90, 90, 0.45)" };
-      return `<span class="roster-chip" title="${meta.name}"><span class="roster-chip__swatch" style="--enemy-color:${meta.color};--enemy-glow:${meta.glow}"></span>${meta.name} ${count}</span>`;
+      return `<span class="roster-chip" title="${meta.name}"><span class="roster-chip__swatch" style="--enemy-color:${meta.color};--enemy-glow:${meta.glow}"></span><span class="roster-chip__count">${count}</span></span>`;
     })
     .join("");
 }
@@ -5227,7 +5401,7 @@ function updateLevelHud() {
   const remainingRoster = getRemainingLevelRoster(level);
   const remainingCount = Object.values(remainingRoster).reduce((sum, count) => sum + count, 0);
   const totalCount = getLevelTotalCount(level);
-  levelHudEl.innerHTML = `<span class="level-chip">Уровень ${currentLevelIndex + 1}/10: ${level.name} | Осталось ${remainingCount}/${totalCount}</span>${getRosterHtml(level, remainingRoster)}`;
+  levelHudEl.innerHTML = `<span class="level-chip" title="${level.name}">${currentLevelIndex + 1}/10 ${remainingCount}/${totalCount}</span>${getRosterHtml(level, remainingRoster)}`;
 }
 
 function getUpgradeChoices() {
@@ -5336,7 +5510,7 @@ function startLevel(index) {
 
 function checkLevelComplete() {
   if (levelCompleted || player.dead || gameState !== "playing") return;
-  if (levelSpawnQueue.length > 0 || spawnMarkers.length > 0 || enemies.length > 0 || enemySeeds.length > 0) return;
+  if (levelSpawnQueue.length > 0 || spawnMarkers.length > 0 || enemies.length > 0 || enemySeeds.length > 0 || activePulseBombs.length > 0) return;
 
   levelCompleted = true;
   showLevelComplete();
@@ -5615,15 +5789,32 @@ function drawImpactBursts() {
     ctx.translate(burst.x, burst.y);
     ctx.rotate(burst.angle);
 
-    ctx.fillStyle = `rgba(255, 96, 96, ${life * 0.42})`;
+    if (burst.kind === "ring") {
+      const expansion = 1 - life;
+      ctx.strokeStyle = colorWithAlpha(burst.midColor, life * 0.76);
+      ctx.lineWidth = 2 + life * 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, burst.size * (0.45 + expansion * 1.25), 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = colorWithAlpha(burst.outerColor, life * 0.48);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, burst.size * (0.72 + expansion * 1.7), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      continue;
+    }
+
+    ctx.fillStyle = colorWithAlpha(burst.outerColor, life * 0.42);
     ctx.beginPath();
     ctx.arc(0, 0, burst.size * (0.5 + (1 - life) * 0.65), 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = `rgba(255, 202, 110, ${life * 0.78})`;
+    ctx.fillStyle = colorWithAlpha(burst.midColor, life * 0.78);
     ctx.fillRect(-burst.size * 0.55, -burst.size * 0.18, burst.size * 1.1, burst.size * 0.36);
 
-    ctx.fillStyle = `rgba(255, 245, 220, ${life * 0.7})`;
+    ctx.fillStyle = colorWithAlpha(burst.innerColor, life * 0.7);
     ctx.fillRect(-burst.size * 0.24, -burst.size * 0.1, burst.size * 0.48, burst.size * 0.2);
     ctx.restore();
   }
@@ -5973,7 +6164,7 @@ function drawAbilityRange() {
       ? getHookRange()
       : selectedAbility.key === abilities.decoy.key
         ? getDecoyRange()
-      : selectedAbility.key === abilities.blast.key
+      : selectedAbility.key === abilities.blast.key || selectedAbility.key === abilities.pulse_bomb.key
         ? getBlastRange()
       : selectedAbility.key === abilities.shield.key
         ? getShieldRadius()
@@ -5984,8 +6175,8 @@ function drawAbilityRange() {
       ? "rgba(255, 210, 120, 0.18)"
       : selectedAbility.key === abilities.decoy.key
         ? "rgba(255, 178, 218, 0.24)"
-      : selectedAbility.key === abilities.blast.key
-        ? "rgba(245, 244, 222, 0.22)"
+      : selectedAbility.key === abilities.blast.key || selectedAbility.key === abilities.pulse_bomb.key
+        ? "rgba(255, 174, 84, 0.24)"
       : selectedAbility.key === abilities.shield.key
         ? "rgba(255, 224, 112, 0.26)"
         : selectedAbility.key === abilities.spray.key
@@ -6087,9 +6278,15 @@ function drawBoss(enemy) {
   const isBlinking = enemy.bossState === "blink";
   const isLevel2Boss = enemy.kind === LEVEL2_BOSS_KIND;
   const isLevel3Boss = enemy.kind === LEVEL3_BOSS_KIND;
+  const hitFlash = clamp(enemy.hitFlash || 0, 0, 1);
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
+  if (hitFlash > 0) {
+    const shake = Math.sin(worldTime * 95 + enemy.id) * hitFlash * 2.4;
+    ctx.translate(shake, -shake * 0.5);
+    ctx.scale(1 + hitFlash * 0.045, 1 + hitFlash * 0.045);
+  }
 
   if (isLevel2Boss) {
     const pullRadius =
@@ -6222,6 +6419,15 @@ function drawBoss(enemy) {
   ctx.lineWidth = 3;
   ctx.stroke();
 
+  if (hitFlash > 0) {
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = `rgba(255, 250, 226, ${hitFlash * 0.42})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * (0.62 + hitFlash * 0.28), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   const hpRatio = clamp(enemy.hp / enemy.maxHp, 0, 1);
   ctx.fillStyle = "rgba(16, 22, 34, 0.82)";
   ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16, 6);
@@ -6237,9 +6443,15 @@ function drawEnemy(enemy) {
   const halfW = width * 0.5;
   const halfH = height * 0.5;
   const angle = Math.atan2(enemy.vy, enemy.vx);
+  const hitFlash = clamp(enemy.hitFlash || 0, 0, 1);
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
+  if (hitFlash > 0) {
+    const shake = Math.sin(worldTime * 110 + enemy.id) * hitFlash * 1.8;
+    ctx.translate(shake, -shake * 0.45);
+    ctx.scale(1 + hitFlash * 0.07, 1 + hitFlash * 0.07);
+  }
   ctx.rotate(enemy.moving ? angle : Math.PI * 0.25);
   if (enemy.isIllusion) {
     ctx.globalAlpha = 0.48;
@@ -6355,6 +6567,13 @@ function drawEnemy(enemy) {
 
   ctx.fillStyle = "rgba(255, 246, 246, 0.42)";
   ctx.fillRect(-halfW + 4, -halfH + 4, width * 0.24, height * 0.24);
+
+  if (hitFlash > 0) {
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = `rgba(255, 250, 226, ${hitFlash * 0.58})`;
+    ctx.fillRect(-halfW, -halfH, width, height);
+    ctx.globalCompositeOperation = "source-over";
+  }
 
   if (enemy.kind === "brute") {
     ctx.strokeStyle = "rgba(255, 248, 214, 0.88)";
@@ -6914,6 +7133,31 @@ function drawLaserEffects() {
     ctx.arc(decoy.x, decoy.y, decoy.size + 8 + pulse * 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  for (const bomb of activePulseBombs) {
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 9 + bomb.pulseSeed);
+    const intervalProgress = 1 - clamp(bomb.timer / bomb.interval, 0, 1);
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 143, 53, ${0.32 + pulse * 0.34})`;
+    ctx.lineWidth = 2 + pulse * 2;
+    ctx.beginPath();
+    ctx.arc(bomb.x, bomb.y, 14 + pulse * 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255, 238, 188, ${0.2 + intervalProgress * 0.42})`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 6]);
+    ctx.beginPath();
+    ctx.arc(bomb.x, bomb.y, 24 + intervalProgress * 28, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = `rgba(255, 246, 214, ${0.5 + pulse * 0.34})`;
+    ctx.beginPath();
+    ctx.arc(bomb.x, bomb.y, 4 + pulse * 2, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 

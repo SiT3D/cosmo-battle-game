@@ -37,10 +37,11 @@ body {
   width: min(980px, calc(100vw - 20px));
   transform: translateX(-50%);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  overflow: hidden;
   pointer-events: none;
 }
 
@@ -48,9 +49,10 @@ body {
 .roster-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  gap: 6px;
   min-height: 28px;
-  padding: 5px 10px;
+  padding: 5px 9px;
   border-radius: 999px;
   background: rgba(5, 10, 18, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -61,6 +63,7 @@ body {
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .level-chip {
@@ -78,6 +81,11 @@ body {
     0 0 0 1px rgba(255, 255, 255, 0.28),
     0 0 12px var(--enemy-glow, rgba(255, 90, 90, 0.45));
   transform: rotate(45deg);
+}
+
+.roster-chip__count {
+  min-width: 1.1em;
+  text-align: center;
 }
 
 .campaign-overlay {
@@ -572,14 +580,25 @@ body {
 @media (max-width: 640px) {
   .level-hud {
     top: 6px;
-    gap: 5px;
+    width: calc(100vw - 8px);
+    gap: 3px;
   }
 
   .level-chip,
   .roster-chip {
     min-height: 24px;
-    padding: 4px 7px;
+    padding: 4px 5px;
     font-size: 0.58rem;
+  }
+
+  .roster-chip {
+    gap: 4px;
+  }
+
+  .roster-chip__swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
   }
 
   .campaign-overlay {
