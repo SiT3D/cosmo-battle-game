@@ -16,7 +16,7 @@ const VIEW = { width: 0, height: 0 };
 const ARENA = { x: 0, y: 0, width: 0, height: 0 };
 
 const WALL_BOUNCE = 0.94;
-const INACTIVE_TIME_SCALE = 0.1;
+const INACTIVE_TIME_SCALE = 1 / 14;
 const TIME_SCALE_TRANSITION = 1.2;
 const MOVE_TO_POINT_SPEED = 441;
 const MOVE_STOP_DISTANCE = 10;
