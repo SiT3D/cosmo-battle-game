@@ -122,7 +122,8 @@ const HOOK_SPEED = 1180;
 const HOOK_PULL_SPEED_CELLS = 2 / 1.1;
 const TELEPORT_CHARGE_TIME = 2;
 const DECOY_RANGE_CELLS = 4;
-const BASE_GUN_PROJECTILE_SPEED = 560;
+const BASE_GUN_PROJECTILE_SPEED = 1680;
+const BASE_GUN_CAST_TIME = 0.05;
 const BASE_GUN_PROJECTILE_RADIUS = 7;
 const BASE_GUN_PROJECTILE_LIFETIME = 2.2;
 const BASE_GUN_COOLDOWN = 10;
@@ -600,6 +601,7 @@ let abilityMode = "hook";
 let activeHook = null;
 let pendingPlayerTeleport = null;
 let activePlayerTeleport = null;
+let activePlayerBaseGun = null;
 let activePlayerLaser = null;
 let activePlayerSniper = null;
 let activePlayerSpray = null;
@@ -830,6 +832,7 @@ function isSimulationActive() {
     player.moving ||
     Boolean(activeHook) ||
     Boolean(activePlayerTeleport) ||
+    Boolean(activePlayerBaseGun) ||
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
@@ -952,6 +955,7 @@ function canSwitchAbilities() {
     !activeHook &&
     !pendingPlayerTeleport &&
     !activePlayerTeleport &&
+    !activePlayerBaseGun &&
     !activePlayerLaser &&
     !activePlayerSniper &&
     !activePlayerSpray
@@ -1064,6 +1068,7 @@ function update(dt) {
   }
   updateHook(simDt);
   updatePlayerTeleport(simDt);
+  updatePlayerBaseGun(simDt);
   updatePlayerLaser(simDt);
   updatePlayerSniper(simDt);
   updatePlayerSpray(simDt);
@@ -3145,19 +3150,28 @@ function useBaseGunAbility(targetPoint = aimPoint) {
   const distance = Math.hypot(dx, dy);
   if (distance < 1 || !consumeBaseGunCharge()) return false;
 
+  activePlayerBaseGun = {
+    dirX: dx / distance,
+    dirY: dy / distance,
+    timer: BASE_GUN_CAST_TIME,
+    duration: BASE_GUN_CAST_TIME,
+  };
+  return true;
+}
+
+function firePlayerBaseGun(baseGun) {
   baseProjectiles.push({
     owner: "player",
     x: player.x,
     y: player.y,
-    vx: (dx / distance) * BASE_GUN_PROJECTILE_SPEED,
-    vy: (dy / distance) * BASE_GUN_PROJECTILE_SPEED,
+    vx: baseGun.dirX * BASE_GUN_PROJECTILE_SPEED,
+    vy: baseGun.dirY * BASE_GUN_PROJECTILE_SPEED,
     radius: BASE_GUN_PROJECTILE_RADIUS,
     ttl: BASE_GUN_PROJECTILE_LIFETIME,
     life: BASE_GUN_PROJECTILE_LIFETIME,
     color: "rgba(255, 214, 128, 0.96)",
     innerColor: "rgba(255, 245, 214, 0.96)",
   });
-  return true;
 }
 
 function useSniperAbility(targetPoint = aimPoint) {
@@ -3630,6 +3644,7 @@ function tryUseAbilityFromClick(point) {
     player.moving ||
     activeHook ||
     activePlayerTeleport ||
+    activePlayerBaseGun ||
     activePlayerLaser ||
     activePlayerSniper ||
     activePlayerSpray ||
@@ -3709,6 +3724,7 @@ function canStartKeyboardMove() {
     !player.dead &&
     !activeHook &&
     !activePlayerTeleport &&
+    !activePlayerBaseGun &&
     !activePlayerLaser &&
     !activePlayerSniper &&
     !activePlayerSpray &&
@@ -3827,6 +3843,16 @@ function updatePlayerLaser(dt) {
 
   firePlayerLaser(activePlayerLaser);
   activePlayerLaser = null;
+}
+
+function updatePlayerBaseGun(dt) {
+  if (!activePlayerBaseGun) return;
+
+  activePlayerBaseGun.timer -= dt;
+  if (activePlayerBaseGun.timer > 0) return;
+
+  firePlayerBaseGun(activePlayerBaseGun);
+  activePlayerBaseGun = null;
 }
 
 function updatePlayerSniper(dt) {
@@ -5148,6 +5174,7 @@ function startDeathSequence() {
   activeHook = null;
   pendingPlayerTeleport = null;
   activePlayerTeleport = null;
+  activePlayerBaseGun = null;
   activePlayerLaser = null;
   activePlayerSniper = null;
   activePlayerSpray = null;
@@ -5242,6 +5269,7 @@ function resetGame() {
   activeHook = null;
   pendingPlayerTeleport = null;
   activePlayerTeleport = null;
+  activePlayerBaseGun = null;
   activePlayerLaser = null;
   activePlayerSniper = null;
   activePlayerSpray = null;
@@ -5642,7 +5670,9 @@ function updateUi() {
   } else if (selectedAbility.key === abilities.sidearm.key) {
     const readyShots = getReadyBaseGunCharges();
     const nextCooldown = getNextBaseGunCooldown();
-    abilityHintEl.textContent = readyShots > 0 ? `${readyShots}/${BASE_GUN_MAX_CHARGES} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
+    abilityHintEl.textContent = activePlayerBaseGun
+      ? `${activePlayerBaseGun.timer.toFixed(2)}s`
+      : readyShots > 0 ? `${readyShots}/${BASE_GUN_MAX_CHARGES} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.sniper.key && activePlayerSniper) {
     abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
@@ -7188,6 +7218,23 @@ function drawLaserEffects() {
     ctx.strokeStyle = `rgba(114, 232, 255, ${0.24 + progress * 0.34})`;
     ctx.lineWidth = 2 + progress * 2;
     ctx.setLineDash([14, 10]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(previewX, previewY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  if (activePlayerBaseGun) {
+    const progress = 1 - clamp(activePlayerBaseGun.timer / activePlayerBaseGun.duration, 0, 1);
+    const previewX = player.x + activePlayerBaseGun.dirX * getArenaProjectileReach();
+    const previewY = player.y + activePlayerBaseGun.dirY * getArenaProjectileReach();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 214, 128, ${0.18 + progress * 0.32})`;
+    ctx.lineWidth = 2 + progress * 1.5;
+    ctx.setLineDash([10, 8]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
     ctx.lineTo(previewX, previewY);
