@@ -162,6 +162,9 @@ const ENEMY_DASH_DELAY_AFTER_SHOT = 0.14;
 const LASER_ENEMY_DASH_SPEED = (ENEMY_DASH_SPEED / 3) * 0.6;
 const LASER_ENEMY_MOVE_ACCELERATION = (ENEMY_MOVE_ACCELERATION / 3) * 0.6;
 const LASER_ENEMY_MOVE_BRAKE = (ENEMY_MOVE_BRAKE / 3) * 0.6;
+const HUNTER_LEAD_TIME_MIN = 0.18;
+const HUNTER_LEAD_TIME_MAX = 1.35;
+const HUNTER_LEAD_FLIGHT_MULTIPLIER = 0.72;
 const SPRAY_ENEMY_DASH_SPEED = ENEMY_DASH_SPEED * 0.5;
 const SPRAY_ENEMY_MOVE_ACCELERATION = ENEMY_MOVE_ACCELERATION * 0.5;
 const SPRAY_ENEMY_MOVE_BRAKE = ENEMY_MOVE_BRAKE * 0.5;
@@ -356,6 +359,7 @@ const abilities = {
 
 const enemyMeta = {
   laser: { name: "Красные", color: "#ff5a5a", glow: "rgba(255, 90, 90, 0.55)" },
+  hunter: { name: "Охотники", color: "#ff3434", glow: "rgba(255, 52, 52, 0.58)" },
   shield: { name: "Желтые", color: "#ffc94d", glow: "rgba(255, 201, 77, 0.55)" },
   spray: { name: "Фиолетовые", color: "#b758ff", glow: "rgba(183, 88, 255, 0.55)" },
   mine: { name: "Мины", color: "#51d86b", glow: "rgba(81, 216, 107, 0.5)" },
@@ -380,6 +384,7 @@ const enemyMeta = {
 
 const enemyInfo = {
   laser: { text: "Стреляет заряженным лучом перед рывком.", reward: `Лазер, ${STOLEN_LASER_CHARGES} зарядов.` },
+  hunter: { text: "Стреляет как красный, но берет упреждение по движению игрока.", reward: `Лазер, ${STOLEN_LASER_CHARGES} зарядов.` },
   shield: { text: "Поднимает защитную ауру и давит сближением.", reward: `Щит, ${STOLEN_SHIELD_CHARGES} заряда.` },
   spray: { text: "Выпускает веер быстрых снарядов.", reward: `Спрей, ${STOLEN_ABILITY_CHARGES} заряда.` },
   mine: { text: "Оставляет опасные мины на поле.", reward: "Пассив: серия мин вокруг игрока." },
@@ -447,7 +452,7 @@ const campaignLevels = [
   },
   {
     name: "Дальняя линия",
-    roster: { sniper: 4, mirror: 3, laser: 4, spray: 3, splitter: 3 },
+    roster: { sniper: 4, mirror: 3, hunter: 3, laser: 3, spray: 3, splitter: 3 },
     minEnemies: 30,
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
@@ -479,7 +484,7 @@ const campaignLevels = [
   },
   {
     name: "Финальная смесь",
-    roster: { commander: 3, medic: 3, mirror: 4, laser: 4, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, rocketeer: 3, trickster: 3, charger: 3, slow: 2, brute: 2, replicator: 1 },
+    roster: { commander: 3, medic: 3, mirror: 4, hunter: 4, laser: 3, shield: 4, spray: 4, bomber: 4, splitter: 4, sniper: 3, grower: 3, rocketeer: 3, trickster: 3, charger: 3, slow: 2, brute: 2, replicator: 1 },
     minEnemies: 50,
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
@@ -1358,6 +1363,52 @@ function getEnemyAggroTarget(fromX = player.x, fromY = player.y) {
   };
 }
 
+function getPredictedPlayerPointAfter(seconds) {
+  const safeSeconds = clamp(seconds, 0, PLAYER_TRAJECTORY_STEPS * PLAYER_TRAJECTORY_STEP_TIME);
+  if (safeSeconds <= 0) return { x: player.x, y: player.y };
+
+  const trajectory = getPredictedPlayerTrajectory();
+  if (trajectory.length >= 2) {
+    const exactIndex = safeSeconds / PLAYER_TRAJECTORY_STEP_TIME;
+    const lowerIndex = Math.floor(exactIndex);
+    const upperIndex = Math.min(trajectory.length - 1, lowerIndex + 1);
+    const lower = trajectory[Math.min(lowerIndex, trajectory.length - 1)];
+    const upper = trajectory[upperIndex];
+    const t = clamp(exactIndex - lowerIndex, 0, 1);
+    return {
+      x: lower.x + (upper.x - lower.x) * t,
+      y: lower.y + (upper.y - lower.y) * t,
+    };
+  }
+
+  const speed = Math.hypot(player.vx, player.vy);
+  if (speed <= 1) return { x: player.x, y: player.y };
+
+  const half = player.size * 0.5;
+  return {
+    x: clamp(player.x + player.vx * safeSeconds, ARENA.x + half, ARENA.x + ARENA.width - half),
+    y: clamp(player.y + player.vy * safeSeconds, ARENA.y + half, ARENA.y + ARENA.height - half),
+  };
+}
+
+function getHunterAimTarget(enemy) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  if (target.type !== "player") return target;
+
+  const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+  const flightTime = distance / LASER_PROJECTILE_SPEED;
+  const leadTime = clamp(
+    (enemy.phaseTimer || 0) + flightTime * HUNTER_LEAD_FLIGHT_MULTIPLIER,
+    HUNTER_LEAD_TIME_MIN,
+    HUNTER_LEAD_TIME_MAX
+  );
+  return getPredictedPlayerPointAfter(leadTime);
+}
+
+function getLaserEnemyAimTarget(enemy) {
+  return enemy.kind === "hunter" ? getHunterAimTarget(enemy) : getEnemyAggroTarget(enemy.x, enemy.y);
+}
+
 function updateEnemyMotion(enemy, dt) {
   if (!enemy.moveTarget) {
     settleEnemyMotion(enemy);
@@ -1381,13 +1432,13 @@ function updateEnemyMotion(enemy, dt) {
   const moveBrake =
     enemy.kind === "spray"
       ? SPRAY_ENEMY_MOVE_BRAKE
-      : enemy.kind === "laser"
+      : isLaserEnemy(enemy)
         ? LASER_ENEMY_MOVE_BRAKE
         : ENEMY_MOVE_BRAKE;
   const moveAcceleration =
     enemy.kind === "spray"
       ? SPRAY_ENEMY_MOVE_ACCELERATION
-      : enemy.kind === "laser"
+      : isLaserEnemy(enemy)
         ? LASER_ENEMY_MOVE_ACCELERATION
         : ENEMY_MOVE_ACCELERATION;
   const speedMultiplier =
@@ -1400,7 +1451,7 @@ function updateEnemyMotion(enemy, dt) {
   const maxSpeed =
     (enemy.kind === "spray"
         ? SPRAY_ENEMY_DASH_SPEED
-        : enemy.kind === "laser"
+        : isLaserEnemy(enemy)
           ? LASER_ENEMY_DASH_SPEED
           : ENEMY_DASH_SPEED) * speedMultiplier;
   const targetSpeed = Math.min(maxSpeed, brakingSpeed);
@@ -1491,6 +1542,10 @@ function setEnemyTurnWait(enemy, delay = getEnemyRecoverDelay(enemy)) {
 
 function isHealingEnemy(enemy) {
   return enemy?.kind === "heal" || enemy?.kind === "medic";
+}
+
+function isLaserEnemy(enemy) {
+  return enemy?.kind === "laser" || enemy?.kind === "hunter";
 }
 
 function getEnemyCommandMultiplier(enemy = null) {
@@ -1867,8 +1922,8 @@ function updateEnemies(dt) {
     }
 
     if (enemy.moving) {
-      if (enemy.kind === "laser" && !enemy.turnShotLocked) {
-        const target = getEnemyAggroTarget(enemy.x, enemy.y);
+      if (isLaserEnemy(enemy) && !enemy.turnShotLocked) {
+        const target = getLaserEnemyAimTarget(enemy);
         enemy.aimX = target.x;
         enemy.aimY = target.y;
         enemy.phaseTimer -= timerDt;
@@ -1928,7 +1983,7 @@ function updateEnemies(dt) {
           supportEnemyFromMedic(enemy);
           enemy.phase = "recover";
           enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
-        } else if (enemy.kind === "laser") {
+        } else if (isLaserEnemy(enemy)) {
           if (enemy.turnShotLocked) {
             setEnemyTurnWait(enemy);
           } else {
@@ -1948,7 +2003,7 @@ function updateEnemies(dt) {
     }
 
     if (enemy.phase === "charge") {
-      const target = getEnemyAggroTarget(enemy.x, enemy.y);
+      const target = getLaserEnemyAimTarget(enemy);
       enemy.aimX = target.x;
       enemy.aimY = target.y;
       enemy.phaseTimer -= timerDt;
@@ -2739,7 +2794,7 @@ function launchEnemy(enemy) {
   enemy.moving = true;
   enemy.restingFor = 0;
   enemy.phase = "dash";
-  enemy.phaseTimer = enemy.kind === "laser" && !enemy.turnShotLocked ? getStaggeredEnemyDelay(LASER_CHARGE_TIME) : 0;
+  enemy.phaseTimer = isLaserEnemy(enemy) && !enemy.turnShotLocked ? getStaggeredEnemyDelay(LASER_CHARGE_TIME) : 0;
 }
 
 function createEnemy(kind, x, y) {
@@ -2773,7 +2828,7 @@ function createEnemy(kind, x, y) {
     ability:
       kind === "shield"
         ? abilities.shield
-        : kind === "laser"
+        : kind === "laser" || kind === "hunter"
           ? abilities.laser
           : kind === "sniper"
             ? abilities.sniper
@@ -2795,7 +2850,7 @@ function createEnemy(kind, x, y) {
     abilityCharges:
       kind === "shield"
         ? STOLEN_SHIELD_CHARGES
-        : kind === "laser"
+        : kind === "laser" || kind === "hunter"
           ? STOLEN_LASER_CHARGES
           : kind === "sniper"
             ? STOLEN_SNIPER_CHARGES
@@ -2884,8 +2939,10 @@ function getRandomEnemyKind() {
         ? "mine"
       : roll < 0.76
         ? "shield"
-      : roll < 0.9
+      : roll < 0.86
         ? "spray"
+      : roll < 0.93
+        ? "hunter"
         : "laser"
   );
 }
@@ -7113,6 +7170,10 @@ function drawEnemy(enemy) {
     gradient.addColorStop(0, "#e7bbff");
     gradient.addColorStop(0.45, "#b758ff");
     gradient.addColorStop(1, "#5b1687");
+  } else if (enemy.kind === "hunter") {
+    gradient.addColorStop(0, "#ffd0d0");
+    gradient.addColorStop(0.45, "#ff3434");
+    gradient.addColorStop(1, "#6f0618");
   } else if (enemy.kind === "mine") {
     gradient.addColorStop(0, "#b6ffbb");
     gradient.addColorStop(0.45, "#51d86b");
@@ -7158,6 +7219,8 @@ function drawEnemy(enemy) {
         ? "rgba(255, 116, 202, 0.45)"
       : enemy.kind === "spray"
         ? "rgba(203, 100, 255, 0.45)"
+      : enemy.kind === "hunter"
+        ? "rgba(255, 52, 52, 0.48)"
         : enemy.kind === "mine"
           ? "rgba(84, 255, 118, 0.42)"
         : enemy.kind === "bomber"
@@ -7371,6 +7434,16 @@ function drawEnemy(enemy) {
     ctx.moveTo(-6, 3);
     ctx.lineTo(0, -5);
     ctx.lineTo(6, 3);
+    ctx.stroke();
+  } else if (enemy.kind === "hunter") {
+    ctx.strokeStyle = "rgba(255, 232, 232, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.moveTo(-9, 0);
+    ctx.lineTo(9, 0);
+    ctx.moveTo(0, -9);
+    ctx.lineTo(0, 9);
     ctx.stroke();
   }
 
