@@ -87,7 +87,7 @@ const COMMANDER_SPEED_MULTIPLIER = 1.5;
 const MEDIC_HP = 3;
 const MEDIC_MOVE_SPEED_MULTIPLIER = 1.2;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
-const MEDIC_SUPPORT_RANGE = 210;
+const MEDIC_SUPPORT_RANGE = 420;
 const ENEMY_MAX_COUNT = 8;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
@@ -5558,7 +5558,7 @@ function drawEnemies() {
       ctx.strokeStyle = `rgba(54, 240, 255, ${0.12 + pulse * 0.1})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, MEDIC_SUPPORT_RANGE * 0.32 + pulse * 5, 0, Math.PI * 2);
+      ctx.arc(enemy.x, enemy.y, MEDIC_SUPPORT_RANGE + pulse * 5, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
