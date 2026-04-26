@@ -40,6 +40,7 @@ const MIN_ENEMY_TYPES_PER_LEVEL = 8;
 const LEVEL1_BOSS_KIND = "level1_boss";
 const LEVEL2_BOSS_KIND = "level2_boss";
 const LEVEL3_BOSS_KIND = "level3_boss";
+const BOSS_KINDS = [LEVEL1_BOSS_KIND, LEVEL2_BOSS_KIND, LEVEL3_BOSS_KIND];
 const LEVEL1_BOSS_PHASE_ONE_HP = 20;
 const LEVEL1_BOSS_PHASE_TWO_HP = 40;
 const LEVEL1_BOSS_LEVEL_ONE_PHASE_TWO_HP = 10;
@@ -607,6 +608,7 @@ let currentLevelIndex = 0;
 let levelSpawnQueue = [];
 let levelCompleted = false;
 let levelBossSpawned = false;
+let currentLevelBossKind = null;
 let pendingUpgradeChoices = [];
 
 function resize() {
@@ -682,7 +684,7 @@ function getSpawnInterval() {
 }
 
 function getAutoRosterKinds(level = getCurrentLevel()) {
-  const enemyKinds = Object.keys(enemyMeta);
+  const enemyKinds = Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind));
   const levelIndex = Math.max(0, campaignLevels.indexOf(level));
   const offset = levelIndex % enemyKinds.length;
   return [...enemyKinds.slice(offset), ...enemyKinds.slice(0, offset)];
@@ -748,6 +750,26 @@ function buildLevelSpawnQueue(level = getCurrentLevel()) {
     }
   }
   return shuffleList(queue);
+}
+
+function getFixedLevelBossKind(levelIndex = currentLevelIndex) {
+  if (levelIndex === 0) return LEVEL1_BOSS_KIND;
+  if (levelIndex === 1) return LEVEL2_BOSS_KIND;
+  if (levelIndex === 2) return LEVEL3_BOSS_KIND;
+  return null;
+}
+
+function getRandomBossKind() {
+  return BOSS_KINDS[Math.floor(Math.random() * BOSS_KINDS.length)];
+}
+
+function selectLevelBossKind(level = getCurrentLevel(), levelIndex = currentLevelIndex) {
+  if (!level.boss) return null;
+  return getFixedLevelBossKind(levelIndex) ?? getRandomBossKind();
+}
+
+function getCurrentLevelBossKind(level = getCurrentLevel()) {
+  return currentLevelBossKind ?? level.boss?.kind ?? null;
 }
 
 function getCellSize() {
@@ -1547,6 +1569,8 @@ function getRemainingNormalLevelEnemies() {
 function updateLevelBossSpawn() {
   const level = getCurrentLevel();
   if (!level.boss || levelBossSpawned || levelCompleted || player.dead) return;
+  const bossKind = getCurrentLevelBossKind(level);
+  if (!bossKind) return;
 
   const triggerRemaining = Math.floor(getLevelNormalEnemyCount(level) * (level.boss.triggerRemainingRatio ?? 0.5));
   if (getRemainingNormalLevelEnemies() > triggerRemaining) return;
@@ -1555,7 +1579,7 @@ function updateLevelBossSpawn() {
     x: player.x < ARENA.x + ARENA.width * 0.5 ? ARENA.x + ARENA.width * 0.78 : ARENA.x + ARENA.width * 0.22,
     y: player.y < ARENA.y + ARENA.height * 0.5 ? ARENA.y + ARENA.height * 0.78 : ARENA.y + ARENA.height * 0.22,
   };
-  spawnBoss(point.x, point.y, level.boss.kind);
+  spawnBoss(point.x, point.y, bossKind);
   levelBossSpawned = true;
 }
 
@@ -4919,6 +4943,7 @@ function resetGame() {
   gameState = "playing";
   levelCompleted = false;
   levelBossSpawned = false;
+  currentLevelBossKind = selectLevelBossKind(level);
   levelSpawnQueue = buildLevelSpawnQueue(level);
   pendingUpgradeChoices = [];
   simulationWasActive = false;
@@ -5180,7 +5205,8 @@ function getRemainingLevelRoster(level = getCurrentLevel()) {
   }
 
   if (level.boss && !levelBossSpawned) {
-    addEnemyKind(level.boss.kind);
+    const bossKind = getCurrentLevelBossKind(level);
+    if (bossKind) addEnemyKind(bossKind);
   }
 
   return remainingRoster;
@@ -5262,14 +5288,16 @@ function showCampaignMenu() {
   const cards = campaignLevels
     .map((level, index) => {
       const total = getLevelTotalCount(level);
-      const roster = { ...getLevelRoster(level), ...(level.boss ? { [level.boss.kind]: 1 } : {}) };
+      const fixedBossKind = getFixedLevelBossKind(index);
+      const roster = { ...getLevelRoster(level), ...(level.boss && fixedBossKind ? { [fixedBossKind]: 1 } : {}) };
       const rosterText = Object.entries(roster)
         .map(([kind, count]) => `${enemyMeta[kind]?.name ?? kind} ${count}`)
         .join(", ");
+      const bossText = level.boss && !fixedBossKind ? ", случайный босс 1" : "";
       return `<button class="level-card" type="button" data-level="${index}">
         <span class="level-card__number">${index + 1}</span>
         <span class="level-card__name">${level.name}</span>
-        <span class="level-card__meta">${total} врагов: ${rosterText}</span>
+        <span class="level-card__meta">${total} врагов: ${rosterText}${bossText}</span>
       </button>`;
     })
     .join("");
