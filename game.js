@@ -81,7 +81,8 @@ const LEVEL3_BOSS_STAGE_TWO_HP = 15;
 const LEVEL3_BOSS_STAGE_THREE_HP = 10;
 const LEVEL3_BOSS_RADIAL_INTERVAL = 7;
 const LEVEL3_BOSS_RADIAL_CAST_TIME = 1.5;
-const LEVEL3_BOSS_RADIAL_SHOTS = 24;
+const LEVEL3_BOSS_RADIAL_SHOTS = 6;
+const LEVEL3_BOSS_RADIAL_ARC = Math.PI * 0.62;
 const LEVEL3_BOSS_MISSILE_INTERVAL = 3;
 const LEVEL3_BOSS_MISSILE_LIFETIME = 3;
 const LEVEL3_BOSS_MISSILE_SPEED = 160;
@@ -90,7 +91,8 @@ const LEVEL3_BOSS_MISSILE_TURN_RATE = 5.8;
 const LEVEL3_BOSS_MOVE_SPEED = 126;
 const LEVEL3_BOSS_MOVE_ACCELERATION = 340;
 const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COOLDOWN = 3;
-const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT = 10;
+const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT = 5;
+const LEVEL3_BOSS_STAGE_TWO_MISSILE_SPEED_MULTIPLIER = 0.7;
 const LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL = 1;
 const LEVEL3_BOSS_STAGE_THREE_LASER_CAST_TIME = 0.5;
 const BRUTE_CHASE_SPEED = 97;
@@ -374,7 +376,7 @@ const campaignLevels = [
     minEnemies: 12,
     maxEnemies: 4,
     spawnInterval: [1.6, 2.7],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Броня",
@@ -382,7 +384,7 @@ const campaignLevels = [
     minEnemies: 14,
     maxEnemies: 5,
     spawnInterval: [1.45, 2.5],
-    boss: { kind: LEVEL2_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL2_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Фиолетовый дождь",
@@ -390,7 +392,7 @@ const campaignLevels = [
     minEnemies: 18,
     maxEnemies: 5,
     spawnInterval: [1.35, 2.35],
-    boss: { kind: LEVEL3_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL3_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Минное поле",
@@ -398,7 +400,7 @@ const campaignLevels = [
     minEnemies: 20,
     maxEnemies: 6,
     spawnInterval: [1.25, 2.2],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Тяжелые",
@@ -406,7 +408,7 @@ const campaignLevels = [
     minEnemies: 25,
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Дальняя линия",
@@ -414,7 +416,7 @@ const campaignLevels = [
     minEnemies: 30,
     maxEnemies: 6,
     spawnInterval: [1.3, 2.35],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Сад",
@@ -422,7 +424,7 @@ const campaignLevels = [
     minEnemies: 35,
     maxEnemies: 6,
     spawnInterval: [1.35, 2.4],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Обманки",
@@ -430,7 +432,7 @@ const campaignLevels = [
     minEnemies: 40,
     maxEnemies: 6,
     spawnInterval: [1.2, 2.15],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Размножение",
@@ -438,7 +440,7 @@ const campaignLevels = [
     minEnemies: 50,
     maxEnemies: 7,
     spawnInterval: [1.25, 2.2],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Финальная смесь",
@@ -446,7 +448,7 @@ const campaignLevels = [
     minEnemies: 50,
     maxEnemies: 8,
     spawnInterval: [1.05, 1.9],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.7 },
+    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
 ];
 
@@ -1657,7 +1659,7 @@ function updateLevelBossSpawn() {
   const bossKind = getCurrentLevelBossKind(level);
   if (!bossKind) return;
 
-  const triggerRemaining = Math.floor(getLevelNormalEnemyCount(level) * (level.boss.triggerRemainingRatio ?? 0.7));
+  const triggerRemaining = Math.floor(getLevelNormalEnemyCount(level) * (level.boss.triggerRemainingRatio ?? 0.5));
   if (getRemainingNormalLevelEnemies() > triggerRemaining) return;
 
   const point = findFreePoint(LEVEL1_BOSS_SIZE * 1.2) ?? {
@@ -2337,8 +2339,9 @@ function updateLevel3BossStageOne(enemy, dt) {
   if (enemy.bossRadialTimer <= 0) {
     enemy.bossState = "radial_cast";
     enemy.bossStateTimer = LEVEL3_BOSS_RADIAL_CAST_TIME;
+    const centerAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
     enemy.bossRadialAngles = Array.from({ length: LEVEL3_BOSS_RADIAL_SHOTS }, (_, index) => (
-      (Math.PI * 2 * index) / LEVEL3_BOSS_RADIAL_SHOTS
+      centerAngle + (LEVEL3_BOSS_RADIAL_SHOTS === 1 ? 0 : (index / (LEVEL3_BOSS_RADIAL_SHOTS - 1) - 0.5) * LEVEL3_BOSS_RADIAL_ARC)
     ));
   }
 }
@@ -2371,7 +2374,12 @@ function updateLevel3BossStageThree(enemy, dt) {
 function fireLevel3BossRadialLasers(enemy) {
   const angles = enemy.bossRadialAngles?.length
     ? enemy.bossRadialAngles
-    : Array.from({ length: LEVEL3_BOSS_RADIAL_SHOTS }, (_, index) => (Math.PI * 2 * index) / LEVEL3_BOSS_RADIAL_SHOTS);
+    : (() => {
+      const centerAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      return Array.from({ length: LEVEL3_BOSS_RADIAL_SHOTS }, (_, index) => (
+        centerAngle + (LEVEL3_BOSS_RADIAL_SHOTS === 1 ? 0 : (index / (LEVEL3_BOSS_RADIAL_SHOTS - 1) - 0.5) * LEVEL3_BOSS_RADIAL_ARC)
+      ));
+    })();
   for (const angle of angles) {
     const reach = getArenaProjectileReach();
     fireEnemyInstantBeam(
@@ -2441,16 +2449,22 @@ function fireEnemyInstantBeam(fromX, fromY, toX, toY, options = {}) {
   if (playerHit) applyPlayerHit();
 }
 
-function fireEnemyHomingMissile(enemy, angle = null) {
+function fireEnemyHomingMissile(enemy, angle = null, options = {}) {
   const baseAngle = angle ?? Math.atan2(player.y - enemy.y, player.x - enemy.x);
   const permanent = enemy.kind === LEVEL3_BOSS_KIND && enemy.bossStage < 3;
   const lifetime = permanent ? Infinity : LEVEL3_BOSS_MISSILE_LIFETIME;
+  const speedMultiplier = options.speedMultiplier ?? 1;
+  const baseSpeed = LEVEL3_BOSS_MISSILE_SPEED * speedMultiplier;
+  const maxSpeed = LEVEL3_BOSS_MISSILE_SPEED * 1.8 * speedMultiplier;
+  const acceleration = LEVEL3_BOSS_MISSILE_ACCELERATION * speedMultiplier;
   enemyHomingMissiles.push({
     x: enemy.x,
     y: enemy.y,
-    vx: Math.cos(baseAngle) * LEVEL3_BOSS_MISSILE_SPEED,
-    vy: Math.sin(baseAngle) * LEVEL3_BOSS_MISSILE_SPEED,
-    speed: LEVEL3_BOSS_MISSILE_SPEED,
+    vx: Math.cos(baseAngle) * baseSpeed,
+    vy: Math.sin(baseAngle) * baseSpeed,
+    speed: baseSpeed,
+    maxSpeed,
+    acceleration,
     ttl: lifetime,
     life: lifetime,
     permanent,
@@ -2466,7 +2480,9 @@ function fireLevel3BossMissileVolley(enemy) {
   const baseAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
   for (let index = 0; index < LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT; index += 1) {
     const spreadT = LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT === 1 ? 0 : index / (LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT - 1);
-    fireEnemyHomingMissile(enemy, baseAngle + (spreadT - 0.5) * Math.PI * 0.9);
+    fireEnemyHomingMissile(enemy, baseAngle + (spreadT - 0.5) * Math.PI * 0.9, {
+      speedMultiplier: LEVEL3_BOSS_STAGE_TWO_MISSILE_SPEED_MULTIPLIER,
+    });
   }
 }
 
@@ -4243,7 +4259,7 @@ function updateEnemyHomingMissiles(dt) {
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       const nextAngle = currentAngle + clamp(delta, -LEVEL3_BOSS_MISSILE_TURN_RATE * dt, LEVEL3_BOSS_MISSILE_TURN_RATE * dt);
-      missile.speed = Math.min(LEVEL3_BOSS_MISSILE_SPEED * 1.8, missile.speed + LEVEL3_BOSS_MISSILE_ACCELERATION * dt);
+      missile.speed = Math.min(missile.maxSpeed ?? LEVEL3_BOSS_MISSILE_SPEED * 1.8, missile.speed + (missile.acceleration ?? LEVEL3_BOSS_MISSILE_ACCELERATION) * dt);
       missile.vx = Math.cos(nextAngle) * missile.speed;
       missile.vy = Math.sin(nextAngle) * missile.speed;
     }
