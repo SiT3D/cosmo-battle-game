@@ -819,9 +819,7 @@ function isSimulationActive() {
     Boolean(activePlayerLaser) ||
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
-    beamEffects.length > 0 ||
-    blastWaves.length > 0 ||
-    activePulseBombs.length > 0
+    beamEffects.length > 0
   );
 }
 
@@ -1032,7 +1030,9 @@ function update(dt) {
   const simDt = dt * currentTimeScale;
 
   worldTime += simDt;
-  actionTime += simDt;
+  if (startedActive) {
+    actionTime += simDt;
+  }
   if (player.moving) {
     updatePlayerMotion(simDt);
   }
@@ -1056,7 +1056,7 @@ function update(dt) {
   updatePlayerShield(simDt);
   updatePlayerDecoy(simDt);
   updateZigzagProjectiles(simDt);
-  updatePulseBombs(simDt);
+  updatePulseBombs(dt);
   updateBlastWaves(simDt);
   if (player.dead) {
     updateUi();
