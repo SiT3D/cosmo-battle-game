@@ -186,7 +186,7 @@ const STOLEN_SHIELD_CHARGES = 2;
 const STOLEN_BLAST_CHARGES = 4;
 const STOLEN_SNIPER_CHARGES = 3;
 const STOLEN_DECOY_CHARGES = 3;
-const STOLEN_MISSILE_CHARGES = 2;
+const STOLEN_MISSILE_CHARGES = 4;
 const STOLEN_BOMBER_BLAST_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
 const BLAST_MAX_RADIUS = 311 * 1.5;
@@ -5446,7 +5446,8 @@ function removeEnemy(id) {
 function getEnemyXpValue(enemy) {
   if (!enemy || enemy.isIllusion) return 0;
   if (isBossEnemy(enemy)) return 8;
-  if (enemy.kind === "brute" || enemy.kind === "commander" || enemy.kind === "medic") return 2;
+  if (enemy.kind === "commander" || enemy.kind === "medic") return 5;
+  if (enemy.kind === "brute") return 2;
   if (enemy.kind === "splitter_child" || enemy.kind === "sproutling") return 1;
   return 1;
 }
