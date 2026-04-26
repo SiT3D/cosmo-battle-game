@@ -126,13 +126,14 @@ const BASE_GUN_PROJECTILE_SPEED = 1680;
 const BASE_GUN_CAST_TIME = 0.05;
 const BASE_GUN_PROJECTILE_RADIUS = 7;
 const BASE_GUN_PROJECTILE_LIFETIME = 2.2;
-const BASE_GUN_COOLDOWN = 10;
+const BASE_GUN_COOLDOWN = 11;
 const BASE_GUN_LEVEL_COOLDOWN_REDUCTION = 0.3;
+const BASE_GUN_INITIAL_CHARGES = 3;
 const BASE_GUN_MAX_CHARGES = 5;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
-const SNIPER_CHARGE_TIME = 15;
+const SNIPER_CHARGE_TIME = 7;
 const PLAYER_SNIPER_CHARGE_TIME = 0.22;
 const SPRAY_CHARGE_TIME = 1;
 const PLAYER_SPRAY_CHARGE_TIME = 0.7;
@@ -143,7 +144,7 @@ const PLAYER_MISSILE_LIFETIME = 3.8;
 const PLAYER_MISSILE_COUNT = 3;
 const PLAYER_MISSILE_SPAWN_SPREAD = Math.PI * 0.18;
 const ENEMY_SPRAY_PROJECTILE_COUNT = 7;
-const PLAYER_SPRAY_PROJECTILE_COUNT = 13;
+const PLAYER_SPRAY_PROJECTILE_COUNT = 16;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
 const LASER_PROJECTILE_SPEED = 460;
@@ -613,7 +614,7 @@ let playerMirrorPassive = null;
 let playerAbilityCapacity = PLAYER_ABILITY_CAPACITY;
 let playerShieldCooldown = 0;
 let playerHookCooldown = 0;
-let playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
+let playerBaseGunCooldowns = createInitialBaseGunCooldowns();
 let aimPoint = { x: 0, y: 0 };
 let pointerInCanvas = false;
 let hoveredEnemyId = null;
@@ -3020,6 +3021,10 @@ function getBaseGunCooldown() {
   return Math.max(0.5, BASE_GUN_COOLDOWN * upgrades.baseCooldownMultiplier - upgrades.baseCooldownReduction);
 }
 
+function createInitialBaseGunCooldowns() {
+  return Array(BASE_GUN_INITIAL_CHARGES).fill(0);
+}
+
 function getReadyBaseGunCharges() {
   return playerBaseGunCooldowns.filter((cooldown) => cooldown <= 0).length;
 }
@@ -5243,7 +5248,7 @@ function startDeathSequence() {
   reserveAbilityCharges = null;
   abilityMode = "hook";
   playerHookCooldown = 0;
-  playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
+  playerBaseGunCooldowns = createInitialBaseGunCooldowns();
   moveMarker = null;
   trail.length = 0;
   laserProjectiles.length = 0;
@@ -5339,7 +5344,7 @@ function resetGame() {
   abilityMode = "hook";
   playerShieldCooldown = 0;
   playerHookCooldown = 0;
-  playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
+  playerBaseGunCooldowns = createInitialBaseGunCooldowns();
   resetToHook();
   moveMarker = null;
 
@@ -5440,7 +5445,9 @@ function applyPlayerLevelUp() {
   player.xpLevel += 1;
   player.xpNext = getXpNextForLevel(player.xpLevel);
   playerBaseGunCooldowns = playerBaseGunCooldowns.map((cooldown) => Math.max(0, cooldown - BASE_GUN_LEVEL_COOLDOWN_REDUCTION));
-  playerBaseGunCooldowns.push(0);
+  if (playerBaseGunCooldowns.length < BASE_GUN_MAX_CHARGES) {
+    playerBaseGunCooldowns.push(0);
+  }
   player.upgrades.baseCooldownReduction += BASE_GUN_LEVEL_COOLDOWN_REDUCTION;
   player.MOVE_TO_POINT_SPEED *= 1.05;
   player.maxHp += 1;
@@ -5719,7 +5726,7 @@ function updateUi() {
     const nextCooldown = getNextBaseGunCooldown();
     abilityHintEl.textContent = activePlayerBaseGun
       ? `${activePlayerBaseGun.timer.toFixed(2)}s`
-      : readyShots > 0 ? `${readyShots}/${BASE_GUN_MAX_CHARGES} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
+      : readyShots > 0 ? `${readyShots}/${playerBaseGunCooldowns.length} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.sniper.key && activePlayerSniper) {
     abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
