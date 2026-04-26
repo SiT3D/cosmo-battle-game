@@ -1328,7 +1328,7 @@ function updateEnemyMotion(enemy, dt) {
       : enemy.kind === "laser"
         ? LASER_ENEMY_MOVE_ACCELERATION
         : ENEMY_MOVE_ACCELERATION;
-  const speedMultiplier = enemy.kind === "medic" ? MEDIC_MOVE_SPEED_MULTIPLIER : 1;
+  const speedMultiplier = isHealingEnemy(enemy) ? MEDIC_MOVE_SPEED_MULTIPLIER : 1;
   const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - ENEMY_MOVE_STOP_DISTANCE));
   const maxSpeed =
     (enemy.kind === "spray"
@@ -1420,6 +1420,10 @@ function setEnemyTurnWait(enemy, delay = getEnemyRecoverDelay(enemy)) {
   enemy.phaseTimer = getStaggeredEnemyDelay(delay);
 }
 
+function isHealingEnemy(enemy) {
+  return enemy?.kind === "heal" || enemy?.kind === "medic";
+}
+
 function getEnemyCommandMultiplier(enemy = null) {
   const hasCommander = enemies.some(
     (candidate) =>
@@ -1437,30 +1441,21 @@ function supportEnemyFromMedic(medic) {
   const supportTargets = enemies
     .filter((enemy) => {
       if (enemy.id === medic.id || enemy.isIllusion) return false;
-      if (enemy.kind === "medic" || enemy.kind === "splitter_child" || enemy.kind === "sproutling") return false;
+      if (isHealingEnemy(enemy) || enemy.kind === "splitter_child" || enemy.kind === "sproutling") return false;
       return Math.hypot(enemy.x - medic.x, enemy.y - medic.y) <= MEDIC_SUPPORT_RANGE;
     })
     .map((enemy) => ({
       enemy,
       distance: Math.hypot(enemy.x - medic.x, enemy.y - medic.y),
       canHeal: (enemy.hp ?? 1) < (enemy.maxHp ?? 1),
-      canFortify: (enemy.maxHp ?? 1) < 3 && enemy.kind !== "brute",
     }))
-    .filter((target) => target.canHeal || target.canFortify)
-    .sort((left, right) => {
-      if (left.canHeal !== right.canHeal) return left.canHeal ? -1 : 1;
-      return left.distance - right.distance;
-    });
+    .filter((target) => target.canHeal)
+    .sort((left, right) => left.distance - right.distance);
 
   const bestTarget = supportTargets[0]?.enemy;
   if (!bestTarget) return false;
 
-  if (bestTarget.hp < bestTarget.maxHp) {
-    bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + 1);
-  } else {
-    bestTarget.maxHp += 1;
-    bestTarget.hp += 1;
-  }
+  bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + 1);
 
   beamEffects.push({
     fromX: medic.x,
@@ -1483,7 +1478,7 @@ function getMedicWoundedAllyTarget(medic) {
 
   for (const enemy of enemies) {
     if (enemy.id === medic.id || enemy.isIllusion) continue;
-    if (enemy.kind === "medic" || enemy.kind === "splitter_child" || enemy.kind === "sproutling") continue;
+    if (isHealingEnemy(enemy) || enemy.kind === "splitter_child" || enemy.kind === "sproutling") continue;
     if ((enemy.hp ?? 1) >= (enemy.maxHp ?? 1)) continue;
 
     const distance = Math.hypot(enemy.x - medic.x, enemy.y - medic.y);
@@ -1494,6 +1489,18 @@ function getMedicWoundedAllyTarget(medic) {
   }
 
   return bestTarget;
+}
+
+function getEnemyFleeDirectionFromPlayer(enemy) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  const dx = enemy.x - target.x;
+  const dy = enemy.y - target.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance > 1) {
+    const angle = Math.atan2(dy, dx) + randomRange(-0.45, 0.45);
+    return { x: Math.cos(angle), y: Math.sin(angle) };
+  }
+  return randomDirection();
 }
 
 function beginEnemyActionCycle() {
@@ -1755,7 +1762,7 @@ function updateEnemies(dt) {
       }
     }
 
-    if (enemy.kind === "medic") {
+    if (isHealingEnemy(enemy)) {
       enemy.medicTimer -= timerDt;
       if (enemy.medicTimer <= 0) {
         supportEnemyFromMedic(enemy);
@@ -1839,6 +1846,10 @@ function updateEnemies(dt) {
           enemy.phaseTimer = getStaggeredEnemyDelay(SNIPER_CHARGE_TIME);
           enemy.aimX = target.x;
           enemy.aimY = target.y;
+        } else if (isHealingEnemy(enemy)) {
+          supportEnemyFromMedic(enemy);
+          enemy.phase = "recover";
+          enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_DASH_DELAY_AFTER_SHOT);
         } else if (enemy.kind === "laser") {
           if (enemy.turnShotLocked) {
             setEnemyTurnWait(enemy);
@@ -2576,7 +2587,7 @@ function launchEnemy(enemy) {
         dashDistance = ENEMY_DASH_MIN_DISTANCE * 0.45;
       }
     }
-  } else if (enemy.kind === "medic") {
+  } else if (isHealingEnemy(enemy)) {
     const target = getMedicWoundedAllyTarget(enemy);
     if (target) {
       const dx = target.x - enemy.x;
@@ -2586,6 +2597,9 @@ function launchEnemy(enemy) {
         direction = { x: dx / distance, y: dy / distance };
         dashDistance = Math.min(distance, ENEMY_DASH_MAX_DISTANCE);
       }
+    } else {
+      direction = getEnemyFleeDirectionFromPlayer(enemy);
+      dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE * 0.7, ENEMY_DASH_MAX_DISTANCE);
     }
   }
 
