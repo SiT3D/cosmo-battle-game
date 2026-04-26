@@ -87,6 +87,8 @@ const LEVEL3_BOSS_MISSILE_LIFETIME = 3;
 const LEVEL3_BOSS_MISSILE_SPEED = 160;
 const LEVEL3_BOSS_MISSILE_ACCELERATION = 560;
 const LEVEL3_BOSS_MISSILE_TURN_RATE = 5.8;
+const LEVEL3_BOSS_MOVE_SPEED = 126;
+const LEVEL3_BOSS_MOVE_ACCELERATION = 340;
 const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COOLDOWN = 3;
 const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT = 10;
 const LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL = 1;
@@ -172,7 +174,7 @@ const HOOK_COOLDOWN = 8;
 const SHIELD_RADIUS = 84;
 const ENEMY_SHIELD_RADIUS_MULTIPLIER = 2;
 const PLAYER_SHIELD_BOSS_DAMAGE = 1;
-const ENEMY_TOOLTIP_DELAY = 0.55;
+const ENEMY_TOOLTIP_DELAY = 0.08;
 const STOLEN_LASER_CHARGES = 7;
 const STOLEN_ABILITY_CHARGES = 3;
 const STOLEN_SHIELD_CHARGES = 2;
@@ -918,7 +920,7 @@ function updateEnemyHover(dt) {
 
   if (hoveredEnemyId !== enemy.id || pointerMovedSinceHover) {
     hoveredEnemyId = enemy.id;
-    hoveredEnemyTimer = 0;
+    hoveredEnemyTimer = ENEMY_TOOLTIP_DELAY;
     hoverAnchorPoint = { x: aimPoint.x, y: aimPoint.y };
     pointerMovedSinceHover = false;
     return;
@@ -1056,7 +1058,7 @@ function update(dt) {
   updatePlayerShield(simDt);
   updatePlayerDecoy(simDt);
   updateZigzagProjectiles(simDt);
-  updatePulseBombs(dt);
+  updatePulseBombs(simDt);
   updateBlastWaves(simDt);
   if (player.dead) {
     updateUi();
@@ -2270,20 +2272,43 @@ function fireBossRadialBurst(enemy) {
 }
 
 function updateLevel3Boss(enemy, dt) {
-  enemy.vx = 0;
-  enemy.vy = 0;
   enemy.bossVolleyCooldown = Math.max(0, (enemy.bossVolleyCooldown ?? 0) - dt);
 
   if (enemy.bossStage === 1) {
+    updateLevel3BossMovement(enemy, dt);
     updateLevel3BossStageOne(enemy, dt);
     return;
   }
 
   if (enemy.bossStage === 2) {
+    updateLevel3BossMovement(enemy, dt);
     return;
   }
 
+  enemy.vx = 0;
+  enemy.vy = 0;
   updateLevel3BossStageThree(enemy, dt);
+}
+
+function updateLevel3BossMovement(enemy, dt) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const desiredVx = (dx / distance) * LEVEL3_BOSS_MOVE_SPEED;
+  const desiredVy = (dy / distance) * LEVEL3_BOSS_MOVE_SPEED;
+
+  enemy.vx = moveToward(enemy.vx, desiredVx, LEVEL3_BOSS_MOVE_ACCELERATION * dt);
+  enemy.vy = moveToward(enemy.vy, desiredVy, LEVEL3_BOSS_MOVE_ACCELERATION * dt);
+  const speed = Math.hypot(enemy.vx, enemy.vy);
+  if (speed > LEVEL3_BOSS_MOVE_SPEED) {
+    enemy.vx = (enemy.vx / speed) * LEVEL3_BOSS_MOVE_SPEED;
+    enemy.vy = (enemy.vy / speed) * LEVEL3_BOSS_MOVE_SPEED;
+  }
+
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
 }
 
 function updateLevel3BossStageOne(enemy, dt) {
@@ -2371,6 +2396,7 @@ function enterLevel3BossNextStage(enemy) {
   enemy.bossVolleyCooldown = 0;
   enemy.bossMissileTimer = 0;
   enemy.bossLaserTimer = enemy.bossStage === 3 ? Math.max(0, LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL - LEVEL3_BOSS_STAGE_THREE_LASER_CAST_TIME) : 0;
+  enemy.moving = enemy.bossStage < 3;
   spawnImpactBurst(enemy.x, enemy.y, { count: 38, speedMin: 150, speedMax: 460, lifeMin: 0.24, lifeMax: 0.58, sizeMin: 5, sizeMax: 13 });
 }
 
@@ -2413,14 +2439,17 @@ function fireEnemyInstantBeam(fromX, fromY, toX, toY, options = {}) {
 
 function fireEnemyHomingMissile(enemy, angle = null) {
   const baseAngle = angle ?? Math.atan2(player.y - enemy.y, player.x - enemy.x);
+  const permanent = enemy.kind === LEVEL3_BOSS_KIND && enemy.bossStage < 3;
+  const lifetime = permanent ? Infinity : LEVEL3_BOSS_MISSILE_LIFETIME;
   enemyHomingMissiles.push({
     x: enemy.x,
     y: enemy.y,
     vx: Math.cos(baseAngle) * LEVEL3_BOSS_MISSILE_SPEED,
     vy: Math.sin(baseAngle) * LEVEL3_BOSS_MISSILE_SPEED,
     speed: LEVEL3_BOSS_MISSILE_SPEED,
-    ttl: LEVEL3_BOSS_MISSILE_LIFETIME,
-    life: LEVEL3_BOSS_MISSILE_LIFETIME,
+    ttl: lifetime,
+    life: lifetime,
+    permanent,
     radius: 8,
     hp: 1,
     owner: "enemy",
@@ -4191,8 +4220,10 @@ function updateHomingMissiles(dt) {
 function updateEnemyHomingMissiles(dt) {
   for (let index = enemyHomingMissiles.length - 1; index >= 0; index -= 1) {
     const missile = enemyHomingMissiles[index];
-    missile.ttl -= dt;
-    if (missile.ttl <= 0) {
+    if (!missile.permanent) {
+      missile.ttl -= dt;
+    }
+    if (!missile.permanent && missile.ttl <= 0) {
       enemyHomingMissiles.splice(index, 1);
       continue;
     }
@@ -4216,12 +4247,12 @@ function updateEnemyHomingMissiles(dt) {
     missile.x += missile.vx * dt;
     missile.y += missile.vy * dt;
 
-    if (
+    if (!missile.permanent && (
       missile.x < ARENA.x - 40 ||
       missile.x > ARENA.x + ARENA.width + 40 ||
       missile.y < ARENA.y - 40 ||
       missile.y > ARENA.y + ARENA.height + 40
-    ) {
+    )) {
       enemyHomingMissiles.splice(index, 1);
       continue;
     }
@@ -7266,7 +7297,7 @@ function drawLaserEffects() {
   }
 
   for (const missile of enemyHomingMissiles) {
-    const life = clamp(missile.ttl / missile.life, 0, 1);
+    const life = missile.permanent ? 1 : clamp(missile.ttl / missile.life, 0, 1);
     const angle = Math.atan2(missile.vy, missile.vx);
     ctx.save();
     ctx.translate(missile.x, missile.y);
