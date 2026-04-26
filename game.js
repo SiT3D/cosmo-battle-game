@@ -81,7 +81,8 @@ const BASE_GUN_PROJECTILE_SPEED = 560;
 const BASE_GUN_PROJECTILE_RADIUS = 7;
 const BASE_GUN_PROJECTILE_LIFETIME = 2.2;
 const BASE_GUN_COOLDOWN = 10;
-const BASE_GUN_MAX_CHARGES = 3;
+const BASE_GUN_LEVEL_COOLDOWN_REDUCTION = 0.3;
+const BASE_GUN_MAX_CHARGES = 5;
 const LASER_RANGE_CELLS = 4;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
@@ -100,7 +101,7 @@ const PLAYER_SPRAY_PROJECTILE_COUNT = 13;
 const SPRAY_SHOT_INTERVAL = 0.06;
 const SPRAY_RANDOM_SPREAD = Math.PI * 0.14;
 const LASER_PROJECTILE_SPEED = 460;
-const PLAYER_STOLEN_LASER_SPEED_MULTIPLIER = 1.96;
+const PLAYER_STOLEN_LASER_SPEED_MULTIPLIER = 3.92;
 const LASER_PROJECTILE_LENGTH = 58;
 const LASER_PROJECTILE_WIDTH = 8;
 const ENEMY_DASH_DELAY_AFTER_SHOT = 0.14;
@@ -384,6 +385,7 @@ function createPlayerUpgrades() {
     decoyRangeMultiplier: 1,
     shieldCooldownMultiplier: 1,
     baseCooldownMultiplier: 1,
+    baseCooldownReduction: 0,
     enemySpeedMultiplier: 1,
     enemySpawnIntervalMultiplier: 1,
     enemyHpPenalty: 0,
@@ -607,7 +609,8 @@ function getCurrentLevel() {
 }
 
 function getEnemyMaxCount() {
-  return getCurrentLevel()?.maxEnemies ?? ENEMY_MAX_COUNT;
+  const levelNumber = currentLevelIndex + 1;
+  return 3 + levelNumber + Math.floor(player.xpLevel / 2);
 }
 
 function getSpawnInterval() {
@@ -2294,7 +2297,8 @@ function getShieldCooldown() {
 }
 
 function getBaseGunCooldown() {
-  return BASE_GUN_COOLDOWN * getPlayerUpgrades().baseCooldownMultiplier;
+  const upgrades = getPlayerUpgrades();
+  return Math.max(0.5, BASE_GUN_COOLDOWN * upgrades.baseCooldownMultiplier - upgrades.baseCooldownReduction);
 }
 
 function getReadyBaseGunCharges() {
@@ -4070,6 +4074,18 @@ function getXpNextForLevel(level) {
   return 6 + Math.max(0, level - 1) * 3;
 }
 
+function applyPlayerLevelUp() {
+  player.xpLevel += 1;
+  player.xpNext = getXpNextForLevel(player.xpLevel);
+  playerBaseGunCooldowns = playerBaseGunCooldowns.map((cooldown) => Math.max(0, cooldown - BASE_GUN_LEVEL_COOLDOWN_REDUCTION));
+  playerBaseGunCooldowns.push(0);
+  player.upgrades.baseCooldownReduction += BASE_GUN_LEVEL_COOLDOWN_REDUCTION;
+  player.MOVE_TO_POINT_SPEED *= 1.05;
+  player.maxHp += 1;
+  player.hp = Math.min(player.maxHp, player.hp + 1);
+  player.upgrades.hookRangeMultiplier *= 1.15;
+}
+
 function addPlayerXp(amount) {
   if (amount <= 0 || player.dead || levelCompleted) return;
 
@@ -4078,13 +4094,7 @@ function addPlayerXp(amount) {
 
   if (player.xp >= player.xpNext) {
     player.xp -= player.xpNext;
-    player.xpLevel += 1;
-    player.xpNext = getXpNextForLevel(player.xpLevel);
-    playerBaseGunCooldowns.push(0);
-    player.MOVE_TO_POINT_SPEED *= 1.05;
-    player.maxHp += 1;
-    player.hp = Math.min(player.maxHp, player.hp + 1);
-    player.upgrades.hookRangeMultiplier *= 1.15;
+    applyPlayerLevelUp();
   }
 }
 
@@ -4220,8 +4230,7 @@ function chooseUpgrade(id) {
 
   if (player.xp >= player.xpNext) {
     player.xp -= player.xpNext;
-    player.xpLevel += 1;
-    player.xpNext = getXpNextForLevel(player.xpLevel);
+    applyPlayerLevelUp();
     showUpgradeChoices();
     return;
   }
@@ -4319,7 +4328,7 @@ function updateUi() {
   } else if (selectedAbility.key === abilities.sidearm.key) {
     const readyShots = getReadyBaseGunCharges();
     const nextCooldown = getNextBaseGunCooldown();
-    abilityHintEl.textContent = readyShots > 0 ? `${readyShots}/3 Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
+    abilityHintEl.textContent = readyShots > 0 ? `${readyShots}/${BASE_GUN_MAX_CHARGES} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.sniper.key && activePlayerSniper) {
     abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
