@@ -518,6 +518,11 @@ body {
   color: #0a3a2a;
 }
 
+.ability-tile[data-ability="tripwire"] .ability-tile__icon {
+  background: linear-gradient(180deg, rgba(230, 250, 255, 1), rgba(132, 204, 226, 0.94));
+  color: #123342;
+}
+
 .ability-tile[data-ability="blast"] .ability-tile__icon {
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(220, 228, 242, 0.94));
   color: #243246;

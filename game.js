@@ -38,6 +38,7 @@ const ENEMY_DASH_MAX_DISTANCE = 420;
 const MIN_ENEMIES_PER_LEVEL = 50;
 const MIN_ENEMY_TYPES_PER_LEVEL = 8;
 const LEVEL1_BOSS_KIND = "level1_boss";
+const LEVEL2_BOSS_KIND = "level2_boss";
 const LEVEL1_BOSS_PHASE_ONE_HP = 20;
 const LEVEL1_BOSS_PHASE_TWO_HP = 40;
 const LEVEL1_BOSS_LEVEL_ONE_PHASE_TWO_HP = 10;
@@ -52,6 +53,22 @@ const LEVEL1_BOSS_SHIELD_RADIUS = 92;
 const LEVEL1_BOSS_BLINK_TIME = 0.95;
 const LEVEL1_BOSS_RADIAL_SHOTS = 30;
 const LEVEL1_BOSS_RADIAL_SPEED = 520;
+const LEVEL2_BOSS_PHASE_HP = 10;
+const LEVEL2_BOSS_SIZE = 48;
+const LEVEL2_BOSS_CHASE_SPEED = 182;
+const LEVEL2_BOSS_CHASE_ACCELERATION = 480;
+const LEVEL2_BOSS_PULL_DELAY = 3;
+const LEVEL2_BOSS_PULL_RADIUS_CELLS = 3;
+const LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS = 2;
+const LEVEL2_BOSS_CHARGE_TIME = 2;
+const LEVEL2_BOSS_DASH_TIME = 0.5;
+const LEVEL2_BOSS_DASH_SPEED = 760;
+const LEVEL2_BOSS_PULL_AFTER_DASH_DELAY = 1;
+const LEVEL2_BOSS_BOUNCE_SPEED = 620;
+const LEVEL2_BOSS_MINE_INTERVAL = 0.13;
+const LEVEL2_BOSS_MINE_ARM_TIME = 2;
+const LEVEL2_BOSS_MINE_BLAST_RADIUS_CELLS = 1;
+const LEVEL2_BOSS_MINE_BLAST_SPEED = 260;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
@@ -129,6 +146,7 @@ const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
 const HOOK_COOLDOWN = 8;
 const SHIELD_RADIUS = 84;
+const ENEMY_SHIELD_RADIUS_MULTIPLIER = 2;
 const PLAYER_SHIELD_BOSS_DAMAGE = 1;
 const ENEMY_TOOLTIP_DELAY = 0.55;
 const STOLEN_LASER_CHARGES = 7;
@@ -154,6 +172,16 @@ const PLAYER_MIRROR_PASSIVE_DURATION = 10;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
 const PLAYER_MINE_PASSIVE_INTERVAL = PLAYER_MINE_PASSIVE_DURATION / PLAYER_MINE_PASSIVE_TOTAL;
+const STOLEN_TRIPWIRE_CHARGES = 3;
+const TRIPWIRE_LIFETIME = 30;
+const TRIPWIRE_DAMAGE = 3;
+const TRIPWIRE_LENGTH_CELLS = 1.25;
+const TRIPWIRE_WIDTH = 8;
+const MIRROR_SHIELD_DURATION = 10;
+const MIRROR_SHIELD_COOLDOWN = 30;
+const MIRROR_SHIELD_LENGTH_CELLS = 1.25;
+const MIRROR_SHIELD_WIDTH = 10;
+const MIRROR_SHIELD_FORWARD_OFFSET = 22;
 const STOLEN_SPLITTER_CHARGES = 3;
 const SPLITTER_PROJECTILE_COUNT = 3;
 const SPLITTER_PROJECTILE_SPEED = 360;
@@ -249,6 +277,11 @@ const abilities = {
     name: "Зигзаг",
     hint: "Click",
   },
+  tripwire: {
+    key: "tripwire",
+    name: "Растяжка",
+    hint: "Click",
+  },
 };
 
 const enemyMeta = {
@@ -269,6 +302,7 @@ const enemyMeta = {
   medic: { name: "Медики", color: "#36f0ff", glow: "rgba(54, 240, 255, 0.55)" },
   replicator: { name: "Клоны", color: "#7de8ff", glow: "rgba(125, 232, 255, 0.5)" },
   [LEVEL1_BOSS_KIND]: { name: "Босс", color: "#ff315f", glow: "rgba(255, 49, 95, 0.62)" },
+  [LEVEL2_BOSS_KIND]: { name: "Магнит", color: "#ff7a2f", glow: "rgba(255, 122, 47, 0.62)" },
 };
 
 const enemyInfo = {
@@ -280,7 +314,7 @@ const enemyInfo = {
   splitter: { text: "После смерти делится на мелкие цели.", reward: `Зигзаг, ${STOLEN_SPLITTER_CHARGES} заряда.` },
   splitter_child: { text: "Мелкий осколок делителя.", reward: "Только опыт." },
   commander: { text: "Ускоряет ближайших союзников.", reward: "Больше опыта." },
-  mirror: { text: "Отражает первый снаряд игрока.", reward: "Пассив: временное зеркало." },
+  mirror: { text: "На 10 секунд ставит перед собой плоский отражающий щит.", reward: `Растяжки, ${STOLEN_TRIPWIRE_CHARGES} заряда.` },
   brute: { text: "Крепкий враг с большим запасом HP.", reward: "Нельзя съесть хуком." },
   sniper: { text: "Долго целится и стреляет точным выстрелом.", reward: `Снайпер, ${STOLEN_SNIPER_CHARGES} заряда.` },
   trickster: { text: "Создает обманки рядом с собой.", reward: "Пассив: приманки рядом с игроком." },
@@ -291,6 +325,7 @@ const enemyInfo = {
   medic: { text: "Лечит и поддерживает других врагов.", reward: "Лечение на 1 HP и больше опыта." },
   replicator: { text: "Прыгает и создает копии себя.", reward: "Второй слот способности и сброс кулдауна хука." },
   [LEVEL1_BOSS_KIND]: { text: "Большая цель со стадиями, щитом и залпами.", reward: "Нельзя съесть хуком." },
+  [LEVEL2_BOSS_KIND]: { text: "Три стадии: стяжка, рывок и минный хаос.", reward: "Нельзя съесть хуком." },
 };
 
 const campaignLevels = [
@@ -308,7 +343,7 @@ const campaignLevels = [
     minEnemies: 14,
     maxEnemies: 5,
     spawnInterval: [1.45, 2.5],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL2_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Фиолетовый дождь",
@@ -1428,11 +1463,11 @@ function updateEnemySpawns(dt) {
 }
 
 function isBossEnemy(enemy) {
-  return enemy?.kind === LEVEL1_BOSS_KIND;
+  return enemy?.kind === LEVEL1_BOSS_KIND || enemy?.kind === LEVEL2_BOSS_KIND;
 }
 
 function isBossShieldActive(enemy) {
-  return isBossEnemy(enemy) && enemy.bossState === "shield";
+  return enemy?.kind === LEVEL1_BOSS_KIND && enemy.bossState === "shield";
 }
 
 function isAbsorbingShieldEnemy(enemy) {
@@ -1440,7 +1475,7 @@ function isAbsorbingShieldEnemy(enemy) {
 }
 
 function getEnemyShieldRadius(enemy) {
-  return isBossEnemy(enemy) ? LEVEL1_BOSS_SHIELD_RADIUS : getShieldRadius();
+  return isBossEnemy(enemy) ? LEVEL1_BOSS_SHIELD_RADIUS : getShieldRadius() * ENEMY_SHIELD_RADIUS_MULTIPLIER;
 }
 
 function getRemainingNormalLevelEnemies() {
@@ -1480,7 +1515,8 @@ function updateEnemies(dt) {
     const timerDt = dt * commandMultiplier;
 
     if (isBossEnemy(enemy)) {
-      updateLevel1Boss(enemy, dt);
+      if (enemy.kind === LEVEL2_BOSS_KIND) updateLevel2Boss(enemy, dt);
+      else updateLevel1Boss(enemy, dt);
       continue;
     }
 
@@ -1531,6 +1567,24 @@ function updateEnemies(dt) {
       }
     }
 
+    if (enemy.kind === "mirror") {
+      if (enemy.phase === "mirror_shield") {
+        enemy.phaseTimer -= dt;
+        if (enemy.phaseTimer <= 0) {
+          enemy.mirrorReady = false;
+          enemy.mirrorShieldCooldown = MIRROR_SHIELD_COOLDOWN;
+          setEnemyTurnWait(enemy);
+        }
+        continue;
+      }
+
+      enemy.mirrorShieldCooldown = Math.max(0, (enemy.mirrorShieldCooldown ?? MIRROR_SHIELD_COOLDOWN) - dt);
+      if (!enemy.moving && enemy.phase !== "turn_wait" && enemy.mirrorShieldCooldown <= 0) {
+        activateEnemyMirrorShield(enemy);
+        continue;
+      }
+    }
+
     if (enemy.phase === "turn_wait") {
       enemy.phaseTimer -= timerDt;
       if (enemy.phaseTimer <= 0) {
@@ -1558,6 +1612,7 @@ function updateEnemies(dt) {
         if (enemy.kind === "shield") {
           enemy.phase = "shield_up";
           enemy.phaseTimer = getStaggeredEnemyDelay(ENEMY_SHIELD_UP_TIME);
+          enemy.phaseDuration = enemy.phaseTimer;
         } else if (enemy.kind === "trickster") {
           spawnTricksterIllusions(enemy);
           enemy.phase = "recover";
@@ -1766,6 +1821,24 @@ function updateSlowEnemy(enemy, dt) {
   handleWallBounce(enemy);
 }
 
+function activateEnemyMirrorShield(enemy) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.moving = false;
+  enemy.moveTarget = null;
+  enemy.phase = "mirror_shield";
+  enemy.phaseTimer = MIRROR_SHIELD_DURATION;
+  enemy.mirrorReady = true;
+  enemy.mirrorDirX = dx / distance;
+  enemy.mirrorDirY = dy / distance;
+  enemy.turnShotLocked = true;
+}
+
 function updateLevel1Boss(enemy, dt) {
   if (enemy.bossStage === 1) {
     enemy.x += enemy.vx * dt;
@@ -1830,6 +1903,112 @@ function updateBossChase(enemy, dt) {
   handleWallBounce(enemy);
 }
 
+function updateLevel2Boss(enemy, dt) {
+  if (enemy.bossStage === 1) {
+    updateLevel2BossChase(enemy, dt, LEVEL2_BOSS_CHASE_SPEED, LEVEL2_BOSS_CHASE_ACCELERATION);
+    enemy.bossPullTimer -= dt;
+    if (enemy.bossPullTimer <= 0) {
+      pullPlayerToBoss(enemy, getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS);
+      enemy.bossPullTimer += LEVEL2_BOSS_PULL_DELAY;
+    }
+    return;
+  }
+
+  if (enemy.bossStage === 2) {
+    updateLevel2BossStageTwo(enemy, dt);
+    return;
+  }
+
+  updateLevel2BossStageThree(enemy, dt);
+}
+
+function updateLevel2BossChase(enemy, dt, maxSpeed, acceleration) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const desiredVx = (dx / distance) * maxSpeed;
+  const desiredVy = (dy / distance) * maxSpeed;
+  enemy.vx = moveToward(enemy.vx, desiredVx, acceleration * dt);
+  enemy.vy = moveToward(enemy.vy, desiredVy, acceleration * dt);
+  const speed = Math.hypot(enemy.vx, enemy.vy);
+  if (speed > maxSpeed) {
+    enemy.vx = (enemy.vx / speed) * maxSpeed;
+    enemy.vy = (enemy.vy / speed) * maxSpeed;
+  }
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
+}
+
+function updateLevel2BossStageTwo(enemy, dt) {
+  if (enemy.bossState === "charge") {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.bossStateTimer -= dt;
+    enemy.aimX = player.x;
+    enemy.aimY = player.y;
+    if (enemy.bossStateTimer <= 0) {
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      enemy.vx = (dx / distance) * LEVEL2_BOSS_DASH_SPEED;
+      enemy.vy = (dy / distance) * LEVEL2_BOSS_DASH_SPEED;
+      enemy.bossState = "dash";
+      enemy.bossStateTimer = LEVEL2_BOSS_DASH_TIME;
+    }
+    return;
+  }
+
+  if (enemy.bossState === "dash") {
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+    handleWallBounce(enemy);
+    enemy.bossStateTimer -= dt;
+    if (enemy.bossStateTimer <= 0) {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.bossState = "pull_wait";
+      enemy.bossStateTimer = LEVEL2_BOSS_PULL_AFTER_DASH_DELAY;
+    }
+    return;
+  }
+
+  enemy.bossStateTimer -= dt;
+  if (enemy.bossStateTimer <= 0) {
+    pullPlayerToBoss(enemy, getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS);
+    enemy.bossState = "charge";
+    enemy.bossStateTimer = LEVEL2_BOSS_CHARGE_TIME;
+  }
+}
+
+function updateLevel2BossStageThree(enemy, dt) {
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
+
+  enemy.bossMineTimer -= dt;
+  while (enemy.bossMineTimer <= 0) {
+    spawnBossTimedMine(enemy.x, enemy.y);
+    enemy.bossMineTimer += LEVEL2_BOSS_MINE_INTERVAL;
+  }
+}
+
+function pullPlayerToBoss(enemy, radius) {
+  const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+  if (distance > radius + player.size * 0.5) return false;
+
+  const half = player.size * 0.5;
+  player.x = clamp(enemy.x, ARENA.x + half, ARENA.x + ARENA.width - half);
+  player.y = clamp(enemy.y, ARENA.y + half, ARENA.y + ARENA.height - half);
+  player.vx = 0;
+  player.vy = 0;
+  player.moveTarget = null;
+  player.moving = false;
+  spawnImpactBurst(player.x, player.y, { count: 18, speedMin: 90, speedMax: 260, lifeMin: 0.16, lifeMax: 0.34, sizeMin: 3, sizeMax: 8 });
+  return true;
+}
+
 function spawnBossCellExplosion(x, y) {
   blastWaves.push({
     owner: "enemy",
@@ -1860,6 +2039,27 @@ function enterLevel1BossStageTwo(enemy) {
   enemy.vx *= 0.45;
   enemy.vy *= 0.45;
   spawnImpactBurst(enemy.x, enemy.y, { count: 34, speedMin: 130, speedMax: 420, lifeMin: 0.28, lifeMax: 0.58, sizeMin: 5, sizeMax: 12 });
+}
+
+function enterLevel2BossNextStage(enemy) {
+  enemy.bossStage += 1;
+  enemy.hp = LEVEL2_BOSS_PHASE_HP;
+  enemy.maxHp = LEVEL2_BOSS_PHASE_HP;
+  enemy.vx = 0;
+  enemy.vy = 0;
+
+  if (enemy.bossStage === 2) {
+    enemy.bossState = "charge";
+    enemy.bossStateTimer = LEVEL2_BOSS_CHARGE_TIME;
+  } else {
+    const direction = randomDirection();
+    enemy.bossState = "bounce";
+    enemy.bossMineTimer = 0;
+    enemy.vx = direction.x * LEVEL2_BOSS_BOUNCE_SPEED;
+    enemy.vy = direction.y * LEVEL2_BOSS_BOUNCE_SPEED;
+  }
+
+  spawnImpactBurst(enemy.x, enemy.y, { count: 34, speedMin: 140, speedMax: 440, lifeMin: 0.24, lifeMax: 0.54, sizeMin: 5, sizeMax: 13 });
 }
 
 function fireBossRadialBurst(enemy) {
@@ -1956,22 +2156,24 @@ function createEnemy(kind, x, y) {
   const isSplitterChild = kind === "splitter_child";
   const isCommander = kind === "commander";
   const isMedic = kind === "medic";
-  const isBoss = kind === LEVEL1_BOSS_KIND;
+  const isLevel1Boss = kind === LEVEL1_BOSS_KIND;
+  const isLevel2Boss = kind === LEVEL2_BOSS_KIND;
+  const isBoss = isLevel1Boss || isLevel2Boss;
   const enemy = {
     id: enemyId += 1,
     x,
     y,
     vx: 0,
     vy: 0,
-    size: isBoss ? LEVEL1_BOSS_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
+    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isBoss ? LEVEL1_BOSS_PHASE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    maxHp: isBoss ? LEVEL1_BOSS_PHASE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
-    renderWidth: isBoss ? LEVEL1_BOSS_SIZE * 1.12 : isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
-    renderHeight: isBoss ? LEVEL1_BOSS_SIZE * 1.12 : isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isBrute ? BRUTE_CONTACT_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : DEFAULT_ENEMY_HP,
+    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isBrute ? ENEMY_SIZE * 1.85 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isBrute ? ENEMY_SIZE * 1.1 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
@@ -2017,16 +2219,26 @@ function createEnemy(kind, x, y) {
     seedTimer: randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX),
     medicTimer: randomRange(MEDIC_SUPPORT_INTERVAL * 0.55, MEDIC_SUPPORT_INTERVAL),
     replicateTimer: REPLICATOR_CLONE_TIME,
-    mirrorReady: kind === "mirror",
+    mirrorReady: false,
+    mirrorShieldCooldown: kind === "mirror" ? randomRange(1.8, 4.4) : 0,
+    mirrorDirX: 1,
+    mirrorDirY: 0,
     turnShotLocked: false,
   };
 
   if (isBoss) {
     enemy.bossStage = 1;
-    enemy.bossState = "bounce";
-    enemy.bossExplosionTimer = LEVEL1_BOSS_EXPLOSION_INTERVAL;
-    enemy.bossStateTimer = 0;
-    enemy.bossNextSpecial = "shield";
+    if (isLevel2Boss) {
+      enemy.bossState = "chase";
+      enemy.bossPullTimer = LEVEL2_BOSS_PULL_DELAY;
+      enemy.bossStateTimer = 0;
+      enemy.bossMineTimer = LEVEL2_BOSS_MINE_INTERVAL;
+    } else {
+      enemy.bossState = "bounce";
+      enemy.bossExplosionTimer = LEVEL1_BOSS_EXPLOSION_INTERVAL;
+      enemy.bossStateTimer = 0;
+      enemy.bossNextSpecial = "shield";
+    }
   } else {
     const hpPenalty = getPlayerUpgrades().enemyHpPenalty;
     enemy.hp = Math.max(DEFAULT_ENEMY_HP, enemy.hp - hpPenalty);
@@ -2078,8 +2290,9 @@ function spawnEnemy(x, y, forcedKind = null) {
 function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
   const boss = createEnemy(kind, x, y);
   const direction = randomDirection();
-  boss.vx = direction.x * LEVEL1_BOSS_BOUNCE_SPEED;
-  boss.vy = direction.y * LEVEL1_BOSS_BOUNCE_SPEED;
+  const speed = kind === LEVEL2_BOSS_KIND ? 0 : LEVEL1_BOSS_BOUNCE_SPEED;
+  boss.vx = direction.x * speed;
+  boss.vy = direction.y * speed;
   boss.moving = true;
   enemies.push(boss);
   spawnImpactBurst(x, y, { count: 46, speedMin: 160, speedMax: 520, lifeMin: 0.34, lifeMax: 0.86, sizeMin: 7, sizeMax: 18 });
@@ -2267,6 +2480,7 @@ function getAbilityIconKey(abilityKey) {
   if (abilityKey === abilities.spray.key) return "V";
   if (abilityKey === abilities.blast.key) return "B";
   if (abilityKey === abilities.splitter.key) return "Z";
+  if (abilityKey === abilities.tripwire.key) return "X";
   return "L";
 }
 
@@ -2433,7 +2647,14 @@ function stealEnemyAbility(enemy) {
   } else if (enemy.kind === "mine") {
     activatePlayerMinePassive();
   } else if (enemy.kind === "mirror") {
-    activatePlayerMirrorPassive();
+    if (currentAbility.key === abilities.hook.key) {
+      setCurrentAbility(abilities.tripwire, STOLEN_TRIPWIRE_CHARGES);
+    } else if (playerAbilityCapacity > 1 && !reserveAbility) {
+      reserveAbility = abilities.tripwire;
+      reserveAbilityCharges = STOLEN_TRIPWIRE_CHARGES;
+    } else {
+      setCurrentAbility(abilities.tripwire, STOLEN_TRIPWIRE_CHARGES);
+    }
   } else if (enemy.ability) {
     if (currentAbility.key === abilities.hook.key) {
       setCurrentAbility(enemy.ability, enemy.abilityCharges);
@@ -2681,10 +2902,45 @@ function useSplitterAbility(targetPoint = aimPoint) {
       amplitude: SPLITTER_PROJECTILE_AMPLITUDE * (0.72 + index * 0.22),
       frequency: SPLITTER_PROJECTILE_FREQUENCY * (0.88 + index * 0.14),
       phase: index * Math.PI * 0.72,
+      owner: "player",
       hitEnemyIds: new Set(),
     });
   }
 
+  consumeAbilityCharge(selected.slot);
+  return true;
+}
+
+function useTripwireAbility(targetPoint = aimPoint) {
+  const selected = getSelectedAbilityState();
+  const dx = targetPoint.x - player.x;
+  const dy = targetPoint.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return false;
+
+  const halfLength = getCellSize() * TRIPWIRE_LENGTH_CELLS * 0.5;
+  const perpX = -dy / distance;
+  const perpY = dx / distance;
+  const minX = ARENA.x + TRIPWIRE_WIDTH;
+  const maxX = ARENA.x + ARENA.width - TRIPWIRE_WIDTH;
+  const minY = ARENA.y + TRIPWIRE_WIDTH;
+  const maxY = ARENA.y + ARENA.height - TRIPWIRE_WIDTH;
+  const x = clamp(targetPoint.x, minX, maxX);
+  const y = clamp(targetPoint.y, minY, maxY);
+
+  mines.push({
+    id: mineId += 1,
+    x,
+    y,
+    owner: "player",
+    kind: "tripwire",
+    ttl: TRIPWIRE_LIFETIME,
+    radius: TRIPWIRE_WIDTH,
+    halfLength,
+    dirX: perpX,
+    dirY: perpY,
+    pulseSeed: Math.random() * Math.PI * 2,
+  });
   consumeAbilityCharge(selected.slot);
   return true;
 }
@@ -2783,6 +3039,39 @@ function spawnMine(x, y, owner) {
   });
 }
 
+function spawnBossTimedMine(x, y) {
+  const minX = ARENA.x + MINE_RADIUS;
+  const maxX = ARENA.x + ARENA.width - MINE_RADIUS;
+  const minY = ARENA.y + MINE_RADIUS;
+  const maxY = ARENA.y + ARENA.height - MINE_RADIUS;
+
+  mines.push({
+    id: mineId += 1,
+    x: clamp(x, minX, maxX),
+    y: clamp(y, minY, maxY),
+    owner: "enemy",
+    ttl: LEVEL2_BOSS_MINE_ARM_TIME,
+    radius: MINE_RADIUS,
+    pulseSeed: Math.random() * Math.PI * 2,
+    explodeOnExpire: true,
+    blastRadius: getCellSize() * LEVEL2_BOSS_MINE_BLAST_RADIUS_CELLS,
+    blastSpeed: LEVEL2_BOSS_MINE_BLAST_SPEED,
+  });
+}
+
+function detonateMine(mine) {
+  blastWaves.push({
+    owner: mine.owner,
+    x: mine.x,
+    y: mine.y,
+    radius: 6,
+    maxRadius: mine.blastRadius ?? getCellSize(),
+    expandSpeed: mine.blastSpeed ?? LEVEL2_BOSS_MINE_BLAST_SPEED,
+    hitEnemyIds: new Set(),
+    hitPlayer: false,
+  });
+}
+
 function updatePlayerMinePassive(dt) {
   if (!playerMinePassive) return;
 
@@ -2867,6 +3156,10 @@ function tryUseAbilityFromClick(point) {
 
   if (selectedAbility.key === abilities.splitter.key) {
     return useSplitterAbility(point);
+  }
+
+  if (selectedAbility.key === abilities.tripwire.key) {
+    return useTripwireAbility(point);
   }
 
   if (selectedAbility.key === abilities.laser.key) {
@@ -3085,6 +3378,21 @@ function updateBaseProjectiles(dt) {
       continue;
     }
 
+    let reflectedByMirrorShield = false;
+    for (const enemy of enemies) {
+      if (enemy.kind !== "mirror" || enemy.phase !== "mirror_shield") continue;
+      const shield = getMirrorShieldSegment(enemy);
+      const distance = getPointSegmentDistance(projectile.x, projectile.y, shield.x1, shield.y1, shield.x2, shield.y2);
+      if (distance > MIRROR_SHIELD_WIDTH + projectile.radius) continue;
+      reflectProjectileFromMirror(enemy, projectile, "base");
+      reflectedByMirrorShield = true;
+      break;
+    }
+    if (reflectedByMirrorShield) {
+      baseProjectiles.splice(index, 1);
+      continue;
+    }
+
     let absorbedByShield = false;
     for (const enemy of enemies) {
       if (!isAbsorbingShieldEnemy(enemy)) continue;
@@ -3140,6 +3448,12 @@ function updateZigzagProjectiles(dt) {
       projectile.y < ARENA.y - 40 ||
       projectile.y > ARENA.y + ARENA.height + 40
     ) {
+      zigzagProjectiles.splice(index, 1);
+      continue;
+    }
+
+    const shieldHit = findMirrorShieldOnSegment(projectile.prevX, projectile.prevY, projectile.x, projectile.y);
+    if (shieldHit && reflectProjectileFromMirror(shieldHit.enemy, projectile, "laser")) {
       zigzagProjectiles.splice(index, 1);
       continue;
     }
@@ -3319,6 +3633,21 @@ function updateHomingMissiles(dt) {
       continue;
     }
 
+    const shieldHit = findMirrorShieldOnSegment(missile.x - missile.vx * dt, missile.y - missile.vy * dt, missile.x, missile.y);
+    if (shieldHit && reflectProjectileFromMirror(shieldHit.enemy, missile, "laser")) {
+      spawnImpactBurst(missile.x, missile.y, {
+        count: 10,
+        speedMin: 80,
+        speedMax: 190,
+        lifeMin: 0.12,
+        lifeMax: 0.26,
+        sizeMin: 2,
+        sizeMax: 5,
+      });
+      homingMissiles.splice(index, 1);
+      continue;
+    }
+
     let hitEnemy = null;
     for (const enemy of enemies) {
       if (enemy.isIllusion) continue;
@@ -3385,6 +3714,15 @@ function updateShieldAuras(dt) {
     const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
     if (distance <= getEnemyShieldRadius(enemy) + player.size * 0.45) {
       applyPlayerHit(isBossEnemy(enemy) ? player.maxHp : 1, { ignoreInvuln: isBossEnemy(enemy) });
+    }
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.kind !== "mirror" || enemy.phase !== "mirror_shield") continue;
+    const shield = getMirrorShieldSegment(enemy);
+    const distance = getPointSegmentDistance(player.x, player.y, shield.x1, shield.y1, shield.x2, shield.y2);
+    if (distance <= player.size * 0.45 + MIRROR_SHIELD_WIDTH) {
+      applyPlayerHit();
     }
   }
 
@@ -3457,7 +3795,25 @@ function updateMines(dt) {
 
     mine.ttl -= dt;
     if (mine.ttl <= 0) {
+      if (mine.explodeOnExpire) detonateMine(mine);
       mines.splice(index, 1);
+      continue;
+    }
+
+    if (mine.kind === "tripwire") {
+      const segment = getTripwireSegment(mine);
+      let triggered = false;
+      for (const enemy of enemies) {
+        if (enemy.isIllusion) continue;
+        const distanceToEnemy = getPointSegmentDistance(enemy.x, enemy.y, segment.x1, segment.y1, segment.x2, segment.y2);
+        if (distanceToEnemy > enemy.size * 0.6 + TRIPWIRE_WIDTH) continue;
+
+        damageEnemy(enemy, TRIPWIRE_DAMAGE);
+        mines.splice(index, 1);
+        triggered = true;
+        break;
+      }
+      if (triggered) continue;
       continue;
     }
 
@@ -3521,6 +3877,23 @@ function firePlayerSniper(config) {
     ttl: 0.14,
     life: 0.14,
   });
+
+  const shieldHit = findMirrorShieldOnSegment(player.x, player.y, endX, endY);
+  if (shieldHit) {
+    const shield = getMirrorShieldSegment(shieldHit.enemy);
+    spawnLaserProjectile({
+      owner: "enemy",
+      x: shield.centerX,
+      y: shield.centerY,
+      dirX: -config.dirX,
+      dirY: -config.dirY,
+      range: getCellSize() * LASER_RANGE_CELLS,
+      color: "rgba(201, 243, 255, 0.94)",
+      width: LASER_PROJECTILE_WIDTH - 1,
+    });
+    consumeAbilityCharge(config.slot);
+    return;
+  }
 
   const hits = findEnemiesOnBeam(player.x, player.y, endX, endY);
   for (const hit of hits) {
@@ -3659,17 +4032,87 @@ function spawnLaserProjectile({ owner, x, y, dirX, dirY, range, color, width, sp
   });
 }
 
-function reflectProjectileFromMirror(enemy, projectile, type = "laser") {
-  if (enemy.kind !== "mirror" || !enemy.mirrorReady || projectile.owner !== "player") return false;
+function getPointSegmentDistance(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return Math.hypot(px - x1, py - y1);
+  const t = clamp(((px - x1) * dx + (py - y1) * dy) / lengthSq, 0, 1);
+  return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
+}
 
-  enemy.mirrorReady = false;
-  const dx = projectile.x - enemy.x;
-  const dy = projectile.y - enemy.y;
+function getSegmentDistance(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y) {
+  const cross1 = (a2x - a1x) * (b1y - a1y) - (a2y - a1y) * (b1x - a1x);
+  const cross2 = (a2x - a1x) * (b2y - a1y) - (a2y - a1y) * (b2x - a1x);
+  const cross3 = (b2x - b1x) * (a1y - b1y) - (b2y - b1y) * (a1x - b1x);
+  const cross4 = (b2x - b1x) * (a2y - b1y) - (b2y - b1y) * (a2x - b1x);
+  if (cross1 * cross2 <= 0 && cross3 * cross4 <= 0) return 0;
+
+  return Math.min(
+    getPointSegmentDistance(a1x, a1y, b1x, b1y, b2x, b2y),
+    getPointSegmentDistance(a2x, a2y, b1x, b1y, b2x, b2y),
+    getPointSegmentDistance(b1x, b1y, a1x, a1y, a2x, a2y),
+    getPointSegmentDistance(b2x, b2y, a1x, a1y, a2x, a2y)
+  );
+}
+
+function getMirrorShieldSegment(enemy) {
+  const dirX = enemy.mirrorDirX || 1;
+  const dirY = enemy.mirrorDirY || 0;
+  const perpX = -dirY;
+  const perpY = dirX;
+  const halfLength = getCellSize() * MIRROR_SHIELD_LENGTH_CELLS * 0.5;
+  const centerX = enemy.x + dirX * MIRROR_SHIELD_FORWARD_OFFSET;
+  const centerY = enemy.y + dirY * MIRROR_SHIELD_FORWARD_OFFSET;
+
+  return {
+    x1: centerX - perpX * halfLength,
+    y1: centerY - perpY * halfLength,
+    x2: centerX + perpX * halfLength,
+    y2: centerY + perpY * halfLength,
+    centerX,
+    centerY,
+  };
+}
+
+function getTripwireSegment(tripwire) {
+  return {
+    x1: tripwire.x - tripwire.dirX * tripwire.halfLength,
+    y1: tripwire.y - tripwire.dirY * tripwire.halfLength,
+    x2: tripwire.x + tripwire.dirX * tripwire.halfLength,
+    y2: tripwire.y + tripwire.dirY * tripwire.halfLength,
+  };
+}
+
+function findMirrorShieldOnSegment(fromX, fromY, toX, toY) {
+  let best = null;
+
+  for (const enemy of enemies) {
+    if (enemy.kind !== "mirror" || enemy.phase !== "mirror_shield") continue;
+    const shield = getMirrorShieldSegment(enemy);
+    const distance = getSegmentDistance(fromX, fromY, toX, toY, shield.x1, shield.y1, shield.x2, shield.y2);
+    if (distance > MIRROR_SHIELD_WIDTH) continue;
+
+    const hit = getSegmentCircleHit(fromX, fromY, toX, toY, shield.centerX, shield.centerY, getCellSize() * MIRROR_SHIELD_LENGTH_CELLS);
+    const t = hit?.t ?? 0;
+    if (best && t >= best.t) continue;
+    best = { enemy, t };
+  }
+
+  return best;
+}
+
+function reflectProjectileFromMirror(enemy, projectile, type = "laser") {
+  if (enemy.kind !== "mirror" || enemy.phase !== "mirror_shield" || projectile.owner !== "player") return false;
+
+  const shield = getMirrorShieldSegment(enemy);
+  const dx = projectile.x - shield.centerX;
+  const dy = projectile.y - shield.centerY;
   const distance = Math.hypot(dx, dy) || 1;
   const dirX = dx / distance;
   const dirY = dy / distance;
 
-  spawnImpactBurst(enemy.x, enemy.y, {
+  spawnImpactBurst(shield.centerX, shield.centerY, {
     count: 12,
     speedMin: 90,
     speedMax: 210,
@@ -3682,8 +4125,8 @@ function reflectProjectileFromMirror(enemy, projectile, type = "laser") {
   if (type === "base") {
     baseProjectiles.push({
       owner: "enemy",
-      x: enemy.x + dirX * (enemy.size * 0.75),
-      y: enemy.y + dirY * (enemy.size * 0.75),
+      x: shield.centerX + dirX * MIRROR_SHIELD_WIDTH,
+      y: shield.centerY + dirY * MIRROR_SHIELD_WIDTH,
       vx: dirX * BASE_GUN_PROJECTILE_SPEED,
       vy: dirY * BASE_GUN_PROJECTILE_SPEED,
       radius: BASE_GUN_PROJECTILE_RADIUS,
@@ -3697,8 +4140,8 @@ function reflectProjectileFromMirror(enemy, projectile, type = "laser") {
 
   spawnLaserProjectile({
     owner: "enemy",
-    x: enemy.x + dirX * (enemy.size * 0.75),
-    y: enemy.y + dirY * (enemy.size * 0.75),
+    x: shield.centerX + dirX * MIRROR_SHIELD_WIDTH,
+    y: shield.centerY + dirY * MIRROR_SHIELD_WIDTH,
     dirX,
     dirY,
     range: getCellSize() * LASER_RANGE_CELLS,
@@ -3781,6 +4224,11 @@ function updateLaserProjectiles(dt) {
 
 function hitEnemyWithProjectile(projectile) {
   const tail = getProjectileTail(projectile);
+  const shieldHit = findMirrorShieldOnSegment(tail.x, tail.y, projectile.x, projectile.y);
+  if (shieldHit && reflectProjectileFromMirror(shieldHit.enemy, projectile, "laser")) {
+    return true;
+  }
+
   const hit = findFirstEnemyOnBeam(tail.x, tail.y, projectile.x, projectile.y, projectile.length + ENEMY_SIZE);
   if (!hit) return false;
 
@@ -4139,6 +4587,10 @@ function damageEnemy(enemy, amount = 1) {
 
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
+    if (enemy.kind === LEVEL2_BOSS_KIND && enemy.bossStage < 3) {
+      enterLevel2BossNextStage(enemy);
+      return false;
+    }
     if (isBossEnemy(enemy) && enemy.bossStage === 1) {
       enterLevel1BossStageTwo(enemy);
       return false;
@@ -4926,7 +5378,8 @@ function drawAbilityRange() {
     selectedAbility.key === abilities.spray.key ||
     selectedAbility.key === abilities.sniper.key ||
     selectedAbility.key === abilities.sidearm.key ||
-    selectedAbility.key === abilities.missiles.key
+    selectedAbility.key === abilities.missiles.key ||
+    selectedAbility.key === abilities.tripwire.key
   ) {
     return;
   }
@@ -5047,9 +5500,36 @@ function drawBoss(enemy) {
   const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8);
   const isStageTwo = enemy.bossStage === 2;
   const isBlinking = enemy.bossState === "blink";
+  const isLevel2Boss = enemy.kind === LEVEL2_BOSS_KIND;
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
+
+  if (isLevel2Boss) {
+    const pullRadius =
+      enemy.bossStage === 1
+        ? getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS
+        : enemy.bossStage === 2
+          ? getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS
+          : 0;
+    if (pullRadius > 0) {
+      ctx.strokeStyle = `rgba(255, 154, 84, ${0.16 + pulse * 0.16})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([9, 10]);
+      ctx.beginPath();
+      ctx.arc(0, 0, pullRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (enemy.bossStage === 2 && enemy.bossState === "charge") {
+      const progress = 1 - clamp(enemy.bossStateTimer / LEVEL2_BOSS_CHARGE_TIME, 0, 1);
+      ctx.strokeStyle = `rgba(255, 232, 190, ${0.35 + progress * 0.42})`;
+      ctx.lineWidth = 3 + progress * 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius + 12 + progress * 14, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * progress);
+      ctx.stroke();
+    }
+  }
 
   if (isBlinking) {
     const progress = 1 - clamp(enemy.bossStateTimer / LEVEL1_BOSS_BLINK_TIME, 0, 1);
@@ -5077,10 +5557,10 @@ function drawBoss(enemy) {
 
   ctx.rotate(Math.atan2(enemy.vy, enemy.vx) + worldTime * (isStageTwo ? 1.4 : 0.75));
   const gradient = ctx.createRadialGradient(-radius * 0.35, -radius * 0.35, 4, 0, 0, radius * 1.25);
-  gradient.addColorStop(0, isBlinking ? "#ffffff" : "#ffd7df");
-  gradient.addColorStop(0.36, isStageTwo ? "#ff315f" : "#ff6f86");
-  gradient.addColorStop(1, isStageTwo ? "#4b0016" : "#7b0e2b");
-  ctx.shadowColor = "rgba(255, 49, 95, 0.65)";
+  gradient.addColorStop(0, isLevel2Boss ? "#fff0d7" : isBlinking ? "#ffffff" : "#ffd7df");
+  gradient.addColorStop(0.36, isLevel2Boss ? (enemy.bossStage === 3 ? "#ff4f2f" : "#ff8a2f") : isStageTwo ? "#ff315f" : "#ff6f86");
+  gradient.addColorStop(1, isLevel2Boss ? "#5a1700" : isStageTwo ? "#4b0016" : "#7b0e2b");
+  ctx.shadowColor = isLevel2Boss ? "rgba(255, 122, 47, 0.65)" : "rgba(255, 49, 95, 0.65)";
   ctx.shadowBlur = 28;
   ctx.fillStyle = gradient;
   ctx.beginPath();
@@ -5102,7 +5582,7 @@ function drawBoss(enemy) {
   const hpRatio = clamp(enemy.hp / enemy.maxHp, 0, 1);
   ctx.fillStyle = "rgba(16, 22, 34, 0.82)";
   ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16, 6);
-  ctx.fillStyle = isStageTwo ? "rgba(255, 49, 95, 0.96)" : "rgba(255, 220, 108, 0.96)";
+  ctx.fillStyle = isLevel2Boss ? "rgba(255, 138, 47, 0.96)" : isStageTwo ? "rgba(255, 49, 95, 0.96)" : "rgba(255, 220, 108, 0.96)";
   ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16 * hpRatio, 6);
   ctx.restore();
 }
@@ -5356,7 +5836,7 @@ function drawEnemy(enemy) {
     ctx.lineTo(6, 7);
     ctx.stroke();
   } else if (enemy.kind === "mirror") {
-    ctx.strokeStyle = enemy.mirrorReady ? "rgba(255, 255, 255, 0.96)" : "rgba(205, 225, 235, 0.65)";
+    ctx.strokeStyle = enemy.phase === "mirror_shield" ? "rgba(255, 255, 255, 0.96)" : "rgba(205, 225, 235, 0.65)";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-7, -7);
@@ -5365,7 +5845,7 @@ function drawEnemy(enemy) {
     ctx.lineTo(-7, 7);
     ctx.closePath();
     ctx.stroke();
-    if (enemy.mirrorReady) {
+    if (enemy.phase === "mirror_shield") {
       ctx.beginPath();
       ctx.moveTo(-3, 4);
       ctx.lineTo(5, -4);
@@ -5410,11 +5890,25 @@ function drawEnemy(enemy) {
     ctx.arc(0, 0, half + 9, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
     ctx.stroke();
   } else if (enemy.phase === "shield_up") {
-    const shieldProgress = clamp(enemy.phaseTimer / ENEMY_SHIELD_UP_TIME, 0, 1);
+    const shieldProgress = clamp(enemy.phaseTimer / (enemy.phaseDuration || ENEMY_SHIELD_UP_TIME), 0, 1);
+    const appearProgress = 1 - shieldProgress;
+    const shieldRadius = getEnemyShieldRadius(enemy);
     ctx.beginPath();
-    ctx.strokeStyle = `rgba(255, 224, 122, ${0.42 + shieldProgress * 0.32})`;
-    ctx.lineWidth = 4;
-    ctx.arc(0, 0, getShieldRadius(), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 224, 122, ${0.34 + shieldProgress * 0.24})`;
+    ctx.lineWidth = 3 + appearProgress * 2;
+    ctx.arc(0, 0, shieldRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(255, 246, 198, ${0.58 * (1 - appearProgress)})`;
+    ctx.lineWidth = 2;
+    ctx.arc(0, 0, shieldRadius * (0.35 + appearProgress * 0.65), 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(255, 196, 66, ${0.36 * (1 - appearProgress)})`;
+    ctx.lineWidth = 2;
+    ctx.arc(0, 0, shieldRadius * (0.18 + appearProgress * 0.95), 0, Math.PI * 2);
     ctx.stroke();
   } else if (enemy.phase === "spray_charge") {
     const charge = 1 - clamp(enemy.phaseTimer / SPRAY_CHARGE_TIME, 0, 1);
@@ -5429,6 +5923,13 @@ function drawEnemy(enemy) {
     ctx.strokeStyle = `rgba(255, 214, 226, ${0.38 + charge * 0.34})`;
     ctx.lineWidth = 3;
     ctx.arc(0, 0, half + 10, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * charge);
+    ctx.stroke();
+  } else if (enemy.phase === "mirror_shield") {
+    const shieldProgress = clamp(enemy.phaseTimer / MIRROR_SHIELD_DURATION, 0, 1);
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(201, 243, 255, ${0.34 + shieldProgress * 0.36})`;
+    ctx.lineWidth = 3;
+    ctx.arc(0, 0, half + 10, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * shieldProgress);
     ctx.stroke();
   }
 
@@ -5446,6 +5947,29 @@ function drawEnemy(enemy) {
 function drawMines() {
   for (const mine of mines) {
     const pulse = 0.5 + 0.5 * Math.sin(worldTime * 7 + mine.pulseSeed);
+
+    if (mine.kind === "tripwire") {
+      const life = clamp(mine.ttl / TRIPWIRE_LIFETIME, 0, 1);
+      const segment = getTripwireSegment(mine);
+      ctx.save();
+      ctx.strokeStyle = `rgba(206, 238, 255, ${0.32 + pulse * 0.28})`;
+      ctx.lineWidth = TRIPWIRE_WIDTH;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(segment.x1, segment.y1);
+      ctx.lineTo(segment.x2, segment.y2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.32 + life * 0.42})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(segment.x1, segment.y1);
+      ctx.lineTo(segment.x2, segment.y2);
+      ctx.stroke();
+      ctx.restore();
+      continue;
+    }
+
     const radius = mine.radius;
     const outerRadius = radius + 4 + pulse * 3;
 
@@ -5507,6 +6031,30 @@ function drawEnemySeeds() {
 }
 
 function drawLaserEffects() {
+  for (const enemy of enemies) {
+    if (enemy.kind !== "mirror" || enemy.phase !== "mirror_shield") continue;
+    const shield = getMirrorShieldSegment(enemy);
+    const progress = clamp(enemy.phaseTimer / MIRROR_SHIELD_DURATION, 0, 1);
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 12 + enemy.id);
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = `rgba(201, 243, 255, ${0.28 + progress * 0.38})`;
+    ctx.lineWidth = MIRROR_SHIELD_WIDTH + pulse * 3;
+    ctx.beginPath();
+    ctx.moveTo(shield.x1, shield.y1);
+    ctx.lineTo(shield.x2, shield.y2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.46 + progress * 0.34})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(shield.x1, shield.y1);
+    ctx.lineTo(shield.x2, shield.y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   if (activePlayerShield) {
     const shieldProgress = clamp(activePlayerShield.timer / activePlayerShield.duration, 0, 1);
     ctx.save();
