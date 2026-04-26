@@ -198,6 +198,7 @@ const DECOY_DURATION = 10;
 const DECOY_SIZE = 24;
 const PLAYER_DECOY_PASSIVE_TOTAL = 3;
 const PLAYER_DECOY_PASSIVE_INTERVAL = 5;
+const PASSIVE_XP_INTERVAL = 10;
 const PLAYER_MIRROR_PASSIVE_DURATION = 10;
 const PLAYER_MINE_PASSIVE_TOTAL = 20;
 const PLAYER_MINE_PASSIVE_DURATION = 60;
@@ -615,6 +616,7 @@ let pointerMovedSinceHover = false;
 let moveMarker = null;
 let deathResetTimer = 0;
 let deathExplosion = null;
+let passiveXpTimer = 0;
 let simulationWasActive = false;
 let currentTimeScale = INACTIVE_TIME_SCALE;
 let gameState = "menu";
@@ -1035,6 +1037,7 @@ function update(dt) {
   worldTime += simDt;
   if (startedActive) {
     actionTime += simDt;
+    updatePassiveXp(simDt);
   }
   if (player.moving) {
     updatePlayerMotion(simDt);
@@ -5142,6 +5145,7 @@ function resetGame() {
 
   worldTime = 0;
   actionTime = 0;
+  passiveXpTimer = 0;
   deathResetTimer = 0;
   gameState = "playing";
   levelCompleted = false;
@@ -5310,6 +5314,16 @@ function applyPlayerLevelUp() {
   player.maxHp += 1;
   player.hp = Math.min(player.maxHp, player.hp + 1);
   player.upgrades.hookRangeMultiplier *= 1.15;
+}
+
+function updatePassiveXp(dt) {
+  if (dt <= 0 || player.dead || levelCompleted || gameState !== "playing") return;
+
+  passiveXpTimer += dt;
+  while (passiveXpTimer >= PASSIVE_XP_INTERVAL) {
+    passiveXpTimer -= PASSIVE_XP_INTERVAL;
+    addPlayerXp(1);
+  }
 }
 
 function addPlayerXp(amount) {
