@@ -210,6 +210,7 @@ const TRIPWIRE_LIFETIME = 30;
 const TRIPWIRE_DAMAGE = 3;
 const TRIPWIRE_LENGTH_CELLS = 1.25;
 const TRIPWIRE_WIDTH = 8;
+const PLAYER_ABILITY_CAPACITY = 2;
 const MIRROR_SHIELD_DURATION = 10;
 const MIRROR_SHIELD_COOLDOWN = 30;
 const MIRROR_SHIELD_LENGTH_CELLS = 1.25;
@@ -605,7 +606,7 @@ const activePlayerDecoys = [];
 let playerDecoyPassive = null;
 let playerMinePassive = null;
 let playerMirrorPassive = null;
-let playerAbilityCapacity = 1;
+let playerAbilityCapacity = PLAYER_ABILITY_CAPACITY;
 let playerShieldCooldown = 0;
 let playerHookCooldown = 0;
 let playerBaseGunCooldowns = Array(BASE_GUN_MAX_CHARGES).fill(0);
@@ -3032,7 +3033,6 @@ function getSelectedAbilityState() {
 function promoteReserveAbility() {
   if (!reserveAbility) {
     setCurrentAbility(abilities.hook);
-    playerAbilityCapacity = 1;
     reserveAbility = null;
     reserveAbilityCharges = null;
     return;
@@ -3042,7 +3042,6 @@ function promoteReserveAbility() {
   currentAbilityCharges = reserveAbilityCharges;
   reserveAbility = null;
   reserveAbilityCharges = null;
-  playerAbilityCapacity = 1;
   abilityMode = "primary";
 }
 
@@ -3053,7 +3052,6 @@ function consumeAbilityCharge(slot = "primary") {
     if (reserveAbilityCharges <= 0) {
       reserveAbility = null;
       reserveAbilityCharges = null;
-      playerAbilityCapacity = 1;
       if (abilityMode === "secondary") {
         abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "hook";
       }
@@ -3078,7 +3076,7 @@ function stealEnemyAbility(enemy) {
   if (enemy.kind === "heal" || enemy.kind === "medic") {
     player.hp = Math.min(player.maxHp, player.hp + 1);
   } else if (enemy.kind === "replicator") {
-    playerAbilityCapacity = 2;
+    playerAbilityCapacity = Math.max(playerAbilityCapacity, PLAYER_ABILITY_CAPACITY);
     playerHookCooldown = 0;
   } else if (enemy.kind === "trickster") {
     activatePlayerDecoyPassive();
@@ -5124,7 +5122,7 @@ function startDeathSequence() {
   enemyHomingMissiles.length = 0;
   zigzagProjectiles.length = 0;
   playerMinePassive = null;
-  playerAbilityCapacity = 1;
+  playerAbilityCapacity = PLAYER_ABILITY_CAPACITY;
   reserveAbility = null;
   reserveAbilityCharges = null;
   abilityMode = "hook";
@@ -5217,7 +5215,7 @@ function resetGame() {
   enemyHomingMissiles.length = 0;
   zigzagProjectiles.length = 0;
   playerMinePassive = null;
-  playerAbilityCapacity = 1;
+  playerAbilityCapacity = PLAYER_ABILITY_CAPACITY;
   reserveAbility = null;
   reserveAbilityCharges = null;
   abilityMode = "hook";
