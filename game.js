@@ -131,7 +131,7 @@ const ROCKETEER_CHARGE_TIME = 1.15;
 const ROCKETEER_RECOVER_DELAY = 1.4;
 const ROCKETEER_MISSILE_SPEED_MULTIPLIER = 0.86;
 const ENEMY_MAX_COUNT = 1;
-const ENEMY_MAX_COUNT_LEVEL_OFFSET = 3;
+const ENEMY_MAX_COUNT_LEVEL_OFFSET = 2;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
 const ENEMY_SPAWN_INTERVAL_MULTIPLIER = 0.9;
@@ -149,7 +149,8 @@ const BASE_GUN_PROJECTILE_LIFETIME = 2.2;
 const BASE_GUN_COOLDOWN = 11;
 const BASE_GUN_LEVEL_COOLDOWN_REDUCTION = 0.3;
 const BASE_GUN_INITIAL_CHARGES = 3;
-const BASE_GUN_MAX_CHARGES = 5;
+const BASE_GUN_BONUS_CHARGES = 1;
+const BASE_GUN_LEVEL_CHARGE_GAIN = 1.5;
 const LASER_RANGE_CELLS = 8;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
@@ -3370,8 +3371,19 @@ function getBaseGunCooldown() {
   return Math.max(0.5, BASE_GUN_COOLDOWN * upgrades.baseCooldownMultiplier - upgrades.baseCooldownReduction);
 }
 
+function getBaseGunChargeCount(level = player.xpLevel) {
+  return BASE_GUN_INITIAL_CHARGES + BASE_GUN_BONUS_CHARGES + Math.floor(Math.max(0, level - 1) * BASE_GUN_LEVEL_CHARGE_GAIN);
+}
+
 function createInitialBaseGunCooldowns() {
-  return Array(BASE_GUN_INITIAL_CHARGES).fill(0);
+  return Array(getBaseGunChargeCount()).fill(0);
+}
+
+function syncBaseGunChargeCount() {
+  const targetCount = getBaseGunChargeCount();
+  while (playerBaseGunCooldowns.length < targetCount) {
+    playerBaseGunCooldowns.push(0);
+  }
 }
 
 function getReadyBaseGunCharges() {
@@ -6039,9 +6051,7 @@ function applyPlayerLevelUp() {
   player.xpLevel += 1;
   player.xpNext = getXpNextForLevel(player.xpLevel);
   playerBaseGunCooldowns = playerBaseGunCooldowns.map((cooldown) => Math.max(0, cooldown - BASE_GUN_LEVEL_COOLDOWN_REDUCTION));
-  if (playerBaseGunCooldowns.length < BASE_GUN_MAX_CHARGES) {
-    playerBaseGunCooldowns.push(0);
-  }
+  syncBaseGunChargeCount();
   player.upgrades.baseCooldownReduction += BASE_GUN_LEVEL_COOLDOWN_REDUCTION;
   player.MOVE_TO_POINT_SPEED *= 1.05;
   player.maxHp += 1;
