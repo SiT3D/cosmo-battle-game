@@ -107,6 +107,7 @@ const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT = 5;
 const LEVEL3_BOSS_STAGE_TWO_MISSILE_SPEED_MULTIPLIER = 0.7;
 const LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL = 3;
 const LEVEL3_BOSS_STAGE_THREE_LASER_CAST_TIME = 0.5;
+const BOSS_SUPPORT_SPAWN_INTERVAL = 5;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
 const BRUTE_CONTACT_HP = 5;
@@ -696,6 +697,7 @@ let moveMarker = null;
 let deathResetTimer = 0;
 let deathExplosion = null;
 let passiveXpTimer = 0;
+let bossSupportSpawnTimer = BOSS_SUPPORT_SPAWN_INTERVAL;
 let simulationWasActive = false;
 let currentTimeScale = INACTIVE_TIME_SCALE;
 let gameState = "menu";
@@ -802,6 +804,10 @@ function getAutoRosterKinds(level = getCurrentLevel()) {
   const levelIndex = Math.max(0, campaignLevels.indexOf(level));
   const offset = levelIndex % enemyKinds.length;
   return [...enemyKinds.slice(offset), ...enemyKinds.slice(0, offset)];
+}
+
+function getAllNormalEnemyKinds() {
+  return Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind));
 }
 
 function getLevelRoster(level = getCurrentLevel()) {
@@ -1175,6 +1181,7 @@ function update(dt) {
   updateBaseProjectiles(simDt);
   updateEnemySpawns(simDt);
   updateLevelBossSpawn();
+  updateBossSupportSpawns(simDt);
   updateEnemies(simDt * getPlayerUpgrades().enemySpeedMultiplier);
   if (player.dead) {
     updateUi();
@@ -1828,6 +1835,31 @@ function updateEnemySpawns(dt) {
   }
 
   scheduleNextSpawn();
+}
+
+function updateBossSupportSpawns(dt) {
+  const hasLivingBoss = enemies.some((enemy) => isBossEnemy(enemy) && !enemy.isIllusion);
+  if (!hasLivingBoss) {
+    bossSupportSpawnTimer = BOSS_SUPPORT_SPAWN_INTERVAL;
+    return;
+  }
+
+  bossSupportSpawnTimer -= dt;
+  if (bossSupportSpawnTimer > 0) return;
+
+  const kinds = getAllNormalEnemyKinds();
+  const point = findFreePoint(ENEMY_SIZE * 2.4);
+  if (point && kinds.length > 0) {
+    spawnMarkers.push({
+      x: point.x,
+      y: point.y,
+      kind: kinds[Math.floor(Math.random() * kinds.length)],
+      elapsed: 0,
+    });
+    bossSupportSpawnTimer += BOSS_SUPPORT_SPAWN_INTERVAL;
+  } else {
+    bossSupportSpawnTimer = Math.min(bossSupportSpawnTimer, 0);
+  }
 }
 
 function isBossEnemy(enemy) {
@@ -5884,6 +5916,7 @@ function resetGame() {
   actionTime = 0;
   passiveXpTimer = 0;
   deathResetTimer = 0;
+  bossSupportSpawnTimer = BOSS_SUPPORT_SPAWN_INTERVAL;
   gameState = "playing";
   levelCompleted = false;
   levelBossSpawned = false;
