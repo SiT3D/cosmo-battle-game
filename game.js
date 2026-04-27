@@ -1,5 +1,7 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const backgroundCanvas = document.createElement("canvas");
+const backgroundCtx = backgroundCanvas.getContext("2d");
 const abilityIconEl = document.getElementById("abilityIcon");
 const abilityNameEl = document.getElementById("abilityName");
 const abilityHintEl = document.getElementById("abilityHint");
@@ -19,6 +21,7 @@ const BASE_VIEW = { width: 1280, height: 720 };
 const VIEW = { width: BASE_VIEW.width, height: BASE_VIEW.height };
 const RENDER = { scale: 1, offsetX: 0, offsetY: 0, cssWidth: 0, cssHeight: 0 };
 const ARENA = { x: 0, y: 0, width: 0, height: 0 };
+const UI_REFRESH_INTERVAL = 1 / 12;
 
 const UNIT_RENDER_SCALE = 0.5;
 const BOSS_RENDER_SCALE = 0.5;
@@ -707,6 +710,33 @@ let levelCompleted = false;
 let levelBossSpawned = false;
 let currentLevelBossKind = null;
 let pendingUpgradeChoices = [];
+let staticFrameRequested = true;
+let nextUiRefreshAt = 0;
+const uiCache = new WeakMap();
+
+function requestStaticFrame() {
+  staticFrameRequested = true;
+}
+
+function requestUiRefresh() {
+  nextUiRefreshAt = 0;
+}
+
+function setTextIfChanged(element, value) {
+  if (!element) return;
+  const text = String(value);
+  if (uiCache.get(element) === text) return;
+  element.textContent = text;
+  uiCache.set(element, text);
+}
+
+function setHtmlIfChanged(element, value) {
+  if (!element) return;
+  const html = String(value);
+  if (uiCache.get(element) === html) return;
+  element.innerHTML = html;
+  uiCache.set(element, html);
+}
 
 function resize() {
   const rect = canvas.getBoundingClientRect();
@@ -743,6 +773,8 @@ function resize() {
   clampEnemiesToArena();
   aimPoint.x = player.x;
   aimPoint.y = player.y;
+  renderStaticBackground();
+  requestStaticFrame();
 }
 
 function applyRenderTransform() {
@@ -1084,6 +1116,7 @@ function cycleAbilitySelection(direction = 1) {
   const currentIndex = Math.max(0, modes.indexOf(abilityMode));
   const nextIndex = (currentIndex + direction + modes.length) % modes.length;
   abilityMode = modes[nextIndex];
+  requestUiRefresh();
 }
 
 function selectAbilityModeByIndex(index) {
@@ -1092,6 +1125,7 @@ function selectAbilityModeByIndex(index) {
   const modes = getSelectableAbilityModes();
   if (index < 0 || index >= modes.length) return false;
   abilityMode = modes[index];
+  requestUiRefresh();
   return true;
 }
 
@@ -3443,6 +3477,7 @@ function setCurrentAbility(ability, charges = null) {
   currentAbility = ability;
   currentAbilityCharges = charges;
   abilityMode = ability.key === abilities.hook.key ? "hook" : "primary";
+  requestUiRefresh();
 }
 
 function resetToHook() {
@@ -3451,6 +3486,7 @@ function resetToHook() {
   abilityMode = "hook";
   reserveAbility = null;
   reserveAbilityCharges = null;
+  requestUiRefresh();
 }
 
 function getSelectedAbilityState() {
@@ -3506,6 +3542,7 @@ function promoteReserveAbility() {
   reserveAbility = null;
   reserveAbilityCharges = null;
   abilityMode = "primary";
+  requestUiRefresh();
 }
 
 function consumeAbilityCharge(slot = "primary") {
@@ -3519,6 +3556,7 @@ function consumeAbilityCharge(slot = "primary") {
         abilityMode = currentAbility.key !== abilities.hook.key ? "primary" : "hook";
       }
     }
+    requestUiRefresh();
     return;
   }
 
@@ -3527,6 +3565,7 @@ function consumeAbilityCharge(slot = "primary") {
   if (currentAbilityCharges <= 0) {
     promoteReserveAbility();
   }
+  requestUiRefresh();
 }
 
 function grantPlayerAbility(ability, charges) {
@@ -3538,6 +3577,7 @@ function grantPlayerAbility(ability, charges) {
   } else {
     setCurrentAbility(ability, charges);
   }
+  requestUiRefresh();
 }
 
 function stealEnemyAbility(enemy) {
@@ -6222,7 +6262,7 @@ function updateLevelHud() {
   const remainingRoster = getRemainingLevelRoster(level);
   const remainingCount = Object.values(remainingRoster).reduce((sum, count) => sum + count, 0);
   const totalCount = getLevelTotalCount(level);
-  levelHudEl.innerHTML = `<span class="level-chip" title="${level.name}">${currentLevelIndex + 1}/10 ${remainingCount}/${totalCount}</span>${getRosterHtml(level, remainingRoster)}`;
+  setHtmlIfChanged(levelHudEl, `<span class="level-chip" title="${level.name}">${currentLevelIndex + 1}/10 ${remainingCount}/${totalCount}</span>${getRosterHtml(level, remainingRoster)}`);
 }
 
 function getUpgradeChoices() {
@@ -6249,6 +6289,7 @@ function showUpgradeChoices() {
     <div class="upgrade-grid">${cards}</div>
   </section>`;
   campaignOverlayEl.classList.add("is-visible");
+  requestStaticFrame();
 }
 
 function chooseUpgrade(id) {
@@ -6304,6 +6345,7 @@ function showCampaignMenu() {
     <div class="level-grid">${cards}</div>
   </section>`;
   campaignOverlayEl.classList.add("is-visible");
+  requestStaticFrame();
 }
 
 function showLevelComplete() {
@@ -6322,6 +6364,7 @@ function showLevelComplete() {
     </div>
   </section>`;
   campaignOverlayEl.classList.add("is-visible");
+  requestStaticFrame();
 }
 
 function startLevel(index) {
@@ -6337,48 +6380,55 @@ function checkLevelComplete() {
   showLevelComplete();
 }
 
-function updateUi() {
+function updateUi(force = false) {
+  if (!force && gameState === "playing") {
+    const refreshClock = Math.max(actionTime, worldTime);
+    if (refreshClock < nextUiRefreshAt) return;
+    nextUiRefreshAt = refreshClock + UI_REFRESH_INTERVAL;
+  }
+
   updateLevelHud();
   const selected = getSelectedAbilityState();
   const selectedAbility = selected.ability;
-  abilityNameEl.textContent =
+  setTextIfChanged(abilityNameEl,
     selected.charges !== null
       ? `${selectedAbility.name} x${selected.charges}`
-      : selectedAbility.name;
+      : selectedAbility.name
+  );
   const selectableModes = getSelectableAbilityModes();
   const switchHint = selectableModes.length > 1 ? " | Q/Wheel/1-9" : "";
   if (selectedAbility.key === abilities.shield.key) {
     if (activePlayerShield) {
-      abilityHintEl.textContent = `${activePlayerShield.timer.toFixed(1)}s`;
+      setTextIfChanged(abilityHintEl, `${activePlayerShield.timer.toFixed(1)}s`);
     } else if (playerShieldCooldown > 0) {
-      abilityHintEl.textContent = `CD ${playerShieldCooldown.toFixed(1)}s`;
+      setTextIfChanged(abilityHintEl, `CD ${playerShieldCooldown.toFixed(1)}s`);
     } else {
-      abilityHintEl.textContent = "Ready";
+      setTextIfChanged(abilityHintEl, "Ready");
     }
   } else if (selectedAbility.key === abilities.hook.key) {
-    abilityHintEl.textContent = playerHookCooldown > 0 ? `CD ${playerHookCooldown.toFixed(1)}s` : `Click${switchHint}`;
+    setTextIfChanged(abilityHintEl, playerHookCooldown > 0 ? `CD ${playerHookCooldown.toFixed(1)}s` : `Click${switchHint}`);
   } else if (selectedAbility.key === abilities.sidearm.key) {
     const readyShots = getReadyBaseGunCharges();
     const nextCooldown = getNextBaseGunCooldown();
-    abilityHintEl.textContent = activePlayerBaseGun
+    setTextIfChanged(abilityHintEl, activePlayerBaseGun
       ? `${activePlayerBaseGun.timer.toFixed(2)}s`
-      : readyShots > 0 ? `${readyShots}/${playerBaseGunCooldowns.length} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`;
+      : readyShots > 0 ? `${readyShots}/${playerBaseGunCooldowns.length} Ready${switchHint}` : `CD ${nextCooldown.toFixed(1)}s`);
   } else if (selectedAbility.key === abilities.sniper.key && activePlayerSniper) {
-    abilityHintEl.textContent = `${activePlayerSniper.timer.toFixed(1)}s`;
+    setTextIfChanged(abilityHintEl, `${activePlayerSniper.timer.toFixed(1)}s`);
   } else if (selectedAbility.key === abilities.teleport.key && activePlayerTeleport) {
-    abilityHintEl.textContent = `${activePlayerTeleport.timer.toFixed(1)}s`;
+    setTextIfChanged(abilityHintEl, `${activePlayerTeleport.timer.toFixed(1)}s`);
   } else if (selectedAbility.key === abilities.teleport.key && pendingPlayerTeleport) {
-    abilityHintEl.textContent = "Confirm | Esc/RMB";
+    setTextIfChanged(abilityHintEl, "Confirm | Esc/RMB");
   } else {
-    abilityHintEl.textContent = `Click${switchHint}`;
+    setTextIfChanged(abilityHintEl, `Click${switchHint}`);
   }
-  abilityIconEl.innerHTML = getAbilityIconMarkup(selectedAbility.key);
-  hpLabelEl.textContent = `HP ${player.hp}/${player.maxHp}`;
+  setHtmlIfChanged(abilityIconEl, getAbilityIconMarkup(selectedAbility.key));
+  setTextIfChanged(hpLabelEl, `HP ${player.hp}/${player.maxHp}`);
   const xpText = `XP ${player.xp}/${player.xpNext} | Ур.${player.xpLevel}`;
-  powerLabelEl.textContent = playerMinePassive
+  setTextIfChanged(powerLabelEl, playerMinePassive
     ? `${xpText} | Мины ${playerMinePassive.remaining}`
-    : xpText;
-  timeLabelEl.textContent = `${actionTime.toFixed(2)}s`;
+    : xpText);
+  setTextIfChanged(timeLabelEl, `${actionTime.toFixed(2)}s`);
   const abilityTiles = [
     {
       mode: "teleport",
@@ -6439,7 +6489,7 @@ function updateUi() {
     }
   }
 
-  abilityTilesEl.innerHTML = abilityTiles
+  setHtmlIfChanged(abilityTilesEl, abilityTiles
     .map(
       (tile, index) => {
         const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
@@ -6447,7 +6497,7 @@ function updateUi() {
         return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__hotkey">${index + 1}</span><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
       }
     )
-    .join("");
+    .join(""));
 
   const passiveChips = [];
   if (playerMinePassive) {
@@ -6486,20 +6536,92 @@ function updateUi() {
       );
     }
   }
-  passiveTrayEl.innerHTML = passiveChips.join("");
+  setHtmlIfChanged(passiveTrayEl, passiveChips.join(""));
   updateAbilityHoverTooltip();
+}
+
+function renderStaticBackground() {
+  if (!backgroundCtx) return;
+
+  backgroundCanvas.width = canvas.width;
+  backgroundCanvas.height = canvas.height;
+  backgroundCtx.setTransform(1, 0, 0, 1, 0, 0);
+  backgroundCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+  backgroundCtx.fillStyle = "#07101d";
+  backgroundCtx.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+  backgroundCtx.setTransform(DPR * RENDER.scale, 0, 0, DPR * RENDER.scale, DPR * RENDER.offsetX, DPR * RENDER.offsetY);
+
+  const sun = backgroundCtx.createRadialGradient(180, 120, 10, 180, 120, 260);
+  sun.addColorStop(0, "rgba(255, 233, 154, 0.96)");
+  sun.addColorStop(0.25, "rgba(255, 188, 68, 0.24)");
+  sun.addColorStop(1, "rgba(255, 188, 68, 0)");
+  backgroundCtx.fillStyle = sun;
+  backgroundCtx.fillRect(0, 0, VIEW.width, VIEW.height);
+
+  backgroundCtx.fillStyle = "rgba(255,255,255,0.12)";
+  for (let i = 0; i < 6; i += 1) {
+    const x = ((i * 240) + 80) % (VIEW.width + 220) - 110;
+    const y = 110 + (i % 2) * 40;
+    drawStaticCloud(backgroundCtx, x, y, 0.9 + (i % 3) * 0.2);
+  }
+
+  const glow = backgroundCtx.createRadialGradient(
+    ARENA.x + ARENA.width * 0.5,
+    ARENA.y + ARENA.height * 0.45,
+    30,
+    ARENA.x + ARENA.width * 0.5,
+    ARENA.y + ARENA.height * 0.5,
+    Math.max(ARENA.width, ARENA.height) * 0.75
+  );
+  glow.addColorStop(0, "rgba(110, 231, 255, 0.22)");
+  glow.addColorStop(0.5, "rgba(48, 124, 255, 0.09)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  backgroundCtx.fillStyle = glow;
+  backgroundCtx.fillRect(0, 0, VIEW.width, VIEW.height);
+
+  backgroundCtx.save();
+  backgroundCtx.translate(ARENA.x, ARENA.y);
+  const fill = backgroundCtx.createLinearGradient(0, 0, ARENA.width, ARENA.height);
+  fill.addColorStop(0, "rgba(8, 14, 28, 0.95)");
+  fill.addColorStop(1, "rgba(6, 8, 14, 0.98)");
+  backgroundCtx.fillStyle = fill;
+  backgroundCtx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+  backgroundCtx.strokeStyle = "rgba(113, 226, 255, 0.9)";
+  backgroundCtx.lineWidth = 6;
+  backgroundCtx.strokeRect(0, 0, ARENA.width, ARENA.height);
+
+  backgroundCtx.strokeStyle = "rgba(113, 226, 255, 0.1)";
+  backgroundCtx.lineWidth = 1;
+  backgroundCtx.beginPath();
+  for (let i = 1; i < GRID_RENDER_CELLS; i += 1) {
+    const offsetX = (ARENA.width / GRID_RENDER_CELLS) * i;
+    const offsetY = (ARENA.height / GRID_RENDER_CELLS) * i;
+    backgroundCtx.moveTo(offsetX, 0);
+    backgroundCtx.lineTo(offsetX, ARENA.height);
+    backgroundCtx.moveTo(0, offsetY);
+    backgroundCtx.lineTo(ARENA.width, offsetY);
+  }
+  backgroundCtx.stroke();
+  backgroundCtx.restore();
+}
+
+function drawStaticCloud(targetCtx, x, y, scale) {
+  targetCtx.beginPath();
+  targetCtx.arc(x, y, 24 * scale, Math.PI * 0.6, Math.PI * 1.9);
+  targetCtx.arc(x + 28 * scale, y - 10 * scale, 30 * scale, Math.PI, Math.PI * 2);
+  targetCtx.arc(x + 58 * scale, y, 24 * scale, Math.PI * 1.15, Math.PI * 0.3, true);
+  targetCtx.closePath();
+  targetCtx.fill();
 }
 
 function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#07101d";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (backgroundCanvas.width > 0 && backgroundCanvas.height > 0) {
+    ctx.drawImage(backgroundCanvas, 0, 0);
+  }
   applyRenderTransform();
-  ctx.clearRect(0, 0, VIEW.width, VIEW.height);
-  drawSky();
-  drawArenaGlow();
-  drawArena();
   drawMoveMarker();
   drawPlayerTrajectory();
   drawSpawnMarkers();
@@ -8421,8 +8543,14 @@ function tick(now) {
   const dt = Math.min(0.033, (now - lastFrame) / 1000);
   lastFrame = now;
 
-  update(dt);
-  draw();
+  if (gameState === "playing") {
+    update(dt);
+    draw();
+  } else if (staticFrameRequested) {
+    resetEnemyHover();
+    draw();
+    staticFrameRequested = false;
+  }
 
   requestAnimationFrame(tick);
 }
