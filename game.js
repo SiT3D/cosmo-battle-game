@@ -24,6 +24,7 @@ const UNIT_RENDER_SCALE = 0.5;
 const BOSS_RENDER_SCALE = 0.5;
 const EFFECT_RENDER_SCALE = 0.5;
 const MARKER_RENDER_SCALE = 0.5;
+const MISSILE_RENDER_SCALE = 1 / 3;
 const WALL_BOUNCE = 0.94;
 const INACTIVE_TIME_SCALE = 1 / 14;
 const TIME_SCALE_TRANSITION = 1.2;
@@ -8160,6 +8161,7 @@ function drawLaserEffects() {
     ctx.save();
     ctx.translate(missile.x, missile.y);
     ctx.rotate(angle);
+    ctx.scale(MISSILE_RENDER_SCALE, MISSILE_RENDER_SCALE);
 
     ctx.strokeStyle = missile.color.replace(/[\d.]+\)$/u, `${0.24 + life * 0.54})`);
     ctx.lineWidth = getEffectSize(3);
@@ -8182,6 +8184,7 @@ function drawLaserEffects() {
     ctx.save();
     ctx.translate(missile.x, missile.y);
     ctx.rotate(angle);
+    ctx.scale(MISSILE_RENDER_SCALE, MISSILE_RENDER_SCALE);
 
     ctx.strokeStyle = missile.color.replace(/[\d.]+\)$/u, `${0.22 + life * 0.52})`);
     ctx.lineWidth = getEffectSize(3);
