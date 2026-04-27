@@ -8,13 +8,22 @@ const powerLabelEl = document.getElementById("powerLabel");
 const timeLabelEl = document.getElementById("timeLabel");
 const passiveTrayEl = document.getElementById("passiveTray");
 const abilityTilesEl = document.getElementById("abilityTiles");
+const abilityTooltipEl = document.createElement("div");
+abilityTooltipEl.className = "ability-hover-tooltip";
+document.body.appendChild(abilityTooltipEl);
 const levelHudEl = document.getElementById("levelHud");
 const campaignOverlayEl = document.getElementById("campaignOverlay");
 
 const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-const VIEW = { width: 0, height: 0 };
+const BASE_VIEW = { width: 1280, height: 720 };
+const VIEW = { width: BASE_VIEW.width, height: BASE_VIEW.height };
+const RENDER = { scale: 1, offsetX: 0, offsetY: 0, cssWidth: 0, cssHeight: 0 };
 const ARENA = { x: 0, y: 0, width: 0, height: 0 };
 
+const UNIT_RENDER_SCALE = 0.5;
+const BOSS_RENDER_SCALE = 0.5;
+const EFFECT_RENDER_SCALE = 0.5;
+const MARKER_RENDER_SCALE = 0.5;
 const WALL_BOUNCE = 0.94;
 const INACTIVE_TIME_SCALE = 1 / 14;
 const TIME_SCALE_TRANSITION = 1.2;
@@ -64,8 +73,10 @@ const LEVEL2_BOSS_PULL_DELAY = 3;
 const LEVEL2_BOSS_PULL_CAST_TIME = 0.75;
 const LEVEL2_BOSS_PULL_DURATION = 1.1;
 const LEVEL2_BOSS_PULL_SPEED = MOVE_TO_POINT_SPEED * 0.5;
-const LEVEL2_BOSS_PULL_RADIUS_CELLS = 3;
-const LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS = 2;
+const LEVEL2_BOSS_PULL_RADIUS_CELLS = 7.2;
+const LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS = 4.2;
+const LEVEL2_BOSS_STAGE_THREE_PULL_RADIUS_MULTIPLIER = 0.5;
+const LEVEL2_BOSS_STAGE_THREE_PULL_SPEED_MULTIPLIER = 0.5;
 const LEVEL2_BOSS_CHARGE_TIME = 2;
 const LEVEL2_BOSS_DASH_TIME = 0.5;
 const LEVEL2_BOSS_DASH_SPEED = 760;
@@ -110,7 +121,7 @@ const COMMANDER_SPEED_MULTIPLIER = 1.5;
 const MEDIC_HP = 3;
 const MEDIC_MOVE_SPEED_MULTIPLIER = 1.2;
 const MEDIC_SUPPORT_INTERVAL = 4.5;
-const MEDIC_SUPPORT_RANGE = 420;
+const MEDIC_SUPPORT_RANGE = 210;
 const CHARGER_HP = 2;
 const CHARGER_SPEED_MULTIPLIER = 1.32;
 const CHARGER_RECOVER_DELAY = 0.55;
@@ -123,21 +134,22 @@ const ENEMY_MAX_COUNT_LEVEL_OFFSET = 3;
 const ENEMY_SPAWN_TELEGRAPH = 3;
 const ENEMY_SPAWN_INTERVAL = [1.62, 3.7];
 const ENEMY_SPAWN_INTERVAL_MULTIPLIER = 0.9;
-const GRID_CELLS = 8;
-const HOOK_RANGE_CELLS = 2;
-const HOOK_SPEED = 1180;
+const GRID_CELLS = 16;
+const GRID_RENDER_CELLS = GRID_CELLS;
+const HOOK_RANGE_CELLS = 4;
+const HOOK_SPEED = 2360;
 const HOOK_PULL_SPEED_CELLS = 2 / 1.1;
 const TELEPORT_CHARGE_TIME = 2;
 const DECOY_RANGE_CELLS = 4;
 const BASE_GUN_PROJECTILE_SPEED = 1680;
 const BASE_GUN_CAST_TIME = 0.05;
-const BASE_GUN_PROJECTILE_RADIUS = 7;
+const BASE_GUN_PROJECTILE_RADIUS = 3.5;
 const BASE_GUN_PROJECTILE_LIFETIME = 2.2;
 const BASE_GUN_COOLDOWN = 11;
 const BASE_GUN_LEVEL_COOLDOWN_REDUCTION = 0.3;
 const BASE_GUN_INITIAL_CHARGES = 3;
 const BASE_GUN_MAX_CHARGES = 5;
-const LASER_RANGE_CELLS = 4;
+const LASER_RANGE_CELLS = 8;
 const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
 const SNIPER_CHARGE_TIME = 7;
@@ -187,7 +199,7 @@ const PLAYER_SHIELD_TIME = 5;
 const SHIELD_COOLDOWN = 5;
 const HOOK_COOLDOWN = 8;
 const SHIELD_RADIUS = 84;
-const ENEMY_SHIELD_RADIUS_MULTIPLIER = 2;
+const ENEMY_SHIELD_RADIUS_MULTIPLIER = 1;
 const PLAYER_SHIELD_BOSS_DAMAGE = 1;
 const ENEMY_TOOLTIP_DELAY = 0.08;
 const STOLEN_LASER_CHARGES = 7;
@@ -199,11 +211,11 @@ const STOLEN_DECOY_CHARGES = 3;
 const STOLEN_MISSILE_CHARGES = 4;
 const STOLEN_BOMBER_BLAST_CHARGES = 2;
 const BLAST_RANGE_CELLS = 4;
-const BLAST_MAX_RADIUS = 311 * 1.5;
+const BLAST_MAX_RADIUS = 311 * 0.75;
 const BLAST_EXPAND_SPEED = 44;
 const LEVEL1_BOSS_BLAST_MAX_RADIUS = BLAST_MAX_RADIUS * 0.7 * 1.7;
 const LEVEL1_BOSS_BLAST_EXPAND_SPEED = BLAST_EXPAND_SPEED * 0.7;
-const BOMBER_BLAST_MAX_RADIUS = 132 * 4;
+const BOMBER_BLAST_MAX_RADIUS = 132 * 2;
 const BOMBER_BLAST_EXPAND_SPEED = 120;
 const PULSE_BOMB_INTERVAL = 1;
 const PULSE_BOMB_EXPLOSIONS = 5;
@@ -284,76 +296,91 @@ const abilities = {
     key: "hook",
     name: "Хук",
     hint: "Click",
+    description: "Притягивает выбранного врага к себе. Если враг погибает, его способность переходит в слот игрока.",
   },
   teleport: {
     key: "teleport",
     name: "Телепорт",
     hint: "Click",
+    description: "Ставит точку телепорта и переносит игрока после подтверждения.",
   },
   sidearm: {
     key: "sidearm",
     name: "Пушка",
     hint: "Click",
+    description: "Быстрый выстрел по направлению курсора. Заряды восстанавливаются по очереди.",
   },
   laser: {
     key: "laser",
     name: "Лазер",
     hint: "Click",
+    description: "Выпускает прямой луч, который пробивает линию перед игроком.",
   },
   spray: {
     key: "spray",
     name: "Спрей",
     hint: "Click",
+    description: "Стреляет веером коротких снарядов по широкой зоне.",
   },
   shield: {
     key: "shield",
     name: "Щит",
     hint: "Click",
+    description: "Временно защищает игрока от урона, затем уходит на перезарядку.",
   },
   sniper: {
     key: "sniper",
     name: "Снайпер",
     hint: "Click",
+    description: "Готовит точный дальний выстрел с высоким уроном по линии прицеливания.",
   },
   decoy: {
     key: "decoy",
     name: "Приманка",
     hint: "Click",
+    description: "Создает копию, которая отвлекает врагов и принимает внимание на себя.",
   },
   dash: {
     key: "dash",
     name: "Рывок",
     hint: "Click",
+    description: "Резко смещает игрока в выбранном направлении, помогая выйти из опасной зоны.",
   },
   turret: {
     key: "turret",
     name: "Турель",
     hint: "Click",
+    description: "Ставит автоматическую турель, которая стреляет по ближайшим врагам.",
   },
   missiles: {
     key: "missiles",
     name: "Ракеты",
     hint: "Click",
+    description: "Запускает ракеты, которые летят к целям и взрываются при попадании.",
   },
   blast: {
     key: "blast",
     name: "Взрыв",
     hint: "Click",
+    description: "Создает мощный взрыв вокруг выбранной точки и отбрасывает угрозы.",
   },
   pulse_bomb: {
     key: "pulse_bomb",
     name: "Пульс-бомба",
     hint: "Click",
+    description: "Бросает заряд, который взрывается импульсом после короткой задержки.",
   },
   splitter: {
     key: "splitter",
     name: "Зигзаг",
     hint: "Click",
+    description: "Запускает снаряд, который меняет траекторию и может задеть несколько целей.",
   },
   tripwire: {
     key: "tripwire",
     name: "Растяжка",
     hint: "Click",
+    description: "Ставит ловушку-линию. Враг, пересекший ее, получает урон.",
   },
 };
 
@@ -635,6 +662,8 @@ let currentAbilityCharges = null;
 let reserveAbility = null;
 let reserveAbilityCharges = null;
 let abilityMode = "hook";
+let lastPointerClientX = -1000;
+let lastPointerClientY = -1000;
 let activeHook = null;
 let pendingPlayerTeleport = null;
 let activePlayerTeleport = null;
@@ -675,17 +704,20 @@ let pendingUpgradeChoices = [];
 
 function resize() {
   const rect = canvas.getBoundingClientRect();
-  VIEW.width = Math.round(rect.width);
-  VIEW.height = Math.round(rect.height);
   canvas.width = Math.round(rect.width * DPR);
   canvas.height = Math.round(rect.height * DPR);
-  ctx.setTransform(canvas.width / VIEW.width, 0, 0, canvas.height / VIEW.height, 0, 0);
+  RENDER.cssWidth = rect.width;
+  RENDER.cssHeight = rect.height;
+  RENDER.scale = Math.min(rect.width / VIEW.width, rect.height / VIEW.height);
+  RENDER.offsetX = (rect.width - VIEW.width * RENDER.scale) * 0.5;
+  RENDER.offsetY = (rect.height - VIEW.height * RENDER.scale) * 0.5;
+  applyRenderTransform();
 
   const borderInset = 10;
   ARENA.x = borderInset;
   ARENA.y = borderInset;
-  ARENA.width = Math.max(220, VIEW.width - borderInset * 2);
-  ARENA.height = Math.max(220, VIEW.height - borderInset * 2);
+  ARENA.width = VIEW.width - borderInset * 2;
+  ARENA.height = VIEW.height - borderInset * 2;
 
   const half = player.size * 0.5;
   const wasOutside =
@@ -707,8 +739,20 @@ function resize() {
   aimPoint.y = player.y;
 }
 
+function applyRenderTransform() {
+  ctx.setTransform(DPR * RENDER.scale, 0, 0, DPR * RENDER.scale, DPR * RENDER.offsetX, DPR * RENDER.offsetY);
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getEffectSize(value, min = 0.75) {
+  return Math.max(min, value * EFFECT_RENDER_SCALE);
+}
+
+function getMarkerSize(value, min = 1) {
+  return Math.max(min, value * MARKER_RENDER_SCALE);
 }
 
 function normalizeAngle(angle) {
@@ -914,8 +958,8 @@ function colorWithAlpha(color, alpha) {
 function getCanvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
   return {
-    x: ((event.clientX - rect.left) / rect.width) * VIEW.width,
-    y: ((event.clientY - rect.top) / rect.height) * VIEW.height,
+    x: (event.clientX - rect.left - RENDER.offsetX) / RENDER.scale,
+    y: (event.clientY - rect.top - RENDER.offsetY) / RENDER.scale,
   };
 }
 
@@ -1191,8 +1235,6 @@ function updatePlayerMotion(dt) {
     const distance = Math.hypot(dx, dy);
 
     if (distance <= MOVE_STOP_DISTANCE) {
-      player.x = player.moveTarget.x;
-      player.y = player.moveTarget.y;
       settlePlayer();
       return;
     }
@@ -1231,8 +1273,6 @@ function updatePlayerMotion(dt) {
 
     const nextDistance = Math.hypot(player.moveTarget.x - player.x, player.moveTarget.y - player.y);
     if (nextDistance <= MOVE_STOP_DISTANCE || (nextDistance > distance && distance <= MOVE_STOP_DISTANCE + step * 1.2)) {
-      player.x = player.moveTarget.x;
-      player.y = player.moveTarget.y;
       settlePlayer();
       return;
     }
@@ -2374,7 +2414,12 @@ function updateLevel2BossStageThree(enemy, dt) {
   enemy.x += enemy.vx * dt;
   enemy.y += enemy.vy * dt;
   handleWallBounce(enemy);
-  pullPlayerTowardBoss(enemy, getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS, dt);
+  pullPlayerTowardBoss(
+    enemy,
+    getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS * LEVEL2_BOSS_STAGE_THREE_PULL_RADIUS_MULTIPLIER,
+    dt,
+    LEVEL2_BOSS_STAGE_THREE_PULL_SPEED_MULTIPLIER
+  );
 
   enemy.bossMineTimer -= dt;
   while (enemy.bossMineTimer <= 0) {
@@ -2383,12 +2428,12 @@ function updateLevel2BossStageThree(enemy, dt) {
   }
 }
 
-function pullPlayerTowardBoss(enemy, radius, dt) {
+function pullPlayerTowardBoss(enemy, radius, dt, speedMultiplier = 1) {
   const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
   if (distance > radius + player.size * 0.5) return false;
   if (distance <= 1) return true;
 
-  const step = Math.min(distance, LEVEL2_BOSS_PULL_SPEED * dt);
+  const step = Math.min(distance, LEVEL2_BOSS_PULL_SPEED * speedMultiplier * dt);
   const half = player.size * 0.5;
   player.x = clamp(player.x + ((enemy.x - player.x) / distance) * step, ARENA.x + half, ARENA.x + ARENA.width - half);
   player.y = clamp(player.y + ((enemy.y - player.y) / distance) * step, ARENA.y + half, ARENA.y + ARENA.height - half);
@@ -3223,6 +3268,66 @@ function getAbilityCooldownState(abilityKey) {
   }
 
   return null;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getAbilityTooltipContent(abilityKey) {
+  if (!abilityKey) {
+    return {
+      title: "Пустой слот",
+      text: "Здесь появится украденная способность.",
+    };
+  }
+
+  const ability = abilities[abilityKey];
+  if (!ability) return null;
+
+  return {
+    title: ability.name,
+    text: ability.description ?? ability.hint,
+  };
+}
+
+function hideAbilityHoverTooltip() {
+  abilityTooltipEl.classList.remove("is-visible");
+}
+
+function updateAbilityHoverTooltip() {
+  const hoverTarget = document.elementFromPoint(lastPointerClientX, lastPointerClientY)?.closest(".ability-tile");
+
+  if (!hoverTarget || !abilityTilesEl.contains(hoverTarget)) {
+    hideAbilityHoverTooltip();
+    return;
+  }
+
+  const content = getAbilityTooltipContent(hoverTarget.dataset.ability ?? null);
+  if (!content) {
+    hideAbilityHoverTooltip();
+    return;
+  }
+
+  abilityTooltipEl.innerHTML = `<span class="ability-hover-tooltip__title">${escapeHtml(content.title)}</span><span class="ability-hover-tooltip__text">${escapeHtml(content.text)}</span>`;
+  abilityTooltipEl.classList.add("is-visible");
+
+  const margin = 10;
+  const tooltipRect = abilityTooltipEl.getBoundingClientRect();
+  const tileRect = hoverTarget.getBoundingClientRect();
+  let left = tileRect.left + tileRect.width / 2 - tooltipRect.width / 2;
+  let top = tileRect.top - tooltipRect.height - 10;
+
+  left = clamp(left, margin, window.innerWidth - tooltipRect.width - margin);
+  if (top < margin) top = tileRect.bottom + 10;
+
+  abilityTooltipEl.style.left = `${left}px`;
+  abilityTooltipEl.style.top = `${top}px`;
 }
 
 function getHookCooldown() {
@@ -6267,7 +6372,7 @@ function updateUi() {
       (tile, index) => {
         const cooldown = tile.abilityKey ? getAbilityCooldownState(tile.abilityKey) : null;
         const cooldownRatio = cooldown ? clamp(cooldown.remaining / cooldown.duration, 0, 1) : 0;
-        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""} title="${tile.abilityKey ? abilities[tile.abilityKey]?.name ?? "" : "Пустой слот"}">${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__hotkey">${index + 1}</span><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
+        return `<div class="ability-tile${tile.active ? " is-active" : ""}${tile.empty ? " is-empty" : ""}${cooldown ? " is-cooling" : ""}" data-mode="${tile.mode}"${tile.abilityKey ? ` data-ability="${tile.abilityKey}"` : ""}>${cooldown ? `<span class="ability-tile__cooldown" style="height:${(cooldownRatio * 100).toFixed(1)}%"></span><span class="ability-tile__cooldown-label">${Math.ceil(cooldown.remaining)}</span>` : ""}<span class="ability-tile__hotkey">${index + 1}</span><span class="ability-tile__icon"><span class="ability-tile__icon-glyph">${tile.icon}</span></span>${tile.charges !== null ? `<span class="ability-tile__charges">${tile.charges}</span>` : ""}</div>`;
       }
     )
     .join("");
@@ -6310,9 +6415,15 @@ function updateUi() {
     }
   }
   passiveTrayEl.innerHTML = passiveChips.join("");
+  updateAbilityHoverTooltip();
 }
 
 function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#07101d";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  applyRenderTransform();
   ctx.clearRect(0, 0, VIEW.width, VIEW.height);
   drawSky();
   drawArenaGlow();
@@ -6395,9 +6506,9 @@ function drawArena() {
 
   ctx.strokeStyle = "rgba(113, 226, 255, 0.1)";
   ctx.lineWidth = 1;
-  for (let i = 1; i < 8; i += 1) {
-    const offsetX = (ARENA.width / 8) * i;
-    const offsetY = (ARENA.height / 8) * i;
+  for (let i = 1; i < GRID_RENDER_CELLS; i += 1) {
+    const offsetX = (ARENA.width / GRID_RENDER_CELLS) * i;
+    const offsetY = (ARENA.height / GRID_RENDER_CELLS) * i;
     ctx.beginPath();
     ctx.moveTo(offsetX, 0);
     ctx.lineTo(offsetX, ARENA.height);
@@ -6436,13 +6547,13 @@ function drawImpactBursts() {
     if (burst.kind === "ring") {
       const expansion = 1 - life;
       ctx.strokeStyle = colorWithAlpha(burst.midColor, life * 0.76);
-      ctx.lineWidth = 2 + life * 2;
+      ctx.lineWidth = getEffectSize(2 + life * 2);
       ctx.beginPath();
       ctx.arc(0, 0, burst.size * (0.45 + expansion * 1.25), 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.strokeStyle = colorWithAlpha(burst.outerColor, life * 0.48);
-      ctx.lineWidth = 1;
+      ctx.lineWidth = getEffectSize(1);
       ctx.beginPath();
       ctx.arc(0, 0, burst.size * (0.72 + expansion * 1.7), 0, Math.PI * 2);
       ctx.stroke();
@@ -6525,63 +6636,69 @@ function drawEnemyTooltip() {
   if (!enemy) return;
 
   const data = getEnemyTooltipData(enemy);
-  const width = Math.min(286, Math.max(220, VIEW.width - 24));
-  const padding = 12;
+  const tooltipScale = Math.max(RENDER.scale || 1, 0.01);
+  const toWorld = (value) => value / tooltipScale;
+  const width = Math.min(toWorld(280), Math.max(toWorld(240), VIEW.width - toWorld(24)));
+  const padding = toWorld(11);
   const contentWidth = width - padding * 2;
+  const titleFont = `700 ${toWorld(14)}px 'Trebuchet MS', 'Segoe UI', sans-serif`;
+  const hpFont = `700 ${toWorld(12)}px 'Trebuchet MS', 'Segoe UI', sans-serif`;
+  const bodyFont = `600 ${toWorld(12)}px 'Trebuchet MS', 'Segoe UI', sans-serif`;
+  const bodyLineHeight = toWorld(16);
 
   ctx.save();
-  ctx.font = "700 15px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.font = titleFont;
   const titleLine = data.title;
-  ctx.font = "700 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.font = hpFont;
   const hpLine = data.hp;
-  ctx.font = "600 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.font = bodyFont;
   const textLines = wrapCanvasText(data.text, contentWidth);
   const rewardLines = wrapCanvasText(data.reward, contentWidth);
-  const height = padding * 2 + 18 + 16 + textLines.length * 15 + rewardLines.length * 15 + 10;
-  let x = hoverAnchorPoint.x + 18;
-  let y = hoverAnchorPoint.y + 18;
-  x = clamp(x, 12, VIEW.width - width - 12);
-  if (y + height > VIEW.height - 12) y = hoverAnchorPoint.y - height - 18;
-  y = clamp(y, 12, VIEW.height - height - 12);
+  const height = padding * 2 + toWorld(18) + toWorld(16) + textLines.length * bodyLineHeight + rewardLines.length * bodyLineHeight + toWorld(8);
+  let x = hoverAnchorPoint.x + toWorld(18);
+  let y = hoverAnchorPoint.y + toWorld(18);
+  x = clamp(x, toWorld(12), VIEW.width - width - toWorld(12));
+  if (y + height > VIEW.height - toWorld(12)) y = hoverAnchorPoint.y - height - toWorld(18);
+  y = clamp(y, toWorld(12), VIEW.height - height - toWorld(12));
 
   ctx.shadowColor = "rgba(0, 0, 0, 0.32)";
-  ctx.shadowBlur = 18;
+  ctx.shadowBlur = toWorld(18);
   ctx.fillStyle = "rgba(7, 12, 22, 0.9)";
   ctx.beginPath();
-  drawRoundedRectPath(x, y, width, height, 8);
+  drawRoundedRectPath(x, y, width, height, toWorld(8));
   ctx.fill();
   ctx.shadowBlur = 0;
 
   ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
-  ctx.lineWidth = 1;
+  ctx.lineWidth = toWorld(1);
   ctx.stroke();
 
   ctx.fillStyle = data.color;
-  ctx.fillRect(x, y, 4, height);
+  ctx.fillRect(x, y, toWorld(4), height);
 
-  let textY = y + padding + 13;
+  let textY = y + padding + toWorld(13);
   ctx.fillStyle = "rgba(246, 250, 255, 0.96)";
-  ctx.font = "700 15px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.font = titleFont;
   ctx.fillText(titleLine, x + padding, textY);
 
-  textY += 17;
+  textY += toWorld(17);
   ctx.fillStyle = "rgba(205, 220, 235, 0.88)";
-  ctx.font = "700 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.font = hpFont;
   ctx.fillText(hpLine, x + padding, textY);
 
-  textY += 18;
+  textY += toWorld(19);
   ctx.fillStyle = "rgba(234, 242, 250, 0.88)";
-  ctx.font = "600 12px 'Trebuchet MS', 'Segoe UI', sans-serif";
+  ctx.font = bodyFont;
   for (const line of textLines) {
     ctx.fillText(line, x + padding, textY);
-    textY += 15;
+    textY += bodyLineHeight;
   }
 
-  textY += 4;
+  textY += toWorld(5);
   ctx.fillStyle = "rgba(255, 226, 145, 0.94)";
   for (const line of rewardLines) {
     ctx.fillText(line, x + padding, textY);
-    textY += 15;
+    textY += bodyLineHeight;
   }
 
   ctx.restore();
@@ -6622,13 +6739,13 @@ function drawDeathExplosion() {
   ctx.fill();
 
   ctx.strokeStyle = `rgba(255, 244, 220, ${0.9 * fade})`;
-  ctx.lineWidth = 3 + fade * 5;
+  ctx.lineWidth = getEffectSize(3 + fade * 5);
   ctx.beginPath();
   ctx.arc(deathExplosion.x, deathExplosion.y, blastRadius * 0.68, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = `rgba(255, 124, 150, ${0.75 * fade})`;
-  ctx.lineWidth = 2 + fade * 3;
+  ctx.lineWidth = getEffectSize(2 + fade * 3);
   ctx.beginPath();
   ctx.arc(deathExplosion.x, deathExplosion.y, blastRadius, 0, Math.PI * 2);
   ctx.stroke();
@@ -6640,30 +6757,30 @@ function drawSpawnMarkers() {
   for (const marker of spawnMarkers) {
     const progress = marker.elapsed / ENEMY_SPAWN_TELEGRAPH;
     const pulse = 0.5 + 0.5 * Math.sin(worldTime * 8 + marker.x * 0.01);
-    const radius = 12 + pulse * 9;
+    const radius = getMarkerSize(12 + pulse * 9);
 
     ctx.save();
     ctx.translate(marker.x, marker.y);
 
     ctx.strokeStyle = `rgba(255, 82, 82, ${0.35 + pulse * 0.45})`;
-    ctx.lineWidth = 2 + pulse * 2;
+    ctx.lineWidth = getEffectSize(2 + pulse * 2);
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = "rgba(255, 130, 130, 0.9)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
-    ctx.moveTo(-9, 0);
-    ctx.lineTo(9, 0);
-    ctx.moveTo(0, -9);
-    ctx.lineTo(0, 9);
+    ctx.moveTo(-getMarkerSize(9), 0);
+    ctx.lineTo(getMarkerSize(9), 0);
+    ctx.moveTo(0, -getMarkerSize(9));
+    ctx.lineTo(0, getMarkerSize(9));
     ctx.stroke();
 
     ctx.beginPath();
     ctx.strokeStyle = "rgba(255, 210, 210, 0.95)";
-    ctx.lineWidth = 3;
-    ctx.arc(-0.01, -0.01, radius + 8, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * progress);
+    ctx.lineWidth = getEffectSize(3);
+    ctx.arc(-0.01, -0.01, radius + getMarkerSize(8), -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * progress);
     ctx.stroke();
 
     ctx.restore();
@@ -6675,29 +6792,29 @@ function drawMoveMarker() {
 
   const progress = 1 - clamp(moveMarker.ttl / moveMarker.life, 0, 1);
   const pulse = 0.5 + 0.5 * Math.sin(worldTime * 10);
-  const radius = 14 + pulse * 7 + progress * 8;
+  const radius = getMarkerSize(14 + pulse * 7 + progress * 8);
 
   ctx.save();
   ctx.translate(moveMarker.x, moveMarker.y);
 
   ctx.strokeStyle = `rgba(122, 232, 255, ${0.25 + (1 - progress) * 0.45})`;
-  ctx.lineWidth = 2 + (1 - progress) * 2;
+  ctx.lineWidth = getEffectSize(2 + (1 - progress) * 2);
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = "rgba(212, 247, 255, 0.9)";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = getEffectSize(2);
   ctx.beginPath();
-  ctx.moveTo(-8, 0);
-  ctx.lineTo(8, 0);
-  ctx.moveTo(0, -8);
-  ctx.lineTo(0, 8);
+  ctx.moveTo(-getMarkerSize(8), 0);
+  ctx.lineTo(getMarkerSize(8), 0);
+  ctx.moveTo(0, -getMarkerSize(8));
+  ctx.lineTo(0, getMarkerSize(8));
   ctx.stroke();
 
   ctx.beginPath();
   ctx.strokeStyle = `rgba(122, 232, 255, ${0.16 + (1 - progress) * 0.28})`;
-  ctx.arc(0, 0, radius + 10 + progress * 12, 0, Math.PI * 2);
+  ctx.arc(0, 0, radius + getMarkerSize(10 + progress * 12), 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
@@ -6762,7 +6879,7 @@ function drawPlayerTrajectory() {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.strokeStyle = `rgba(42, 211, 255, ${0.14 + pulse * 0.08})`;
-  ctx.lineWidth = 9;
+  ctx.lineWidth = getEffectSize(9);
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   for (let index = 1; index < points.length; index += 1) {
@@ -6771,7 +6888,7 @@ function drawPlayerTrajectory() {
   ctx.stroke();
 
   ctx.strokeStyle = `rgba(220, 250, 255, ${0.62 + pulse * 0.2})`;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = getEffectSize(2.5);
   ctx.setLineDash([12, 10]);
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
@@ -6835,7 +6952,7 @@ function drawAbilityRange() {
           ? "rgba(210, 124, 255, 0.26)"
           : "rgba(130, 220, 255, 0.24)";
   ctx.setLineDash([10, 12]);
-  ctx.lineWidth = 2;
+  ctx.lineWidth = getEffectSize(2);
   ctx.beginPath();
   ctx.arc(player.x, player.y, range, 0, Math.PI * 2);
   ctx.stroke();
@@ -6854,7 +6971,7 @@ function drawHookTargetPreview() {
 
   ctx.save();
   ctx.strokeStyle = `rgba(255, 214, 124, ${0.36 + pulse * 0.24})`;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = getEffectSize(2.5);
   ctx.setLineDash([8, 8]);
   ctx.beginPath();
   ctx.moveTo(player.x, player.y);
@@ -6863,13 +6980,13 @@ function drawHookTargetPreview() {
 
   ctx.setLineDash([]);
   ctx.strokeStyle = `rgba(255, 232, 174, ${0.58 + pulse * 0.24})`;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = getEffectSize(3);
   ctx.beginPath();
   ctx.arc(target.x, target.y, radius + 6, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = `rgba(255, 196, 92, ${0.24 + pulse * 0.18})`;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = getEffectSize(2);
   ctx.beginPath();
   ctx.arc(target.x, target.y, radius + 12 + pulse * 3, 0, Math.PI * 2);
   ctx.stroke();
@@ -6887,7 +7004,7 @@ function drawEnemies() {
       const pulse = 0.5 + 0.5 * Math.sin(worldTime * 5 + enemy.x * 0.01);
       ctx.save();
       ctx.strokeStyle = `rgba(42, 211, 255, ${0.16 + pulse * 0.12})`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = getEffectSize(2);
       ctx.setLineDash([7, 7]);
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, COMMANDER_AURA_RADIUS + pulse * 7, 0, Math.PI * 2);
@@ -6900,7 +7017,7 @@ function drawEnemies() {
       const pulse = 0.5 + 0.5 * Math.sin(worldTime * 4.5 + enemy.y * 0.01);
       ctx.save();
       ctx.strokeStyle = `rgba(54, 240, 255, ${0.12 + pulse * 0.1})`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = getEffectSize(2);
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, MEDIC_SUPPORT_RANGE + pulse * 5, 0, Math.PI * 2);
       ctx.stroke();
@@ -6911,7 +7028,7 @@ function drawEnemies() {
       const pulse = 0.5 + 0.5 * Math.sin(worldTime * 3 + enemy.x * 0.01);
       ctx.save();
       ctx.strokeStyle = `rgba(245, 248, 255, ${0.12 + pulse * 0.1})`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = getEffectSize(2);
       ctx.setLineDash([10, 8]);
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, SLOW_FIELD_RADIUS + pulse * 4, 0, Math.PI * 2);
@@ -6934,6 +7051,8 @@ function drawBoss(enemy) {
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
+  ctx.scale(BOSS_RENDER_SCALE, BOSS_RENDER_SCALE);
+  const bossWorldScale = 1 / BOSS_RENDER_SCALE;
   if (hitFlash > 0) {
     const shake = Math.sin(worldTime * 95 + enemy.id) * hitFlash * 2.4;
     ctx.translate(shake, -shake * 0.5);
@@ -6947,9 +7066,10 @@ function drawBoss(enemy) {
         : enemy.bossStage === 2 && enemy.bossState === "pull_wait"
           ? getCellSize() * LEVEL2_BOSS_STAGE_TWO_PULL_RADIUS_CELLS
         : enemy.bossStage === 3
-          ? getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS
+          ? getCellSize() * LEVEL2_BOSS_PULL_RADIUS_CELLS * LEVEL2_BOSS_STAGE_THREE_PULL_RADIUS_MULTIPLIER
           : 0;
     if (pullRadius > 0) {
+      const visualPullRadius = pullRadius * bossWorldScale;
       const castProgress = enemy.bossState === "pull_cast"
         ? 1 - clamp(enemy.bossStateTimer / LEVEL2_BOSS_PULL_CAST_TIME, 0, 1)
         : 1;
@@ -6957,7 +7077,7 @@ function drawBoss(enemy) {
       ctx.lineWidth = 2 + castProgress * 3;
       ctx.setLineDash([9, 10]);
       ctx.beginPath();
-      ctx.arc(0, 0, pullRadius * (0.35 + castProgress * 0.65), 0, Math.PI * 2);
+      ctx.arc(0, 0, visualPullRadius * (0.35 + castProgress * 0.65), 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -6968,7 +7088,7 @@ function drawBoss(enemy) {
           ctx.beginPath();
           ctx.strokeStyle = `rgba(255, 220, 155, ${0.52 * (1 - ringProgress)})`;
           ctx.lineWidth = 2 + (1 - ringProgress) * 2;
-          ctx.arc(0, 0, pullRadius * (1 - ringProgress * 0.78), 0, Math.PI * 2);
+          ctx.arc(0, 0, visualPullRadius * (1 - ringProgress * 0.78), 0, Math.PI * 2);
           ctx.stroke();
         }
 
@@ -6977,8 +7097,8 @@ function drawBoss(enemy) {
         for (let index = 0; index < 10; index += 1) {
           const angle = (Math.PI * 2 * index) / 10 + worldTime * 1.8;
           ctx.beginPath();
-          ctx.moveTo(Math.cos(angle) * pullRadius * 0.92, Math.sin(angle) * pullRadius * 0.92);
-          ctx.lineTo(Math.cos(angle) * pullRadius * 0.34, Math.sin(angle) * pullRadius * 0.34);
+          ctx.moveTo(Math.cos(angle) * visualPullRadius * 0.92, Math.sin(angle) * visualPullRadius * 0.92);
+          ctx.lineTo(Math.cos(angle) * visualPullRadius * 0.34, Math.sin(angle) * visualPullRadius * 0.34);
           ctx.stroke();
         }
       }
@@ -7003,7 +7123,7 @@ function drawBoss(enemy) {
       for (const angle of angles) {
         ctx.beginPath();
         ctx.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-        ctx.lineTo(Math.cos(angle) * getArenaProjectileReach(), Math.sin(angle) * getArenaProjectileReach());
+        ctx.lineTo(Math.cos(angle) * getArenaProjectileReach() * bossWorldScale, Math.sin(angle) * getArenaProjectileReach() * bossWorldScale);
         ctx.stroke();
       }
       ctx.setLineDash([]);
@@ -7018,7 +7138,7 @@ function drawBoss(enemy) {
       ctx.lineWidth = 3 + progress * 4;
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.lineTo((dx / distance) * getArenaProjectileReach(), (dy / distance) * getArenaProjectileReach());
+      ctx.lineTo((dx / distance) * getArenaProjectileReach() * bossWorldScale, (dy / distance) * getArenaProjectileReach() * bossWorldScale);
       ctx.stroke();
     }
   }
@@ -7032,7 +7152,7 @@ function drawBoss(enemy) {
       const angle = (Math.PI * 2 * index) / LEVEL1_BOSS_RADIAL_SHOTS;
       ctx.beginPath();
       ctx.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-      ctx.lineTo(Math.cos(angle) * getArenaProjectileReach(), Math.sin(angle) * getArenaProjectileReach());
+      ctx.lineTo(Math.cos(angle) * getArenaProjectileReach() * bossWorldScale, Math.sin(angle) * getArenaProjectileReach() * bossWorldScale);
       ctx.stroke();
     }
     ctx.setLineDash([]);
@@ -7043,7 +7163,7 @@ function drawBoss(enemy) {
     ctx.strokeStyle = `rgba(255, 232, 112, ${0.38 + shieldProgress * 0.36})`;
     ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.arc(0, 0, LEVEL1_BOSS_SHIELD_RADIUS, 0, Math.PI * 2);
+    ctx.arc(0, 0, LEVEL1_BOSS_SHIELD_RADIUS * bossWorldScale, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -7099,6 +7219,7 @@ function drawEnemy(enemy) {
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
+  ctx.scale(UNIT_RENDER_SCALE, UNIT_RENDER_SCALE);
   if (hitFlash > 0) {
     const shake = Math.sin(worldTime * 110 + enemy.id) * hitFlash * 1.8;
     ctx.translate(shake, -shake * 0.45);
@@ -7247,7 +7368,7 @@ function drawEnemy(enemy) {
 
   if (enemy.kind === "brute") {
     ctx.strokeStyle = "rgba(255, 248, 214, 0.88)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.moveTo(-8, 0);
     ctx.lineTo(8, 0);
@@ -7258,7 +7379,7 @@ function drawEnemy(enemy) {
     ctx.stroke();
   } else if (enemy.kind === "replicator") {
     ctx.strokeStyle = "rgba(228, 255, 255, 0.92)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.moveTo(-6, -4);
     ctx.lineTo(0, -8);
@@ -7272,7 +7393,7 @@ function drawEnemy(enemy) {
     ctx.stroke();
   } else if (enemy.kind === "heal") {
     ctx.strokeStyle = "rgba(230, 248, 255, 0.9)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.moveTo(-6, 0);
     ctx.lineTo(6, 0);
@@ -7457,7 +7578,7 @@ function drawEnemy(enemy) {
     ctx.stroke();
   } else if (enemy.phase === "shield_windup") {
     const windupProgress = 1 - clamp(enemy.phaseTimer / (enemy.phaseDuration || ENEMY_SHIELD_WINDUP_TIME), 0, 1);
-    const shieldRadius = getEnemyShieldRadius(enemy);
+    const shieldRadius = getEnemyShieldRadius(enemy) / UNIT_RENDER_SCALE;
     ctx.beginPath();
     ctx.strokeStyle = `rgba(255, 224, 122, ${0.24 + windupProgress * 0.42})`;
     ctx.lineWidth = 2 + windupProgress * 3;
@@ -7474,7 +7595,7 @@ function drawEnemy(enemy) {
   } else if (enemy.phase === "shield_up") {
     const shieldProgress = clamp(enemy.phaseTimer / (enemy.phaseDuration || ENEMY_SHIELD_UP_TIME), 0, 1);
     const appearProgress = 1 - shieldProgress;
-    const shieldRadius = getEnemyShieldRadius(enemy);
+    const shieldRadius = getEnemyShieldRadius(enemy) / UNIT_RENDER_SCALE;
     ctx.beginPath();
     ctx.strokeStyle = `rgba(255, 224, 122, ${0.34 + shieldProgress * 0.24})`;
     ctx.lineWidth = 3 + appearProgress * 2;
@@ -7535,7 +7656,7 @@ function drawMines() {
       const segment = getTripwireSegment(mine);
       ctx.save();
       ctx.strokeStyle = `rgba(206, 238, 255, ${0.32 + pulse * 0.28})`;
-      ctx.lineWidth = TRIPWIRE_WIDTH;
+      ctx.lineWidth = getEffectSize(TRIPWIRE_WIDTH);
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(segment.x1, segment.y1);
@@ -7543,7 +7664,7 @@ function drawMines() {
       ctx.stroke();
 
       ctx.strokeStyle = `rgba(255, 255, 255, ${0.32 + life * 0.42})`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = getEffectSize(2);
       ctx.beginPath();
       ctx.moveTo(segment.x1, segment.y1);
       ctx.lineTo(segment.x2, segment.y2);
@@ -7552,15 +7673,15 @@ function drawMines() {
       continue;
     }
 
-    const radius = mine.radius;
-    const outerRadius = radius + 4 + pulse * 3;
+    const radius = getMarkerSize(mine.radius);
+    const outerRadius = radius + getMarkerSize(4 + pulse * 3);
 
     ctx.save();
     ctx.translate(mine.x, mine.y);
 
     ctx.strokeStyle =
       mine.owner === "player" ? `rgba(196, 204, 214, ${0.24 + pulse * 0.22})` : `rgba(255, 108, 120, ${0.3 + pulse * 0.28})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
     ctx.stroke();
@@ -7571,8 +7692,8 @@ function drawMines() {
     ctx.fill();
 
     ctx.fillStyle = mine.owner === "player" ? "rgba(241, 245, 250, 0.95)" : "rgba(255, 232, 236, 0.92)";
-    ctx.fillRect(-2, -radius - 4, 4, 8);
-    ctx.fillRect(-radius - 4, -2, 8, 4);
+    ctx.fillRect(-getMarkerSize(2), -radius - getMarkerSize(4), getMarkerSize(4), getMarkerSize(8));
+    ctx.fillRect(-radius - getMarkerSize(4), -getMarkerSize(2), getMarkerSize(8), getMarkerSize(4));
 
     ctx.fillStyle = "rgba(255,255,255,0.28)";
     ctx.beginPath();
@@ -7591,7 +7712,7 @@ function drawEnemySeeds() {
     ctx.save();
     ctx.translate(seed.x, seed.y);
     ctx.strokeStyle = `rgba(166, 255, 92, ${0.22 + progress * 0.28})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
     ctx.stroke();
@@ -7602,7 +7723,7 @@ function drawEnemySeeds() {
     ctx.fill();
 
     ctx.strokeStyle = "rgba(242, 255, 232, 0.9)";
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = getEffectSize(1.5);
     ctx.beginPath();
     ctx.moveTo(-4, 2);
     ctx.lineTo(0, -5);
@@ -7622,14 +7743,14 @@ function drawLaserEffects() {
     ctx.save();
     ctx.lineCap = "round";
     ctx.strokeStyle = `rgba(201, 243, 255, ${0.28 + progress * 0.38})`;
-    ctx.lineWidth = MIRROR_SHIELD_WIDTH + pulse * 3;
+    ctx.lineWidth = getEffectSize(MIRROR_SHIELD_WIDTH + pulse * 3);
     ctx.beginPath();
     ctx.moveTo(shield.x1, shield.y1);
     ctx.lineTo(shield.x2, shield.y2);
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(255, 255, 255, ${0.46 + progress * 0.34})`;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = getEffectSize(2.5);
     ctx.beginPath();
     ctx.moveTo(shield.x1, shield.y1);
     ctx.lineTo(shield.x2, shield.y2);
@@ -7641,13 +7762,13 @@ function drawLaserEffects() {
     const shieldProgress = clamp(activePlayerShield.timer / activePlayerShield.duration, 0, 1);
     ctx.save();
     ctx.strokeStyle = `rgba(255, 224, 122, ${0.34 + shieldProgress * 0.34})`;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = getEffectSize(4);
     ctx.beginPath();
     ctx.arc(player.x, player.y, activePlayerShield.radius, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = "rgba(255, 248, 204, 0.95)";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = getEffectSize(3);
     ctx.beginPath();
     ctx.arc(
       player.x,
@@ -7667,7 +7788,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(201, 243, 255, ${0.24 + mirrorProgress * 0.5})`;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = getEffectSize(3);
     ctx.setLineDash([8, 7]);
     ctx.beginPath();
     ctx.arc(player.x, player.y, radius + 10, 0, Math.PI * 2);
@@ -7675,7 +7796,7 @@ function drawLaserEffects() {
     ctx.setLineDash([]);
 
     ctx.strokeStyle = `rgba(255, 255, 255, ${0.22 + mirrorProgress * 0.4})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.arc(
       player.x,
@@ -7691,14 +7812,14 @@ function drawLaserEffects() {
   if (activeHook) {
     ctx.save();
     ctx.strokeStyle = "rgba(255, 209, 102, 0.92)";
-    ctx.lineWidth = 4;
+    ctx.lineWidth = getEffectSize(4);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
     ctx.lineTo(activeHook.tipX, activeHook.tipY);
     ctx.stroke();
 
     ctx.strokeStyle = "rgba(255,255,255,0.58)";
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = getEffectSize(1.5);
     ctx.setLineDash([8, 8]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7718,7 +7839,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(118, 244, 255, ${0.28 + pulse * 0.28})`;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = getEffectSize(2.5);
     ctx.setLineDash([8, 7]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7727,7 +7848,7 @@ function drawLaserEffects() {
     ctx.setLineDash([]);
 
     ctx.strokeStyle = `rgba(212, 252, 255, ${0.46 + pulse * 0.3})`;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = getEffectSize(3);
     ctx.beginPath();
     ctx.arc(pendingPlayerTeleport.targetX, pendingPlayerTeleport.targetY, 18 + pulse * 7, 0, Math.PI * 2);
     ctx.stroke();
@@ -7745,7 +7866,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(118, 244, 255, ${0.24 + progress * 0.42})`;
-    ctx.lineWidth = 2 + progress * 2;
+    ctx.lineWidth = getEffectSize(2 + progress * 2);
     ctx.setLineDash([12, 10]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7754,7 +7875,7 @@ function drawLaserEffects() {
     ctx.setLineDash([]);
 
     ctx.strokeStyle = `rgba(212, 252, 255, ${0.35 + progress * 0.4})`;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = getEffectSize(3);
     ctx.beginPath();
     ctx.arc(
       activePlayerTeleport.targetX,
@@ -7785,7 +7906,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(114, 232, 255, ${0.24 + progress * 0.34})`;
-    ctx.lineWidth = 2 + progress * 2;
+    ctx.lineWidth = getEffectSize(2 + progress * 2);
     ctx.setLineDash([14, 10]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7802,7 +7923,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(255, 214, 128, ${0.18 + progress * 0.32})`;
-    ctx.lineWidth = 2 + progress * 1.5;
+    ctx.lineWidth = getEffectSize(2 + progress * 1.5);
     ctx.setLineDash([10, 8]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7819,7 +7940,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(184, 32, 56, ${0.24 + progress * 0.42})`;
-    ctx.lineWidth = 3 + progress * 2;
+    ctx.lineWidth = getEffectSize(3 + progress * 2);
     ctx.setLineDash([16, 10]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7837,7 +7958,7 @@ function drawLaserEffects() {
 
     ctx.save();
     ctx.strokeStyle = `rgba(212, 122, 255, ${0.24 + progress * 0.34})`;
-    ctx.lineWidth = 2 + progress * 2;
+    ctx.lineWidth = getEffectSize(2 + progress * 2);
     ctx.setLineDash([14, 10]);
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -7867,14 +7988,14 @@ function drawLaserEffects() {
     gradient.addColorStop(1, "#7b1457");
     ctx.fillStyle = gradient;
     ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.strokeStyle = "rgba(255, 240, 248, 0.9)";
     ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
     ctx.restore();
 
     ctx.save();
     ctx.strokeStyle = `rgba(255, 166, 220, ${0.16 + life * 0.22})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.setLineDash([8, 8]);
     ctx.beginPath();
     ctx.arc(decoy.x, decoy.y, decoy.size + 8 + pulse * 4, 0, Math.PI * 2);
@@ -7914,7 +8035,7 @@ function drawLaserEffects() {
     ctx.save();
     ctx.strokeStyle = `rgba(146, 222, 255, ${0.1 + pulse * 0.14})`;
     ctx.setLineDash([8, 8]);
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = getEffectSize(1.5);
     ctx.beginPath();
     ctx.arc(turret.x, turret.y, getTurretRange(), 0, Math.PI * 2);
     ctx.stroke();
@@ -7931,13 +8052,13 @@ function drawLaserEffects() {
     const intervalProgress = 1 - clamp(bomb.timer / bomb.interval, 0, 1);
     ctx.save();
     ctx.strokeStyle = `rgba(255, 143, 53, ${0.32 + pulse * 0.34})`;
-    ctx.lineWidth = 2 + pulse * 2;
+    ctx.lineWidth = getEffectSize(2 + pulse * 2);
     ctx.beginPath();
     ctx.arc(bomb.x, bomb.y, 14 + pulse * 5, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(255, 238, 188, ${0.2 + intervalProgress * 0.42})`;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = getEffectSize(1.5);
     ctx.setLineDash([5, 6]);
     ctx.beginPath();
     ctx.arc(bomb.x, bomb.y, 24 + intervalProgress * 28, 0, Math.PI * 2);
@@ -7955,13 +8076,13 @@ function drawLaserEffects() {
     const progress = clamp(blast.radius / blast.maxRadius, 0, 1);
     ctx.save();
     ctx.strokeStyle = `rgba(255, 243, 214, ${0.28 + (1 - progress) * 0.38})`;
-    ctx.lineWidth = 2 + (1 - progress) * 4;
+    ctx.lineWidth = getEffectSize(2 + (1 - progress) * 4);
     ctx.beginPath();
     ctx.arc(blast.x, blast.y, blast.radius, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(255, 196, 112, ${0.18 + (1 - progress) * 0.22})`;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = getEffectSize(1.5);
     ctx.beginPath();
     ctx.arc(blast.x, blast.y, Math.max(0, blast.radius - 10), 0, Math.PI * 2);
     ctx.stroke();
@@ -7987,7 +8108,7 @@ function drawLaserEffects() {
       : isSniper
         ? `rgba(172, 22, 46, ${0.2 + progress * 0.34})`
         : `rgba(255, 120, 132, ${0.18 + progress * 0.3})`;
-    ctx.lineWidth = 2 + progress * 2;
+    ctx.lineWidth = getEffectSize(2 + progress * 2);
     ctx.setLineDash([12, 10]);
     ctx.beginPath();
     if (isSpray) {
@@ -8017,7 +8138,7 @@ function drawLaserEffects() {
     const life = clamp(beam.ttl / beam.life, 0, 1);
     ctx.save();
     ctx.strokeStyle = beam.color.replace(/[\d.]+\)$/u, `${0.12 + life * 0.88})`);
-    ctx.lineWidth = beam.width + (1 - life) * 6;
+    ctx.lineWidth = getEffectSize(beam.width + (1 - life) * 6);
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(beam.fromX, beam.fromY);
@@ -8025,7 +8146,7 @@ function drawLaserEffects() {
     ctx.stroke();
 
     ctx.strokeStyle = beam.innerColor.replace(/[\d.]+\)$/u, `${0.18 + life * 0.82})`);
-    ctx.lineWidth = Math.max(2, beam.width * 0.34);
+    ctx.lineWidth = getEffectSize(Math.max(2, beam.width * 0.34));
     ctx.beginPath();
     ctx.moveTo(beam.fromX, beam.fromY);
     ctx.lineTo(beam.toX, beam.toY);
@@ -8041,7 +8162,7 @@ function drawLaserEffects() {
     ctx.rotate(angle);
 
     ctx.strokeStyle = missile.color.replace(/[\d.]+\)$/u, `${0.24 + life * 0.54})`);
-    ctx.lineWidth = 3;
+    ctx.lineWidth = getEffectSize(3);
     ctx.beginPath();
     ctx.moveTo(-12, 0);
     ctx.lineTo(-22, 0);
@@ -8063,7 +8184,7 @@ function drawLaserEffects() {
     ctx.rotate(angle);
 
     ctx.strokeStyle = missile.color.replace(/[\d.]+\)$/u, `${0.22 + life * 0.52})`);
-    ctx.lineWidth = 3;
+    ctx.lineWidth = getEffectSize(3);
     ctx.beginPath();
     ctx.moveTo(-12, 0);
     ctx.lineTo(-24, 0);
@@ -8087,13 +8208,13 @@ function drawLaserEffects() {
     ctx.fillStyle = `rgba(78, 230, 168, ${0.22 + life * 0.62})`;
     ctx.fillRect(-projectile.radius, -projectile.radius, projectile.radius * 2, projectile.radius * 2);
     ctx.strokeStyle = `rgba(224, 255, 242, ${0.28 + life * 0.62})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.strokeRect(-projectile.radius, -projectile.radius, projectile.radius * 2, projectile.radius * 2);
     ctx.restore();
 
     ctx.save();
     ctx.strokeStyle = `rgba(201, 243, 255, ${0.1 + life * 0.24})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = getEffectSize(2);
     ctx.beginPath();
     ctx.moveTo(projectile.prevX, projectile.prevY);
     ctx.lineTo(projectile.x, projectile.y);
@@ -8121,7 +8242,7 @@ function drawLaserEffects() {
     const travelAlpha = clamp(1 - projectile.traveled / (projectile.range + projectile.length), 0.22, 1);
     ctx.save();
     ctx.strokeStyle = projectile.color.replace(/[\d.]+\)$/u, `${0.24 + travelAlpha * 0.76})`);
-    ctx.lineWidth = projectile.width;
+    ctx.lineWidth = getEffectSize(projectile.width);
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(tail.x, tail.y);
@@ -8129,7 +8250,7 @@ function drawLaserEffects() {
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(255,255,255,${0.2 + travelAlpha * 0.55})`;
-    ctx.lineWidth = Math.max(1, projectile.width * 0.34);
+    ctx.lineWidth = getEffectSize(Math.max(1, projectile.width * 0.34));
     ctx.beginPath();
     ctx.moveTo(tail.x, tail.y);
     ctx.lineTo(projectile.x, projectile.y);
@@ -8148,6 +8269,7 @@ function drawPlayer() {
   ctx.save();
   ctx.translate(player.x + shakeX, player.y + shakeY);
   ctx.rotate(angle);
+  ctx.scale(UNIT_RENDER_SCALE, UNIT_RENDER_SCALE);
 
   if (player.moving) {
     const flamePulse = 0.5 + 0.5 * Math.sin(worldTime * 24);
@@ -8217,6 +8339,11 @@ canvas.addEventListener("wheel", handleWheel, { passive: false });
 canvas.addEventListener("contextmenu", (event) => {
   event.preventDefault();
 });
+window.addEventListener("pointermove", (event) => {
+  lastPointerClientX = event.clientX;
+  lastPointerClientY = event.clientY;
+});
+window.addEventListener("pointerleave", hideAbilityHoverTooltip);
 window.addEventListener("keydown", handleKeyDown);
 window.addEventListener("pointerup", endDrag);
 window.addEventListener("pointercancel", endDrag);
