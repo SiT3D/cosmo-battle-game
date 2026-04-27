@@ -938,7 +938,6 @@ function isSimulationActive() {
     Boolean(activePlayerSniper) ||
     Boolean(activePlayerSpray) ||
     Boolean(activePlayerDash) ||
-    activePlayerTurrets.length > 0 ||
     beamEffects.length > 0
   );
 }
