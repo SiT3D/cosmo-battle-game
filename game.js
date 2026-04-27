@@ -188,8 +188,10 @@ const SLOW_ENEMY_RECOVER_DELAY = 0.4;
 const SLOW_ENEMY_HOLD_DISTANCE = 54;
 const ENEMY_SHIELD_WINDUP_TIME = 0.5;
 const ENEMY_SHIELD_UP_TIME = 1.2;
-const ENEMY_MINE_INTERVAL_MIN = 3;
-const ENEMY_MINE_INTERVAL_MAX = 10;
+const ENEMY_MINE_DROP_COUNT = 10;
+const ENEMY_MINE_DROP_DURATION = 10;
+const ENEMY_MINE_DROP_INTERVAL = ENEMY_MINE_DROP_DURATION / ENEMY_MINE_DROP_COUNT;
+const ENEMY_MINE_RAM_ACCELERATION_PER_SECOND = 0.05;
 const GROWER_SEED_INTERVAL_MIN = 4.8;
 const GROWER_SEED_INTERVAL_MAX = 7.2;
 const GROWER_SEED_HATCH_TIME = 2.9;
@@ -235,8 +237,8 @@ const STOLEN_TRIPWIRE_CHARGES = 3;
 const STOLEN_DASH_CHARGES = 1;
 const STOLEN_TURRET_CHARGES = 1;
 const PLAYER_DASH_SPEED = 980;
+const PLAYER_DASH_ACCELERATION = 1400;
 const PLAYER_DASH_DAMAGE = 3;
-const PLAYER_DASH_MAX_DISTANCE_CELLS = 2.8;
 const PLAYER_TURRET_HP = 5;
 const PLAYER_TURRET_SIZE = 28;
 const PLAYER_TURRET_RANGE_CELLS = 4.2;
@@ -466,7 +468,7 @@ const campaignLevels = [
     name: "Минное поле",
     roster: { mine: 5, bomber: 3, shield: 3, laser: 3 },
     minEnemies: 20,
-    maxEnemies: 6,
+    maxEnemies: 12,
     spawnInterval: [1.25, 2.2],
     boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
@@ -904,7 +906,7 @@ function getDecoyRange() {
 }
 
 function getDashRange() {
-  return getCellSize() * PLAYER_DASH_MAX_DISTANCE_CELLS;
+  return getArenaProjectileReach();
 }
 
 function getTurretRange() {
@@ -1485,6 +1487,8 @@ function updateEnemyMotion(enemy, dt) {
   const speedMultiplier =
     enemy.kind === "charger"
       ? CHARGER_SPEED_MULTIPLIER
+      : enemy.kind === "mine" && enemy.mineRamMode
+        ? 1 + (enemy.mineRamTimer ?? 0) * ENEMY_MINE_RAM_ACCELERATION_PER_SECOND
       : isHealingEnemy(enemy)
         ? MEDIC_MOVE_SPEED_MULTIPLIER
         : 1;
@@ -1912,10 +1916,20 @@ function updateEnemies(dt) {
     }
 
     if (enemy.kind === "mine") {
-      enemy.mineTimer -= timerDt;
-      if (enemy.mineTimer <= 0) {
-        spawnMine(enemy.x, enemy.y, "enemy");
-        enemy.mineTimer = randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX);
+      if (!enemy.mineRamMode) {
+        enemy.mineTimer -= timerDt;
+        while (enemy.mineTimer <= 0 && enemy.minesDropped < ENEMY_MINE_DROP_COUNT) {
+          spawnMine(enemy.x, enemy.y, "enemy");
+          enemy.minesDropped += 1;
+          enemy.mineTimer += ENEMY_MINE_DROP_INTERVAL;
+        }
+        if (enemy.minesDropped >= ENEMY_MINE_DROP_COUNT) {
+          enemy.mineRamMode = true;
+          enemy.mineRamTimer = 0;
+          enemy.mineTimer = 0;
+        }
+      } else {
+        enemy.mineRamTimer = (enemy.mineRamTimer ?? 0) + timerDt;
       }
     }
 
@@ -2799,6 +2813,15 @@ function launchEnemy(enemy) {
       direction = { x: Math.cos(angle), y: Math.sin(angle) };
       dashDistance = randomRange(ENEMY_DASH_MIN_DISTANCE * 0.65, ENEMY_DASH_MAX_DISTANCE * 0.75);
     }
+  } else if (enemy.kind === "mine" && enemy.mineRamMode) {
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 1) {
+      direction = { x: dx / distance, y: dy / distance };
+      dashDistance = clamp(distance * 1.08, ENEMY_DASH_MIN_DISTANCE * 0.85, ENEMY_DASH_MAX_DISTANCE * 1.2);
+    }
   } else if (enemy.kind === "commander") {
     const target = getCommanderRallyTarget(enemy);
     if (target) {
@@ -2920,7 +2943,10 @@ function createEnemy(kind, x, y) {
     aimX: x,
     aimY: y,
     moveTarget: null,
-    mineTimer: randomRange(ENEMY_MINE_INTERVAL_MIN, ENEMY_MINE_INTERVAL_MAX),
+    mineTimer: kind === "mine" ? ENEMY_MINE_DROP_INTERVAL : 0,
+    minesDropped: 0,
+    mineRamMode: false,
+    mineRamTimer: 0,
     seedTimer: randomRange(GROWER_SEED_INTERVAL_MIN, GROWER_SEED_INTERVAL_MAX),
     medicTimer: randomRange(MEDIC_SUPPORT_INTERVAL * 0.55, MEDIC_SUPPORT_INTERVAL),
     replicateTimer: REPLICATOR_CLONE_TIME,
@@ -3577,6 +3603,8 @@ function useDashAbility(targetPoint = aimPoint) {
     dirX,
     dirY,
     remaining: Math.min(distance, getDashRange()),
+    speed: PLAYER_DASH_SPEED * 0.45,
+    maxSpeed: PLAYER_DASH_SPEED * 1.9,
     hitEnemyIds: new Set(),
   };
   player.moveTarget = null;
@@ -4536,11 +4564,12 @@ function updatePlayerDecoy(dt) {
 function updatePlayerDash(dt) {
   if (!activePlayerDash) return;
 
-  const step = Math.min(activePlayerDash.remaining, PLAYER_DASH_SPEED * dt);
+  activePlayerDash.speed = Math.min(activePlayerDash.maxSpeed, activePlayerDash.speed + PLAYER_DASH_ACCELERATION * dt);
+  const step = Math.min(activePlayerDash.remaining, activePlayerDash.speed * dt);
   player.x += activePlayerDash.dirX * step;
   player.y += activePlayerDash.dirY * step;
-  player.vx = activePlayerDash.dirX * PLAYER_DASH_SPEED;
-  player.vy = activePlayerDash.dirY * PLAYER_DASH_SPEED;
+  player.vx = activePlayerDash.dirX * activePlayerDash.speed;
+  player.vy = activePlayerDash.dirY * activePlayerDash.speed;
   player.facingAngle = Math.atan2(activePlayerDash.dirY, activePlayerDash.dirX);
   activePlayerDash.remaining -= step;
   player.hitInvuln = Math.max(player.hitInvuln, 0.08);
@@ -7735,6 +7764,29 @@ function drawEnemySeeds() {
 }
 
 function drawLaserEffects() {
+  if (activePlayerDash) {
+    const speedRatio = clamp(activePlayerDash.speed / activePlayerDash.maxSpeed, 0, 1);
+    const tailLength = 28 + speedRatio * 58;
+    const pulse = 0.5 + 0.5 * Math.sin(worldTime * 22);
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = `rgba(255, 78, 132, ${0.18 + speedRatio * 0.34})`;
+    ctx.lineWidth = getEffectSize(10 + speedRatio * 10);
+    ctx.beginPath();
+    ctx.moveTo(player.x - activePlayerDash.dirX * tailLength, player.y - activePlayerDash.dirY * tailLength);
+    ctx.lineTo(player.x, player.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255, 234, 172, ${0.45 + pulse * 0.22})`;
+    ctx.lineWidth = getEffectSize(3 + speedRatio * 3);
+    ctx.beginPath();
+    ctx.moveTo(player.x - activePlayerDash.dirX * tailLength * 0.72, player.y - activePlayerDash.dirY * tailLength * 0.72);
+    ctx.lineTo(player.x, player.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   for (const enemy of enemies) {
     if (enemy.kind !== "mirror" || enemy.phase !== "mirror_shield") continue;
     const shield = getMirrorShieldSegment(enemy);
@@ -8274,13 +8326,14 @@ function drawPlayer() {
   ctx.rotate(angle);
   ctx.scale(UNIT_RENDER_SCALE, UNIT_RENDER_SCALE);
 
-  if (player.moving) {
+  if (player.moving || activePlayerDash) {
     const flamePulse = 0.5 + 0.5 * Math.sin(worldTime * 24);
+    const dashBoost = activePlayerDash ? clamp(activePlayerDash.speed / activePlayerDash.maxSpeed, 0, 1) : 0;
     ctx.fillStyle = `rgba(122, 232, 255, ${0.35 + flamePulse * 0.32})`;
     ctx.beginPath();
     ctx.moveTo(-radius * 0.78, 0);
-    ctx.lineTo(-radius * (1.26 + flamePulse * 0.3), -radius * 0.18);
-    ctx.lineTo(-radius * (1.26 + flamePulse * 0.3), radius * 0.18);
+    ctx.lineTo(-radius * (1.26 + flamePulse * 0.3 + dashBoost * 1.2), -radius * (0.18 + dashBoost * 0.08));
+    ctx.lineTo(-radius * (1.26 + flamePulse * 0.3 + dashBoost * 1.2), radius * (0.18 + dashBoost * 0.08));
     ctx.closePath();
     ctx.fill();
   }
