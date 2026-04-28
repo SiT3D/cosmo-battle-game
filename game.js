@@ -10,6 +10,7 @@ const powerLabelEl = document.getElementById("powerLabel");
 const timeLabelEl = document.getElementById("timeLabel");
 const passiveTrayEl = document.getElementById("passiveTray");
 const abilityTilesEl = document.getElementById("abilityTiles");
+const replayButtonEl = document.getElementById("replayButton");
 const abilityTooltipEl = document.createElement("div");
 abilityTooltipEl.className = "ability-hover-tooltip";
 document.body.appendChild(abilityTooltipEl);
@@ -713,6 +714,254 @@ let pendingUpgradeChoices = [];
 let staticFrameRequested = true;
 let nextUiRefreshAt = 0;
 const uiCache = new WeakMap();
+const replayRecorder = new GameReplayRecorder(() => ({
+  worldTime,
+  actionTime,
+  frameTime: performance.now(),
+  levelIndex: currentLevelIndex,
+}));
+window.replayRecorder = replayRecorder;
+const replayPlayer = new GameReplayPlayer({
+  getClock: () => ({ worldTime, actionTime }),
+  handlers: {
+    "player_input:pointermove": applyReplayPointerMove,
+    "player_input:ability_select": applyReplayAbilitySelect,
+    "player_input:ability_cycle": applyReplayAbilityCycle,
+    "player_input:move_command": applyReplayMoveCommand,
+    "player_input:ability_use": applyReplayAbilityUse,
+    "player_input:upgrade_choice": applyReplayUpgradeChoice,
+    "enemy_input:enemy_spawn": applyReplayEnemySpawn,
+    "enemy_input:boss_spawn": applyReplayBossSpawn,
+    "enemy_input:enemy_launch": applyReplayEnemyLaunch,
+    "enemy_input:enemy_seed_spawn": applyReplayEnemySeedSpawn,
+    level_complete: applyReplayLevelComplete,
+  },
+});
+window.replayPlayer = replayPlayer;
+window.startReplay = startReplay;
+let replayRecordingEnabled = true;
+
+function getReplayLevelMeta(reason = "reset") {
+  const level = getCurrentLevel();
+  return {
+    reason,
+    levelIndex: currentLevelIndex,
+    levelName: level.name,
+    bossKind: currentLevelBossKind,
+    spawnQueue: levelSpawnQueue.slice(),
+    spawnClock,
+    arena: { ...ARENA },
+    player: {
+      x: player.x,
+      y: player.y,
+      hp: player.hp,
+      maxHp: player.maxHp,
+    },
+  };
+}
+
+function beginReplayRecording(reason = "reset") {
+  if (!replayRecordingEnabled) return;
+  replayRecorder.beginRecording(getReplayLevelMeta(reason));
+}
+
+function recordSpawnMarker(marker, source) {
+  replayRecorder.recordEnemyInput("spawn_marker", {
+    source,
+    x: marker.x,
+    y: marker.y,
+    kind: marker.kind,
+    queueRemaining: levelSpawnQueue.length,
+  });
+}
+
+function getEnemyReplayPayload(enemy, source) {
+  return {
+    source,
+    id: enemy.id,
+    kind: enemy.kind,
+    x: enemy.x,
+    y: enemy.y,
+    hp: enemy.hp,
+    maxHp: enemy.maxHp,
+    size: enemy.size,
+    vx: enemy.vx,
+    vy: enemy.vy,
+    moving: Boolean(enemy.moving),
+    phase: enemy.phase,
+    phaseTimer: enemy.phaseTimer,
+    moveTarget: enemy.moveTarget ? { ...enemy.moveTarget } : null,
+    isIllusion: Boolean(enemy.isIllusion),
+    illusionTimer: enemy.illusionTimer ?? null,
+  };
+}
+
+function isReplayPlaybackActive() {
+  return replayPlayer.isPlaying();
+}
+
+function startReplay(recording = replayRecorder.getLastRecording() ?? replayRecorder.getRecording()) {
+  if (!recording?.events?.length) return false;
+
+  replayRecorder.stopRecording();
+  const meta = recording.session?.meta ?? {};
+  currentLevelIndex = clamp(meta.levelIndex ?? currentLevelIndex, 0, campaignLevels.length - 1);
+  replayRecordingEnabled = false;
+  resetGame();
+  replayRecordingEnabled = true;
+
+  currentLevelBossKind = meta.bossKind ?? currentLevelBossKind;
+  levelSpawnQueue = [];
+  spawnMarkers.length = 0;
+  enemies.length = 0;
+  enemySeeds.length = 0;
+  levelBossSpawned = true;
+  levelCompleted = false;
+  if (meta.player) {
+    player.x = meta.player.x ?? player.x;
+    player.y = meta.player.y ?? player.y;
+    player.hp = meta.player.hp ?? player.hp;
+    player.maxHp = meta.player.maxHp ?? player.maxHp;
+  }
+  actionTime = 0;
+  worldTime = 0;
+  gameState = "playing";
+  hideCampaignOverlay();
+  updateLevelHud();
+  replayPlayer.start(recording);
+  updateReplayControls();
+  return true;
+}
+
+function getReplayEventCount() {
+  return replayRecorder.getRecording()?.events?.length ?? 0;
+}
+
+function canStartReplayFromUi() {
+  return !isReplayPlaybackActive() && getReplayEventCount() > 1;
+}
+
+function updateReplayControls() {
+  if (!replayButtonEl) return;
+
+  replayButtonEl.disabled = !canStartReplayFromUi();
+  replayButtonEl.textContent = isReplayPlaybackActive() ? "Идет повтор" : "Повтор";
+}
+
+function getReplayPoint(payload) {
+  return {
+    x: payload?.x ?? aimPoint.x,
+    y: payload?.y ?? aimPoint.y,
+  };
+}
+
+function applyReplayPointerMove(event) {
+  const point = getReplayPoint(event.payload);
+  aimPoint = point;
+  pointerInCanvas = true;
+  pointerMovedSinceHover = true;
+}
+
+function applyReplayAbilitySelect(event) {
+  const mode = event.payload?.abilityMode;
+  if (mode && getSelectableAbilityModes().includes(mode)) {
+    abilityMode = mode;
+    requestUiRefresh();
+    return;
+  }
+  selectAbilityModeByIndex(event.payload?.index ?? 0);
+}
+
+function applyReplayAbilityCycle(event) {
+  const mode = event.payload?.abilityMode;
+  if (mode && getSelectableAbilityModes().includes(mode)) {
+    abilityMode = mode;
+    requestUiRefresh();
+    return;
+  }
+  cycleAbilitySelection(event.payload?.direction ?? 1);
+}
+
+function applyReplayMoveCommand(event) {
+  launchPlayerTowardPoint(getReplayPoint(event.payload));
+}
+
+function applyReplayAbilityUse(event) {
+  const mode = event.payload?.abilityMode;
+  if (mode && getSelectableAbilityModes().includes(mode)) {
+    abilityMode = mode;
+  }
+  tryUseAbilityFromClick(getReplayPoint(event.payload));
+}
+
+function applyReplayUpgradeChoice(event) {
+  chooseUpgrade(event.payload?.id);
+}
+
+function applyReplayEnemySpawn(event) {
+  const enemy = createEnemy(event.payload.kind, event.payload.x, event.payload.y);
+  Object.assign(enemy, {
+    id: event.payload.id ?? enemy.id,
+    hp: event.payload.hp ?? enemy.hp,
+    maxHp: event.payload.maxHp ?? enemy.maxHp,
+    vx: event.payload.vx ?? enemy.vx,
+    vy: event.payload.vy ?? enemy.vy,
+    moving: event.payload.moving ?? enemy.moving,
+    phase: event.payload.phase ?? enemy.phase,
+    phaseTimer: event.payload.phaseTimer ?? enemy.phaseTimer,
+    moveTarget: event.payload.moveTarget ?? enemy.moveTarget,
+    isIllusion: event.payload.isIllusion,
+    illusionTimer: event.payload.illusionTimer ?? enemy.illusionTimer,
+  });
+  if (enemy.id > enemyId) enemyId = enemy.id;
+  enemies.push(enemy);
+}
+
+function applyReplayBossSpawn(event) {
+  const boss = createEnemy(event.payload.kind, event.payload.x, event.payload.y);
+  Object.assign(boss, {
+    id: event.payload.id ?? boss.id,
+    hp: event.payload.hp ?? boss.hp,
+    maxHp: event.payload.maxHp ?? boss.maxHp,
+    vx: event.payload.vx ?? boss.vx,
+    vy: event.payload.vy ?? boss.vy,
+    moving: true,
+  });
+  if (boss.id > enemyId) enemyId = boss.id;
+  enemies.push(boss);
+}
+
+function applyReplayEnemyLaunch(event) {
+  const enemy = enemies.find((candidate) => candidate.id === event.payload.id);
+  if (!enemy) return;
+
+  enemy.moveTarget = {
+    x: event.payload.targetX,
+    y: event.payload.targetY,
+  };
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.moving = true;
+  enemy.restingFor = 0;
+  enemy.phase = "dash";
+  enemy.phaseTimer = event.payload.phaseTimer ?? 0;
+}
+
+function applyReplayEnemySeedSpawn(event) {
+  enemySeeds.push({
+    x: event.payload.x,
+    y: event.payload.y,
+    timer: event.payload.timer ?? GROWER_SEED_HATCH_TIME,
+    duration: event.payload.timer ?? GROWER_SEED_HATCH_TIME,
+    radius: event.payload.radius ?? GROWER_SEED_RADIUS,
+    pulseSeed: 0,
+  });
+}
+
+function applyReplayLevelComplete() {
+  levelCompleted = true;
+  showLevelComplete();
+}
 
 function requestStaticFrame() {
   staticFrameRequested = true;
@@ -1010,6 +1259,13 @@ function startDrag(event) {
 
   const point = getCanvasPoint(event);
   aimPoint = point;
+  replayRecorder.recordPlayerInput("pointerdown", {
+    button: event.button,
+    x: point.x,
+    y: point.y,
+    abilityMode,
+    selectedAbility: getSelectedAbilityState().ability.key,
+  });
   if (event.button === 2) {
     event.preventDefault();
     if (pendingPlayerTeleport) {
@@ -1030,6 +1286,10 @@ function movePointer(event) {
   pointerInCanvas = true;
   aimPoint = point;
   pointerMovedSinceHover = true;
+  replayRecorder.recordPlayerInput("pointermove", {
+    x: point.x,
+    y: point.y,
+  });
 }
 
 function endDrag() {
@@ -1116,6 +1376,10 @@ function cycleAbilitySelection(direction = 1) {
   const currentIndex = Math.max(0, modes.indexOf(abilityMode));
   const nextIndex = (currentIndex + direction + modes.length) % modes.length;
   abilityMode = modes[nextIndex];
+  replayRecorder.recordPlayerInput("ability_cycle", {
+    direction,
+    abilityMode,
+  });
   requestUiRefresh();
 }
 
@@ -1125,12 +1389,20 @@ function selectAbilityModeByIndex(index) {
   const modes = getSelectableAbilityModes();
   if (index < 0 || index >= modes.length) return false;
   abilityMode = modes[index];
+  replayRecorder.recordPlayerInput("ability_select", {
+    index,
+    abilityMode,
+  });
   requestUiRefresh();
   return true;
 }
 
 function handleKeyDown(event) {
   if (gameState !== "playing") return;
+  replayRecorder.recordPlayerInput("keydown", {
+    code: event.code,
+    key: event.key,
+  });
 
   if (event.code === "Escape" && pendingPlayerTeleport) {
     event.preventDefault();
@@ -1153,6 +1425,9 @@ function handleKeyDown(event) {
 
 function handleWheel(event) {
   if (gameState !== "playing") return;
+  replayRecorder.recordPlayerInput("wheel", {
+    deltaY: event.deltaY,
+  });
 
   if (Math.abs(event.deltaY) < 2) return;
   if (!canSwitchAbilities()) return;
@@ -1185,7 +1460,7 @@ function update(dt) {
     return;
   }
 
-  const startedActive = isSimulationActive();
+  const startedActive = isSimulationActive() || isReplayPlaybackActive();
   if (startedActive && !simulationWasActive) {
     beginEnemyActionCycle();
   }
@@ -1197,6 +1472,7 @@ function update(dt) {
 
   worldTime += simDt;
   actionTime += simDt;
+  replayPlayer.update(simDt);
   if (startedActive) {
     updatePassiveXp(simDt);
   }
@@ -1212,9 +1488,11 @@ function update(dt) {
   updatePlayerDash(simDt);
   updatePlayerTurrets(simDt);
   updateBaseProjectiles(simDt);
-  updateEnemySpawns(simDt);
-  updateLevelBossSpawn();
-  updateBossSupportSpawns(simDt);
+  if (!isReplayPlaybackActive()) {
+    updateEnemySpawns(simDt);
+    updateLevelBossSpawn();
+    updateBossSupportSpawns(simDt);
+  }
   updateEnemies(simDt * getPlayerUpgrades().enemySpeedMultiplier);
   if (player.dead) {
     updateUi();
@@ -1268,7 +1546,9 @@ function update(dt) {
   player.hitShake = Math.max(0, (player.hitShake || 0) - simDt * 5.5);
   updateMoveMarker(simDt);
   updateEnemyHover(dt);
-  checkLevelComplete();
+  if (!isReplayPlaybackActive()) {
+    checkLevelComplete();
+  }
   updateUi();
 }
 
@@ -1859,12 +2139,14 @@ function updateEnemySpawns(dt) {
 
   const point = findFreePoint(ENEMY_SIZE * 2.4);
   if (point) {
-    spawnMarkers.push({
+    const marker = {
       x: point.x,
       y: point.y,
       kind: levelSpawnQueue.shift(),
       elapsed: 0,
-    });
+    };
+    spawnMarkers.push(marker);
+    recordSpawnMarker(marker, "level_queue");
   }
 
   scheduleNextSpawn();
@@ -1883,12 +2165,14 @@ function updateBossSupportSpawns(dt) {
   const kinds = getAllNormalEnemyKinds();
   const point = findFreePoint(ENEMY_SIZE * 2.4);
   if (point && kinds.length > 0) {
-    spawnMarkers.push({
+    const marker = {
       x: point.x,
       y: point.y,
       kind: kinds[Math.floor(Math.random() * kinds.length)],
       elapsed: 0,
-    });
+    };
+    spawnMarkers.push(marker);
+    recordSpawnMarker(marker, "boss_support");
     bossSupportSpawnTimer += BOSS_SUPPORT_SPAWN_INTERVAL;
   } else {
     bossSupportSpawnTimer = Math.min(bossSupportSpawnTimer, 0);
@@ -1932,6 +2216,11 @@ function updateLevelBossSpawn() {
     x: player.x < ARENA.x + ARENA.width * 0.5 ? ARENA.x + ARENA.width * 0.78 : ARENA.x + ARENA.width * 0.22,
     y: player.y < ARENA.y + ARENA.height * 0.5 ? ARENA.y + ARENA.height * 0.78 : ARENA.y + ARENA.height * 0.22,
   };
+  replayRecorder.recordEnemyInput("boss_spawn_request", {
+    x: point.x,
+    y: point.y,
+    kind: bossKind,
+  });
   spawnBoss(point.x, point.y, bossKind);
   levelBossSpawned = true;
 }
@@ -2930,6 +3219,15 @@ function launchEnemy(enemy) {
   enemy.restingFor = 0;
   enemy.phase = "dash";
   enemy.phaseTimer = isLaserEnemy(enemy) && !enemy.turnShotLocked ? getStaggeredEnemyDelay(LASER_CHARGE_TIME) : 0;
+  replayRecorder.recordEnemyInput("enemy_launch", {
+    id: enemy.id,
+    kind: enemy.kind,
+    fromX: enemy.x,
+    fromY: enemy.y,
+    targetX,
+    targetY,
+    phaseTimer: enemy.phaseTimer,
+  });
 }
 
 function createEnemy(kind, x, y) {
@@ -3090,6 +3388,7 @@ function spawnEnemy(x, y, forcedKind = null) {
   const enemy = createEnemy(kind, x, y);
 
   enemies.push(enemy);
+  replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(enemy, forcedKind ? "forced" : "random"));
   if (kind === "brute" || kind === "slow") {
     enemy.moving = true;
   } else {
@@ -3105,6 +3404,11 @@ function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
   boss.vy = direction.y * speed;
   boss.moving = true;
   enemies.push(boss);
+  replayRecorder.recordEnemyInput("boss_spawn", {
+    ...getEnemyReplayPayload(boss, "boss"),
+    vx: boss.vx,
+    vy: boss.vy,
+  });
   spawnImpactBurst(x, y, { count: 46, speedMin: 160, speedMax: 520, lifeMin: 0.34, lifeMax: 0.86, sizeMin: 7, sizeMax: 18 });
 }
 
@@ -3124,14 +3428,16 @@ function spawnTricksterIllusions(source) {
       const overlaps = enemies.some((enemy) => Math.hypot(x - enemy.x, y - enemy.y) < ENEMY_SIZE * 1.1);
       if (overlaps) continue;
 
-      enemies.push({
+      const illusion = {
         ...createEnemy("trickster", x, y),
         isIllusion: true,
         ability: null,
         abilityCharges: null,
         illusionTimer: TRICKSTER_ILLUSION_LIFETIME,
         turnShotLocked: true,
-      });
+      };
+      enemies.push(illusion);
+      replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(illusion, "trickster_illusion"));
       break;
     }
   }
@@ -3145,13 +3451,20 @@ function spawnGrowerSeed(x, y) {
   const minY = ARENA.y + GROWER_SEED_RADIUS;
   const maxY = ARENA.y + ARENA.height - GROWER_SEED_RADIUS;
 
-  enemySeeds.push({
+  const seed = {
     x: clamp(x, minX, maxX),
     y: clamp(y, minY, maxY),
     timer: GROWER_SEED_HATCH_TIME,
     duration: GROWER_SEED_HATCH_TIME,
     radius: GROWER_SEED_RADIUS,
     pulseSeed: Math.random() * Math.PI * 2,
+  };
+  enemySeeds.push(seed);
+  replayRecorder.recordEnemyInput("enemy_seed_spawn", {
+    x: seed.x,
+    y: seed.y,
+    radius: seed.radius,
+    timer: seed.timer,
   });
   return true;
 }
@@ -3163,6 +3476,7 @@ function spawnSproutling(x, y) {
   const sproutling = createEnemy("sproutling", x, y);
   sproutling.moving = true;
   enemies.push(sproutling);
+  replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(sproutling, "grower_seed"));
   return true;
 }
 
@@ -3186,6 +3500,11 @@ function spawnSplitterChildren(source) {
     child.vx = Math.cos(angle) * SPROUTLING_CHASE_SPEED * 0.45;
     child.vy = Math.sin(angle) * SPROUTLING_CHASE_SPEED * 0.45;
     enemies.push(child);
+    replayRecorder.recordEnemyInput("enemy_spawn", {
+      ...getEnemyReplayPayload(child, "splitter_child"),
+      vx: child.vx,
+      vy: child.vy,
+    });
   }
 
   return true;
@@ -3211,6 +3530,7 @@ function spawnReplicatorClone(source) {
 
     const clone = createEnemy("replicator", candidateX, candidateY);
     enemies.push(clone);
+    replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(clone, "replicator_clone"));
     launchEnemy(clone);
     return true;
   }
@@ -4190,6 +4510,15 @@ function updatePlayerMirrorPassive(dt) {
   }
 }
 
+function recordAbilityUse(selectedAbility, point) {
+  replayRecorder.recordPlayerInput("ability_use", {
+    ability: selectedAbility.key,
+    abilityMode,
+    x: point?.x ?? aimPoint.x,
+    y: point?.y ?? aimPoint.y,
+  });
+}
+
 function tryUseAbilityFromClick(point) {
   if (player.dead) return false;
   if (
@@ -4209,72 +4538,102 @@ function tryUseAbilityFromClick(point) {
   const selectedAbility = selected.ability;
 
   if (selectedAbility.key === abilities.teleport.key && pendingPlayerTeleport) {
-    return useTeleportAbility(point);
+    const used = useTeleportAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.hook.key) {
-    return useHookAbility();
+    const used = useHookAbility();
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   const distanceToPlayer = Math.hypot(point.x - player.x, point.y - player.y);
   if (distanceToPlayer <= player.size * 0.5) return false;
 
   if (selectedAbility.key === abilities.teleport.key) {
-    return useTeleportAbility(point);
+    const used = useTeleportAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.blast.key) {
-    return useBlastAbility(point);
+    const used = useBlastAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.pulse_bomb.key) {
-    return usePulseBombAbility(point);
+    const used = usePulseBombAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.sidearm.key) {
-    return useBaseGunAbility(point);
+    const used = useBaseGunAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.decoy.key) {
-    return useDecoyAbility(point);
+    const used = useDecoyAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.dash.key) {
-    return useDashAbility(point);
+    const used = useDashAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.turret.key) {
-    return useTurretAbility(point);
+    const used = useTurretAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.missiles.key) {
-    return useMissilesAbility(point);
+    const used = useMissilesAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.splitter.key) {
-    return useSplitterAbility(point);
+    const used = useSplitterAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.tripwire.key) {
-    return useTripwireAbility(point);
+    const used = useTripwireAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.laser.key) {
     useLaserAbility(point);
+    recordAbilityUse(selectedAbility, point);
     return true;
   }
 
   if (selectedAbility.key === abilities.sniper.key) {
-    return useSniperAbility(point);
+    const used = useSniperAbility(point);
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   if (selectedAbility.key === abilities.spray.key) {
     useSprayAbility(point);
+    recordAbilityUse(selectedAbility, point);
     return true;
   }
 
   if (selectedAbility.key === abilities.shield.key) {
-    return useShieldAbility();
+    const used = useShieldAbility();
+    if (used) recordAbilityUse(selectedAbility, point);
+    return used;
   }
 
   return false;
@@ -4303,6 +4662,12 @@ function launchPlayerTowardPoint(point) {
   const distance = Math.hypot(targetX - player.x, targetY - player.y);
   if (distance <= MOVE_STOP_DISTANCE) return;
 
+  replayRecorder.recordPlayerInput("move_command", {
+    x: targetX,
+    y: targetY,
+    fromX: player.x,
+    fromY: player.y,
+  });
   const wasMoving = player.moving;
   player.moveTarget = { x: targetX, y: targetY };
   moveMarker = {
@@ -6029,6 +6394,7 @@ function resetGame() {
   aimPoint.x = player.x;
   aimPoint.y = player.y;
   scheduleNextSpawn(true);
+  beginReplayRecording("reset");
   updateLevelHud();
   hideCampaignOverlay();
 }
@@ -6296,6 +6662,9 @@ function chooseUpgrade(id) {
   const card = pendingUpgradeChoices.find((choice) => choice.id === id);
   if (!card) return;
 
+  replayRecorder.recordPlayerInput("upgrade_choice", {
+    id,
+  });
   card.apply();
   pendingUpgradeChoices = [];
 
@@ -6359,6 +6728,7 @@ function showLevelComplete() {
     <p class="campaign-copy">Время: ${actionTime.toFixed(2)}s. Можно переиграть, перейти дальше или выбрать другой уровень.</p>
     <div class="campaign-actions">
       <button class="campaign-button" type="button" data-action="restart">Повторить</button>
+      <button class="campaign-button is-secondary" type="button" data-action="replay">Повтор записи</button>
       ${isLastLevel ? "" : `<button class="campaign-button" type="button" data-action="next">Следующий</button>`}
       <button class="campaign-button is-secondary" type="button" data-action="menu">К выбору уровня</button>
     </div>
@@ -6377,10 +6747,15 @@ function checkLevelComplete() {
   if (levelSpawnQueue.length > 0 || spawnMarkers.length > 0 || enemies.length > 0 || enemySeeds.length > 0 || activePulseBombs.length > 0) return;
 
   levelCompleted = true;
+  replayRecorder.record("level_complete", {
+    levelIndex: currentLevelIndex,
+    actionTime,
+  });
   showLevelComplete();
 }
 
 function updateUi(force = false) {
+  updateReplayControls();
   if (!force && gameState === "playing") {
     const refreshClock = Math.max(actionTime, worldTime);
     if (refreshClock < nextUiRefreshAt) return;
@@ -8574,6 +8949,9 @@ window.addEventListener("keydown", handleKeyDown);
 window.addEventListener("pointerup", endDrag);
 window.addEventListener("pointercancel", endDrag);
 window.addEventListener("resize", resize);
+replayButtonEl?.addEventListener("click", () => {
+  startReplay(replayRecorder.getRecording());
+});
 campaignOverlayEl?.addEventListener("click", (event) => {
   const upgradeButton = event.target.closest("[data-upgrade]");
   if (upgradeButton) {
@@ -8592,6 +8970,8 @@ campaignOverlayEl?.addEventListener("click", (event) => {
 
   if (actionButton.dataset.action === "restart") {
     startLevel(currentLevelIndex);
+  } else if (actionButton.dataset.action === "replay") {
+    startReplay(replayRecorder.getRecording());
   } else if (actionButton.dataset.action === "next") {
     startLevel(currentLevelIndex + 1);
   } else if (actionButton.dataset.action === "menu") {

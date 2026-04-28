@@ -45,6 +45,42 @@ body {
   pointer-events: none;
 }
 
+.replay-controls {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+}
+
+.replay-button {
+  min-height: 32px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(5, 10, 18, 0.68);
+  color: rgba(239, 246, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.replay-button:hover:not(:disabled),
+.replay-button:focus-visible:not(:disabled) {
+  border-color: rgba(255, 214, 129, 0.58);
+  color: rgba(255, 244, 218, 0.98);
+}
+
+.replay-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.44;
+}
+
 .level-chip,
 .roster-chip {
   display: inline-flex;

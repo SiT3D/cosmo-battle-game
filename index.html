@@ -9,6 +9,9 @@
 <body>
   <canvas id="game"></canvas>
   <div id="levelHud" class="level-hud"></div>
+  <div id="replayControls" class="replay-controls">
+    <button id="replayButton" class="replay-button" type="button" disabled>Повтор</button>
+  </div>
   <div class="bottom-ui">
     <div class="ability-panel">
       <div class="ability-panel__meta">
@@ -29,6 +32,8 @@
   </div>
   <div id="campaignOverlay" class="campaign-overlay"></div>
 
+  <script src="./replay-recorder.js"></script>
+  <script src="./replay-player.js"></script>
   <script src="./game.js"></script>
 </body>
 </html>
