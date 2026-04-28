@@ -4,6 +4,7 @@ class GameReplayRecorder {
     this.mode = "idle";
     this.session = null;
     this.events = [];
+    this.randomValues = [];
     this.lastRecording = null;
     this.playbackCursor = 0;
   }
@@ -18,6 +19,7 @@ class GameReplayRecorder {
       meta: this.clone(meta),
     };
     this.events = [];
+    this.randomValues = [];
     this.record("session_start", this.session.meta);
   }
 
@@ -41,6 +43,13 @@ class GameReplayRecorder {
     this.record("enemy_input", { action, ...payload });
   }
 
+  recordRandom(value) {
+    if (this.mode === "recording") {
+      this.randomValues.push(value);
+    }
+    return value;
+  }
+
   record(type, payload = {}) {
     if (this.mode !== "recording") return null;
 
@@ -51,6 +60,7 @@ class GameReplayRecorder {
       worldTime: this.round(clock.worldTime ?? 0),
       actionTime: this.round(clock.actionTime ?? 0),
       frameTime: this.round(clock.frameTime ?? performance.now()),
+      randomCursor: this.randomValues.length,
       payload: this.clone(payload),
     };
     this.events.push(event);
@@ -61,6 +71,7 @@ class GameReplayRecorder {
     return {
       session: this.clone(this.session),
       events: this.clone(this.events),
+      randomValues: this.clone(this.randomValues),
     };
   }
 
@@ -76,6 +87,7 @@ class GameReplayRecorder {
     const parsed = typeof recording === "string" ? JSON.parse(recording) : recording;
     this.session = this.clone(parsed?.session ?? null);
     this.events = this.clone(parsed?.events ?? []);
+    this.randomValues = this.clone(parsed?.randomValues ?? []);
     this.playbackCursor = 0;
     this.mode = "idle";
     return this.getRecording();

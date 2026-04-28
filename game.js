@@ -740,6 +740,7 @@ const replayPlayer = new GameReplayPlayer({
 window.replayPlayer = replayPlayer;
 window.startReplay = startReplay;
 let replayRecordingEnabled = true;
+const nativeRandom = Math.random.bind(Math);
 
 function getReplayLevelMeta(reason = "reset") {
   const level = getCurrentLevel();
@@ -798,6 +799,21 @@ function getEnemyReplayPayload(enemy, source) {
 
 function isReplayPlaybackActive() {
   return replayPlayer.isPlaying();
+}
+
+function shouldHideReplayPlanningVisuals() {
+  return isReplayPlaybackActive();
+}
+
+function replayRandom() {
+  if (isReplayPlaybackActive()) {
+    return replayPlayer.nextRandom();
+  }
+  return replayRecorder.recordRandom(nativeRandom());
+}
+
+function visualRandomRange(min, max) {
+  return min + nativeRandom() * (max - min);
 }
 
 function startReplay(recording = replayRecorder.getLastRecording() ?? replayRecorder.getRecording()) {
@@ -1137,7 +1153,7 @@ function getLevelNormalEnemyCount(level = getCurrentLevel()) {
 function shuffleList(items) {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const swapIndex = Math.floor(replayRandom() * (index + 1));
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
   return shuffled;
@@ -1161,7 +1177,7 @@ function getFixedLevelBossKind(levelIndex = currentLevelIndex) {
 }
 
 function getRandomBossKind() {
-  return BOSS_KINDS[Math.floor(Math.random() * BOSS_KINDS.length)];
+  return BOSS_KINDS[Math.floor(replayRandom() * BOSS_KINDS.length)];
 }
 
 function selectLevelBossKind(level = getCurrentLevel(), levelIndex = currentLevelIndex) {
@@ -1224,11 +1240,11 @@ function isSimulationActive() {
 }
 
 function randomRange(min, max) {
-  return min + Math.random() * (max - min);
+  return min + replayRandom() * (max - min);
 }
 
 function randomDirection() {
-  const angle = Math.random() * Math.PI * 2;
+  const angle = replayRandom() * Math.PI * 2;
   return { x: Math.cos(angle), y: Math.sin(angle) };
 }
 
@@ -1859,13 +1875,13 @@ function updateTrail() {
   const dirX = player.vx / speed;
   const dirY = player.vy / speed;
   trail.push({
-    x: player.x - dirX * player.size * 0.48 + (Math.random() - 0.5) * 5,
-    y: player.y - dirY * player.size * 0.48 + (Math.random() - 0.5) * 5,
-    vx: -dirX * (30 + Math.random() * 34) + (Math.random() - 0.5) * 14,
-    vy: -dirY * (30 + Math.random() * 34) + (Math.random() - 0.5) * 14,
-    life: 0.45 + Math.random() * 0.2,
-    ttl: 0.45 + Math.random() * 0.2,
-    size: 4 + Math.random() * 5,
+    x: player.x - dirX * player.size * 0.48 + (nativeRandom() - 0.5) * 5,
+    y: player.y - dirY * player.size * 0.48 + (nativeRandom() - 0.5) * 5,
+    vx: -dirX * (30 + nativeRandom() * 34) + (nativeRandom() - 0.5) * 14,
+    vy: -dirY * (30 + nativeRandom() * 34) + (nativeRandom() - 0.5) * 14,
+    life: 0.45 + nativeRandom() * 0.2,
+    ttl: 0.45 + nativeRandom() * 0.2,
+    size: 4 + nativeRandom() * 5,
   });
   if (trail.length > 96) {
     trail.shift();
@@ -2020,9 +2036,9 @@ function spawnImpactBurst(
   } = {}
 ) {
   for (let index = 0; index < count; index += 1) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = randomRange(speedMin, speedMax);
-    const life = randomRange(lifeMin, lifeMax);
+    const angle = nativeRandom() * Math.PI * 2;
+    const speed = visualRandomRange(speedMin, speedMax);
+    const life = visualRandomRange(lifeMin, lifeMax);
     impactBursts.push({
       x,
       y,
@@ -2030,9 +2046,9 @@ function spawnImpactBurst(
       vy: Math.sin(angle) * speed,
       ttl: life,
       life,
-      size: randomRange(sizeMin, sizeMax),
-      spin: randomRange(-8, 8),
-      angle: Math.random() * Math.PI * 2,
+      size: visualRandomRange(sizeMin, sizeMax),
+      spin: visualRandomRange(-8, 8),
+      angle: nativeRandom() * Math.PI * 2,
       outerColor,
       midColor,
       innerColor,
@@ -2049,9 +2065,9 @@ function spawnEnemyHitBurst(enemy, amount = 1) {
   const isBoss = isBossEnemy(enemy);
   const hitSize = enemy.size || ENEMY_SIZE;
   const offsetRadius = hitSize * (isBoss ? 0.22 : 0.32);
-  const angle = Math.random() * Math.PI * 2;
-  const x = enemy.x + Math.cos(angle) * randomRange(0, offsetRadius);
-  const y = enemy.y + Math.sin(angle) * randomRange(0, offsetRadius);
+  const angle = nativeRandom() * Math.PI * 2;
+  const x = enemy.x + Math.cos(angle) * visualRandomRange(0, offsetRadius);
+  const y = enemy.y + Math.sin(angle) * visualRandomRange(0, offsetRadius);
   const count = Math.round((isBoss ? 13 : 8) + amount * 3);
 
   enemy.hitFlash = 1;
@@ -2168,7 +2184,7 @@ function updateBossSupportSpawns(dt) {
     const marker = {
       x: point.x,
       y: point.y,
-      kind: kinds[Math.floor(Math.random() * kinds.length)],
+      kind: kinds[Math.floor(replayRandom() * kinds.length)],
       elapsed: 0,
     };
     spawnMarkers.push(marker);
@@ -2807,7 +2823,7 @@ function pullPlayerTowardBoss(enemy, radius, dt, speedMultiplier = 1) {
   const half = player.size * 0.5;
   player.x = clamp(player.x + ((enemy.x - player.x) / distance) * step, ARENA.x + half, ARENA.x + ARENA.width - half);
   player.y = clamp(player.y + ((enemy.y - player.y) / distance) * step, ARENA.y + half, ARENA.y + ARENA.height - half);
-  if (Math.random() < dt * 8) {
+  if (nativeRandom() < dt * 8) {
     spawnImpactBurst(player.x, player.y, { count: 3, speedMin: 40, speedMax: 120, lifeMin: 0.1, lifeMax: 0.2, sizeMin: 2, sizeMax: 5 });
   }
   return true;
@@ -3351,7 +3367,7 @@ function createEnemy(kind, x, y) {
 }
 
 function getRandomEnemyKind() {
-  const roll = Math.random();
+  const roll = replayRandom();
   return (
     roll < 0.025
       ? "replicator"
@@ -3415,12 +3431,12 @@ function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
 function spawnTricksterIllusions(source) {
   const illusionCount = enemies.filter((enemy) => enemy.isIllusion).length;
   const availableSlots = Math.max(0, TRICKSTER_ILLUSION_LIMIT - illusionCount);
-  const count = Math.min(availableSlots, Math.random() < 0.5 ? 1 : 2);
+  const count = Math.min(availableSlots, replayRandom() < 0.5 ? 1 : 2);
   if (count <= 0) return;
 
   for (let spawned = 0; spawned < count; spawned += 1) {
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const angle = Math.random() * Math.PI * 2;
+      const angle = replayRandom() * Math.PI * 2;
       const distance = randomRange(32, 68);
       const half = ENEMY_SIZE * 0.5;
       const x = clamp(source.x + Math.cos(angle) * distance, ARENA.x + half, ARENA.x + ARENA.width - half);
@@ -3457,7 +3473,7 @@ function spawnGrowerSeed(x, y) {
     timer: GROWER_SEED_HATCH_TIME,
     duration: GROWER_SEED_HATCH_TIME,
     radius: GROWER_SEED_RADIUS,
-    pulseSeed: Math.random() * Math.PI * 2,
+    pulseSeed: nativeRandom() * Math.PI * 2,
   };
   enemySeeds.push(seed);
   replayRecorder.recordEnemyInput("enemy_seed_spawn", {
@@ -3486,7 +3502,7 @@ function spawnSplitterChildren(source) {
   if (count <= 0) return false;
 
   for (let index = 0; index < count; index += 1) {
-    const angle = (Math.PI * 2 * index) / count + Math.random() * 0.8;
+    const angle = (Math.PI * 2 * index) / count + replayRandom() * 0.8;
     const distance = randomRange(24, 46);
     const half = ENEMY_SIZE * 0.36;
     const child = createEnemy(
@@ -3515,7 +3531,7 @@ function spawnReplicatorClone(source) {
 
   const padding = ENEMY_SIZE * 2.1;
   for (let attempt = 0; attempt < 14; attempt += 1) {
-    const angle = Math.random() * Math.PI * 2;
+    const angle = replayRandom() * Math.PI * 2;
     const distance = randomRange(48, 118);
     const x = source.x + Math.cos(angle) * distance;
     const y = source.y + Math.sin(angle) * distance;
@@ -4161,7 +4177,7 @@ function usePulseBombAbility(targetPoint = aimPoint) {
     timer: 0,
     interval: PULSE_BOMB_INTERVAL,
     remaining: PULSE_BOMB_EXPLOSIONS,
-    pulseSeed: Math.random() * Math.PI * 2,
+    pulseSeed: nativeRandom() * Math.PI * 2,
   });
   consumeAbilityCharge(selected.slot);
   return true;
@@ -4318,7 +4334,7 @@ function useTripwireAbility(targetPoint = aimPoint) {
     dirX: perpX,
     dirY: perpY,
     hitEnemyIds: new Set(),
-    pulseSeed: Math.random() * Math.PI * 2,
+    pulseSeed: nativeRandom() * Math.PI * 2,
   });
   consumeAbilityCharge(selected.slot);
   return true;
@@ -4360,7 +4376,7 @@ function useTeleportAbility(targetPoint = aimPoint) {
   pendingPlayerTeleport = {
     targetX,
     targetY,
-    pulseSeed: Math.random() * Math.PI * 2,
+    pulseSeed: nativeRandom() * Math.PI * 2,
   };
   return true;
 }
@@ -4406,7 +4422,7 @@ function activatePlayerMirrorPassive() {
 }
 
 function spawnPlayerDecoyNearPlayer() {
-  const angle = Math.random() * Math.PI * 2;
+  const angle = replayRandom() * Math.PI * 2;
   const distance = randomRange(26, 64);
   const half = DECOY_SIZE * 0.5;
   const x = clamp(player.x + Math.cos(angle) * distance, ARENA.x + half, ARENA.x + ARENA.width - half);
@@ -4434,7 +4450,7 @@ function spawnMine(x, y, owner) {
     owner,
     ttl: MINE_LIFETIME,
     radius: MINE_RADIUS,
-    pulseSeed: Math.random() * Math.PI * 2,
+    pulseSeed: nativeRandom() * Math.PI * 2,
   });
 }
 
@@ -4451,7 +4467,7 @@ function spawnBossTimedMine(x, y) {
     owner: "enemy",
     ttl: LEVEL2_BOSS_MINE_ARM_TIME,
     radius: MINE_RADIUS,
-    pulseSeed: Math.random() * Math.PI * 2,
+    pulseSeed: nativeRandom() * Math.PI * 2,
     explodeOnExpire: true,
     blastRadius: getCellSize() * LEVEL2_BOSS_MINE_BLAST_RADIUS_CELLS,
     blastSpeed: LEVEL2_BOSS_MINE_BLAST_SPEED,
@@ -5104,7 +5120,7 @@ function damagePlayerTurret(index, amount = 1) {
 
 function triggerPulseBombExplosion(bomb) {
   const offsetRadius = getCellSize() * PULSE_BOMB_OFFSET_CELLS;
-  const angle = Math.random() * Math.PI * 2;
+  const angle = replayRandom() * Math.PI * 2;
   const distance = randomRange(0, offsetRadius);
   const x = clamp(bomb.x + Math.cos(angle) * distance, ARENA.x + 8, ARENA.x + ARENA.width - 8);
   const y = clamp(bomb.y + Math.sin(angle) * distance, ARENA.y + 8, ARENA.y + ARENA.height - 8);
@@ -6997,13 +7013,15 @@ function draw() {
     ctx.drawImage(backgroundCanvas, 0, 0);
   }
   applyRenderTransform();
-  drawMoveMarker();
-  drawPlayerTrajectory();
+  if (!shouldHideReplayPlanningVisuals()) {
+    drawMoveMarker();
+    drawPlayerTrajectory();
+  }
   drawSpawnMarkers();
   drawTrail();
   drawMines();
   drawEnemySeeds();
-  if (!player.dead) {
+  if (!player.dead && !shouldHideReplayPlanningVisuals()) {
     drawAbilityRange();
     drawHookTargetPreview();
   }
@@ -8452,7 +8470,7 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
-  if (activePlayerTeleport) {
+  if (activePlayerTeleport && !shouldHideReplayPlanningVisuals()) {
     const progress = 1 - clamp(activePlayerTeleport.timer / activePlayerTeleport.duration, 0, 1);
     const pulse = 0.5 + 0.5 * Math.sin(worldTime * 9);
 
@@ -8491,7 +8509,7 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
-  if (activePlayerLaser) {
+  if (activePlayerLaser && !shouldHideReplayPlanningVisuals()) {
     const progress = 1 - clamp(activePlayerLaser.timer / activePlayerLaser.duration, 0, 1);
     const previewX = player.x + activePlayerLaser.dirX * getLaserRange();
     const previewY = player.y + activePlayerLaser.dirY * getLaserRange();
@@ -8508,7 +8526,7 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
-  if (activePlayerBaseGun) {
+  if (activePlayerBaseGun && !shouldHideReplayPlanningVisuals()) {
     const progress = 1 - clamp(activePlayerBaseGun.timer / activePlayerBaseGun.duration, 0, 1);
     const previewX = player.x + activePlayerBaseGun.dirX * getArenaProjectileReach();
     const previewY = player.y + activePlayerBaseGun.dirY * getArenaProjectileReach();
@@ -8525,7 +8543,7 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
-  if (activePlayerSniper) {
+  if (activePlayerSniper && !shouldHideReplayPlanningVisuals()) {
     const progress = 1 - clamp(activePlayerSniper.timer / activePlayerSniper.duration, 0, 1);
     const previewX = player.x + activePlayerSniper.dirX * getArenaProjectileReach();
     const previewY = player.y + activePlayerSniper.dirY * getArenaProjectileReach();
@@ -8542,7 +8560,7 @@ function drawLaserEffects() {
     ctx.restore();
   }
 
-  if (activePlayerSpray) {
+  if (activePlayerSpray && !shouldHideReplayPlanningVisuals()) {
     const chargeTimer = activePlayerSpray.phase === "charge" ? activePlayerSpray.timer : 0;
     const progress = activePlayerSpray.phase === "charge" ? 1 - clamp(chargeTimer / PLAYER_SPRAY_CHARGE_TIME, 0, 1) : 1;
     const centerAngle = Math.atan2(activePlayerSpray.dirY, activePlayerSpray.dirX);
@@ -8857,8 +8875,8 @@ function drawPlayer() {
   const radius = player.size * 0.5;
   const angle = player.facingAngle ?? Math.atan2(player.vy, player.vx);
   const shakePower = player.hitShake > 0 ? player.hitShake * 8 : 0;
-  const shakeX = shakePower > 0 ? (Math.random() - 0.5) * shakePower : 0;
-  const shakeY = shakePower > 0 ? (Math.random() - 0.5) * shakePower : 0;
+  const shakeX = shakePower > 0 ? (nativeRandom() - 0.5) * shakePower : 0;
+  const shakeY = shakePower > 0 ? (nativeRandom() - 0.5) * shakePower : 0;
 
   ctx.save();
   ctx.translate(player.x + shakeX, player.y + shakeY);

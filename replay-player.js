@@ -4,6 +4,8 @@ class GameReplayPlayer {
     this.handlers = handlers;
     this.recording = null;
     this.events = [];
+    this.randomValues = [];
+    this.randomCursor = 0;
     this.cursor = 0;
     this.state = "idle";
     this.startedAt = 0;
@@ -14,6 +16,8 @@ class GameReplayPlayer {
     const parsed = typeof recording === "string" ? JSON.parse(recording) : recording;
     this.recording = this.clone(parsed ?? null);
     this.events = this.clone(parsed?.events ?? []);
+    this.randomValues = this.clone(parsed?.randomValues ?? []);
+    this.randomCursor = 0;
     this.cursor = 0;
     this.playbackTime = 0;
     this.state = "idle";
@@ -27,6 +31,7 @@ class GameReplayPlayer {
     if (!this.recording) return false;
 
     this.cursor = 0;
+    this.randomCursor = 0;
     this.playbackTime = 0;
     this.startedAt = performance.now();
     this.state = "playing";
@@ -51,6 +56,16 @@ class GameReplayPlayer {
     return this.state === "playing";
   }
 
+  nextRandom(fallback = null) {
+    if (!this.isPlaying() || this.randomCursor >= this.randomValues.length) {
+      return fallback ?? Math.random();
+    }
+
+    const value = this.randomValues[this.randomCursor];
+    this.randomCursor += 1;
+    return value;
+  }
+
   update(dt = null) {
     if (!this.isPlaying()) return [];
 
@@ -64,6 +79,7 @@ class GameReplayPlayer {
       const event = this.clone(this.events[this.cursor]);
       this.cursor += 1;
       this.emitEvent(event);
+      this.syncRandomCursor(event);
       emitted.push(event);
     }
 
@@ -82,6 +98,13 @@ class GameReplayPlayer {
       handler(event, this);
     }
     this.emit("event", { event });
+  }
+
+  syncRandomCursor(event) {
+    if (!Number.isFinite(event?.randomCursor)) return;
+    if (event.randomCursor > this.randomCursor) {
+      this.randomCursor = event.randomCursor;
+    }
   }
 
   on(name, handler) {
