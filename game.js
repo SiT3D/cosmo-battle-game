@@ -841,6 +841,8 @@ function startReplay(recording = replayRecorder.getLastRecording() ?? replayReco
   }
   actionTime = 0;
   worldTime = 0;
+  deathResetTimer = 0;
+  player.dead = false;
   gameState = "playing";
   hideCampaignOverlay();
   updateLevelHud();
@@ -1470,7 +1472,7 @@ function update(dt) {
     updateDeathExplosion(dt);
     deathResetTimer = Math.max(0, deathResetTimer - dt);
     if (deathResetTimer <= 0) {
-      resetGame();
+      showDeathReplayPrompt();
     }
     updateUi();
     return;
@@ -6746,6 +6748,25 @@ function showLevelComplete() {
       <button class="campaign-button" type="button" data-action="restart">Повторить</button>
       <button class="campaign-button is-secondary" type="button" data-action="replay">Повтор записи</button>
       ${isLastLevel ? "" : `<button class="campaign-button" type="button" data-action="next">Следующий</button>`}
+      <button class="campaign-button is-secondary" type="button" data-action="menu">К выбору уровня</button>
+    </div>
+  </section>`;
+  campaignOverlayEl.classList.add("is-visible");
+  requestStaticFrame();
+}
+
+function showDeathReplayPrompt() {
+  gameState = "dead";
+  replayRecorder.stopRecording();
+  if (!campaignOverlayEl) return;
+
+  campaignOverlayEl.innerHTML = `<section class="campaign-panel">
+    <p class="campaign-kicker">Попытка завершена</p>
+    <h1 class="campaign-title">Игрок уничтожен</h1>
+    <p class="campaign-copy">Время: ${actionTime.toFixed(2)}s. Можно посмотреть повтор, начать уровень заново или вернуться к выбору уровня.</p>
+    <div class="campaign-actions">
+      <button class="campaign-button" type="button" data-action="replay">Повтор записи</button>
+      <button class="campaign-button" type="button" data-action="restart">Начать заново</button>
       <button class="campaign-button is-secondary" type="button" data-action="menu">К выбору уровня</button>
     </div>
   </section>`;
