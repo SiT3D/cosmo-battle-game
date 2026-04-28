@@ -732,6 +732,7 @@ const replayPlayer = new GameReplayPlayer({
     "player_input:move_command": applyReplayMoveCommand,
     "player_input:ability_use": applyReplayAbilityUse,
     "player_input:upgrade_choice": applyReplayUpgradeChoice,
+    "enemy_input:spawn_marker": applyReplaySpawnMarker,
     "enemy_input:enemy_spawn": applyReplayEnemySpawn,
     "enemy_input:boss_spawn": applyReplayBossSpawn,
     "enemy_input:enemy_launch": applyReplayEnemyLaunch,
@@ -784,21 +785,7 @@ function recordSpawnMarker(marker, source) {
 function getEnemyReplayPayload(enemy, source) {
   return {
     source,
-    id: enemy.id,
-    kind: enemy.kind,
-    x: enemy.x,
-    y: enemy.y,
-    hp: enemy.hp,
-    maxHp: enemy.maxHp,
-    size: enemy.size,
-    vx: enemy.vx,
-    vy: enemy.vy,
-    moving: Boolean(enemy.moving),
-    phase: enemy.phase,
-    phaseTimer: enemy.phaseTimer,
-    moveTarget: enemy.moveTarget ? { ...enemy.moveTarget } : null,
-    isIllusion: Boolean(enemy.isIllusion),
-    illusionTimer: enemy.illusionTimer ?? null,
+    enemy: serializeReplayValue(enemy),
   };
 }
 
@@ -922,6 +909,13 @@ function restoreEnemyAbilityReferences() {
   for (const enemy of enemies) {
     enemy.ability = enemy.ability?.key ? abilities[enemy.ability.key] ?? null : null;
   }
+}
+
+function getReplayEnemyFromPayload(payload) {
+  const enemy = deserializeReplayValue(payload?.enemy ?? payload);
+  if (!enemy) return null;
+  enemy.ability = enemy.ability?.key ? abilities[enemy.ability.key] ?? null : null;
+  return enemy;
 }
 
 function applyReplayStateSync(event) {
@@ -1104,35 +1098,32 @@ function applyReplayUpgradeChoice(event) {
   chooseUpgrade(event.payload?.id);
 }
 
-function applyReplayEnemySpawn(event) {
-  const enemy = createEnemy(event.payload.kind, event.payload.x, event.payload.y);
-  Object.assign(enemy, {
-    id: event.payload.id ?? enemy.id,
-    hp: event.payload.hp ?? enemy.hp,
-    maxHp: event.payload.maxHp ?? enemy.maxHp,
-    vx: event.payload.vx ?? enemy.vx,
-    vy: event.payload.vy ?? enemy.vy,
-    moving: event.payload.moving ?? enemy.moving,
-    phase: event.payload.phase ?? enemy.phase,
-    phaseTimer: event.payload.phaseTimer ?? enemy.phaseTimer,
-    moveTarget: event.payload.moveTarget ?? enemy.moveTarget,
-    isIllusion: event.payload.isIllusion,
-    illusionTimer: event.payload.illusionTimer ?? enemy.illusionTimer,
+function applyReplaySpawnMarker(event) {
+  spawnMarkers.push({
+    x: event.payload.x,
+    y: event.payload.y,
+    kind: event.payload.kind,
+    elapsed: 0,
   });
+}
+
+function applyReplayEnemySpawn(event) {
+  const enemy = getReplayEnemyFromPayload(event.payload);
+  if (!enemy) return;
+  for (let index = spawnMarkers.length - 1; index >= 0; index -= 1) {
+    const marker = spawnMarkers[index];
+    if (marker.kind === enemy.kind && Math.hypot(marker.x - enemy.x, marker.y - enemy.y) < ENEMY_SIZE * 2) {
+      spawnMarkers.splice(index, 1);
+      break;
+    }
+  }
   if (enemy.id > enemyId) enemyId = enemy.id;
   enemies.push(enemy);
 }
 
 function applyReplayBossSpawn(event) {
-  const boss = createEnemy(event.payload.kind, event.payload.x, event.payload.y);
-  Object.assign(boss, {
-    id: event.payload.id ?? boss.id,
-    hp: event.payload.hp ?? boss.hp,
-    maxHp: event.payload.maxHp ?? boss.maxHp,
-    vx: event.payload.vx ?? boss.vx,
-    vy: event.payload.vy ?? boss.vy,
-    moving: true,
-  });
+  const boss = getReplayEnemyFromPayload(event.payload);
+  if (!boss) return;
   if (boss.id > enemyId) enemyId = boss.id;
   enemies.push(boss);
 }
@@ -3611,11 +3602,7 @@ function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
   boss.vy = direction.y * speed;
   boss.moving = true;
   enemies.push(boss);
-  replayRecorder.recordEnemyInput("boss_spawn", {
-    ...getEnemyReplayPayload(boss, "boss"),
-    vx: boss.vx,
-    vy: boss.vy,
-  });
+  replayRecorder.recordEnemyInput("boss_spawn", getEnemyReplayPayload(boss, "boss"));
   spawnImpactBurst(x, y, { count: 46, speedMin: 160, speedMax: 520, lifeMin: 0.34, lifeMax: 0.86, sizeMin: 7, sizeMax: 18 });
 }
 
@@ -3707,11 +3694,7 @@ function spawnSplitterChildren(source) {
     child.vx = Math.cos(angle) * SPROUTLING_CHASE_SPEED * 0.45;
     child.vy = Math.sin(angle) * SPROUTLING_CHASE_SPEED * 0.45;
     enemies.push(child);
-    replayRecorder.recordEnemyInput("enemy_spawn", {
-      ...getEnemyReplayPayload(child, "splitter_child"),
-      vx: child.vx,
-      vy: child.vy,
-    });
+    replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(child, "splitter_child"));
   }
 
   return true;
