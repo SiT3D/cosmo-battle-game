@@ -29,6 +29,7 @@ const BOSS_RENDER_SCALE = 0.5;
 const EFFECT_RENDER_SCALE = 0.5;
 const MARKER_RENDER_SCALE = 0.5;
 const MISSILE_RENDER_SCALE = 1 / 3;
+const REPLAY_STATE_SYNC_INTERVAL = 5;
 const WALL_BOUNCE = 0.94;
 const INACTIVE_TIME_SCALE = 1 / 14;
 const TIME_SCALE_TRANSITION = 1.2;
@@ -734,12 +735,14 @@ const replayPlayer = new GameReplayPlayer({
     "enemy_input:boss_spawn": applyReplayBossSpawn,
     "enemy_input:enemy_launch": applyReplayEnemyLaunch,
     "enemy_input:enemy_seed_spawn": applyReplayEnemySeedSpawn,
+    state_sync: applyReplayStateSync,
     level_complete: applyReplayLevelComplete,
   },
 });
 window.replayPlayer = replayPlayer;
 window.startReplay = startReplay;
 let replayRecordingEnabled = true;
+let nextReplayStateSyncAt = REPLAY_STATE_SYNC_INTERVAL;
 const nativeRandom = Math.random.bind(Math);
 
 function getReplayLevelMeta(reason = "reset") {
@@ -764,6 +767,7 @@ function getReplayLevelMeta(reason = "reset") {
 function beginReplayRecording(reason = "reset") {
   if (!replayRecordingEnabled) return;
   replayRecorder.beginRecording(getReplayLevelMeta(reason));
+  nextReplayStateSyncAt = REPLAY_STATE_SYNC_INTERVAL;
 }
 
 function recordSpawnMarker(marker, source) {
@@ -795,6 +799,189 @@ function getEnemyReplayPayload(enemy, source) {
     isIllusion: Boolean(enemy.isIllusion),
     illusionTimer: enemy.illusionTimer ?? null,
   };
+}
+
+function serializeReplayValue(value) {
+  if (value instanceof Set) {
+    return { __replaySet: Array.from(value) };
+  }
+  if (Array.isArray(value)) {
+    return value.map(serializeReplayValue);
+  }
+  if (value && typeof value === "object") {
+    const copy = {};
+    for (const [key, child] of Object.entries(value)) {
+      copy[key] = serializeReplayValue(child);
+    }
+    return copy;
+  }
+  return value;
+}
+
+function deserializeReplayValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(deserializeReplayValue);
+  }
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.__replaySet)) {
+      return new Set(value.__replaySet);
+    }
+    const copy = {};
+    for (const [key, child] of Object.entries(value)) {
+      copy[key] = deserializeReplayValue(child);
+    }
+    return copy;
+  }
+  return value;
+}
+
+function cloneReplayState(value) {
+  return deserializeReplayValue(serializeReplayValue(value));
+}
+
+function getAbilityKey(ability) {
+  return ability?.key ?? abilities.hook.key;
+}
+
+function getAbilityByKey(key) {
+  return abilities[key] ?? abilities.hook;
+}
+
+function getReplayStateSnapshot() {
+  return serializeReplayValue({
+    worldTime,
+    actionTime,
+    currentTimeScale,
+    simulationWasActive,
+    player,
+    enemyId,
+    mineId,
+    spawnClock,
+    bossSupportSpawnTimer,
+    levelSpawnQueue,
+    levelCompleted,
+    levelBossSpawned,
+    currentLevelBossKind,
+    currentAbilityKey: getAbilityKey(currentAbility),
+    currentAbilityCharges,
+    reserveAbilityKey: reserveAbility?.key ?? null,
+    reserveAbilityCharges,
+    abilityMode,
+    playerAbilityCapacity,
+    playerShieldCooldown,
+    playerHookCooldown,
+    playerBaseGunCooldowns,
+    passiveXpTimer,
+    activeHook,
+    pendingPlayerTeleport,
+    activePlayerTeleport,
+    activePlayerBaseGun,
+    activePlayerLaser,
+    activePlayerSniper,
+    activePlayerSpray,
+    activePlayerShield,
+    activePlayerDash,
+    activePlayerDecoys,
+    activePlayerTurrets,
+    playerDecoyPassive,
+    playerMinePassive,
+    playerMirrorPassive,
+    moveMarker,
+    deathResetTimer,
+    deathExplosion,
+    enemies,
+    spawnMarkers,
+    laserProjectiles,
+    baseProjectiles,
+    zigzagProjectiles,
+    blastWaves,
+    activePulseBombs,
+    beamEffects,
+    enemySeeds,
+    homingMissiles,
+    enemyHomingMissiles,
+    mines,
+  });
+}
+
+function recordReplayStateSync(force = false) {
+  if (!replayRecorder.isRecording() || isReplayPlaybackActive()) return;
+  if (!force && actionTime < nextReplayStateSyncAt) return;
+
+  replayRecorder.record("state_sync", getReplayStateSnapshot());
+  nextReplayStateSyncAt = actionTime + REPLAY_STATE_SYNC_INTERVAL;
+}
+
+function replaceArrayContents(target, source) {
+  target.length = 0;
+  target.push(...source);
+}
+
+function restoreEnemyAbilityReferences() {
+  for (const enemy of enemies) {
+    enemy.ability = enemy.ability?.key ? abilities[enemy.ability.key] ?? null : null;
+  }
+}
+
+function applyReplayStateSync(event) {
+  const state = deserializeReplayValue(event.payload);
+  if (!state) return;
+
+  Object.assign(player, state.player ?? {});
+  worldTime = state.worldTime ?? worldTime;
+  actionTime = state.actionTime ?? actionTime;
+  currentTimeScale = state.currentTimeScale ?? currentTimeScale;
+  simulationWasActive = state.simulationWasActive ?? simulationWasActive;
+  enemyId = state.enemyId ?? enemyId;
+  mineId = state.mineId ?? mineId;
+  spawnClock = state.spawnClock ?? spawnClock;
+  bossSupportSpawnTimer = state.bossSupportSpawnTimer ?? bossSupportSpawnTimer;
+  levelSpawnQueue = state.levelSpawnQueue ?? [];
+  levelCompleted = Boolean(state.levelCompleted);
+  levelBossSpawned = Boolean(state.levelBossSpawned);
+  currentLevelBossKind = state.currentLevelBossKind ?? currentLevelBossKind;
+  currentAbility = getAbilityByKey(state.currentAbilityKey);
+  currentAbilityCharges = state.currentAbilityCharges ?? null;
+  reserveAbility = state.reserveAbilityKey ? getAbilityByKey(state.reserveAbilityKey) : null;
+  reserveAbilityCharges = state.reserveAbilityCharges ?? null;
+  abilityMode = state.abilityMode ?? abilityMode;
+  playerAbilityCapacity = state.playerAbilityCapacity ?? playerAbilityCapacity;
+  playerShieldCooldown = state.playerShieldCooldown ?? playerShieldCooldown;
+  playerHookCooldown = state.playerHookCooldown ?? playerHookCooldown;
+  playerBaseGunCooldowns = state.playerBaseGunCooldowns ?? playerBaseGunCooldowns;
+  passiveXpTimer = state.passiveXpTimer ?? passiveXpTimer;
+  activeHook = state.activeHook ?? null;
+  pendingPlayerTeleport = state.pendingPlayerTeleport ?? null;
+  activePlayerTeleport = state.activePlayerTeleport ?? null;
+  activePlayerBaseGun = state.activePlayerBaseGun ?? null;
+  activePlayerLaser = state.activePlayerLaser ?? null;
+  activePlayerSniper = state.activePlayerSniper ?? null;
+  activePlayerSpray = state.activePlayerSpray ?? null;
+  activePlayerShield = state.activePlayerShield ?? null;
+  activePlayerDash = state.activePlayerDash ?? null;
+  playerDecoyPassive = state.playerDecoyPassive ?? null;
+  playerMinePassive = state.playerMinePassive ?? null;
+  playerMirrorPassive = state.playerMirrorPassive ?? null;
+  moveMarker = state.moveMarker ?? null;
+  deathResetTimer = state.deathResetTimer ?? deathResetTimer;
+  deathExplosion = state.deathExplosion ?? null;
+
+  replaceArrayContents(activePlayerDecoys, state.activePlayerDecoys ?? []);
+  replaceArrayContents(activePlayerTurrets, state.activePlayerTurrets ?? []);
+  replaceArrayContents(enemies, state.enemies ?? []);
+  restoreEnemyAbilityReferences();
+  replaceArrayContents(spawnMarkers, state.spawnMarkers ?? []);
+  replaceArrayContents(laserProjectiles, state.laserProjectiles ?? []);
+  replaceArrayContents(baseProjectiles, state.baseProjectiles ?? []);
+  replaceArrayContents(zigzagProjectiles, state.zigzagProjectiles ?? []);
+  replaceArrayContents(blastWaves, state.blastWaves ?? []);
+  replaceArrayContents(activePulseBombs, state.activePulseBombs ?? []);
+  replaceArrayContents(beamEffects, state.beamEffects ?? []);
+  replaceArrayContents(enemySeeds, state.enemySeeds ?? []);
+  replaceArrayContents(homingMissiles, state.homingMissiles ?? []);
+  replaceArrayContents(enemyHomingMissiles, state.enemyHomingMissiles ?? []);
+  replaceArrayContents(mines, state.mines ?? []);
+  requestUiRefresh();
 }
 
 function isReplayPlaybackActive() {
@@ -1491,6 +1678,7 @@ function update(dt) {
   worldTime += simDt;
   actionTime += simDt;
   replayPlayer.update(simDt);
+  recordReplayStateSync();
   if (startedActive) {
     updatePassiveXp(simDt);
   }
@@ -6328,6 +6516,7 @@ function startDeathSequence() {
   deathResetTimer = DEATH_RESET_DELAY;
   simulationWasActive = false;
   currentTimeScale = INACTIVE_TIME_SCALE;
+  recordReplayStateSync(true);
 }
 
 function resetGame() {
@@ -6783,6 +6972,7 @@ function checkLevelComplete() {
   if (levelCompleted || player.dead || gameState !== "playing") return;
   if (levelSpawnQueue.length > 0 || spawnMarkers.length > 0 || enemies.length > 0 || enemySeeds.length > 0 || activePulseBombs.length > 0) return;
 
+  recordReplayStateSync(true);
   levelCompleted = true;
   replayRecorder.record("level_complete", {
     levelIndex: currentLevelIndex,
