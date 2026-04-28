@@ -56,7 +56,9 @@ const MIN_ENEMY_TYPES_PER_LEVEL = 8;
 const LEVEL1_BOSS_KIND = "level1_boss";
 const LEVEL2_BOSS_KIND = "level2_boss";
 const LEVEL3_BOSS_KIND = "level3_boss";
-const BOSS_KINDS = [LEVEL1_BOSS_KIND, LEVEL2_BOSS_KIND, LEVEL3_BOSS_KIND];
+const LEVEL4_BOSS_KIND = "level4_boss";
+const LEVEL4_BOSS_PART_KIND = "level4_boss_part";
+const BOSS_KINDS = [LEVEL1_BOSS_KIND, LEVEL2_BOSS_KIND, LEVEL3_BOSS_KIND, LEVEL4_BOSS_KIND];
 const LEVEL1_BOSS_PHASE_ONE_HP = 20;
 const LEVEL1_BOSS_PHASE_TWO_HP = 40;
 const LEVEL1_BOSS_LEVEL_ONE_PHASE_TWO_HP = 10;
@@ -112,6 +114,26 @@ const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT = 5;
 const LEVEL3_BOSS_STAGE_TWO_MISSILE_SPEED_MULTIPLIER = 0.7;
 const LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL = 3;
 const LEVEL3_BOSS_STAGE_THREE_LASER_CAST_TIME = 0.5;
+const LEVEL4_BOSS_SIZE = 58;
+const LEVEL4_BOSS_PART_SIZE = 30;
+const LEVEL4_BOSS_STAGE_ONE_HP = 10;
+const LEVEL4_BOSS_STAGE_TWO_HP = 15;
+const LEVEL4_BOSS_STAGE_THREE_HP = 15;
+const LEVEL4_BOSS_STAGE_FOUR_HP = 10;
+const LEVEL4_BOSS_CANNONS = 6;
+const LEVEL4_BOSS_MISSILE_INTERVAL = 4.2;
+const LEVEL4_BOSS_LASER_INTERVAL = 5.2;
+const LEVEL4_BOSS_LASER_DURATION = 2.2;
+const LEVEL4_BOSS_STAGE_TWO_SPEED = 64;
+const LEVEL4_BOSS_STAGE_TWO_ROTATION_SPEED = 0.45;
+const LEVEL4_BOSS_STAGE_TWO_LASER_INTERVAL = 0.8;
+const LEVEL4_BOSS_STAGE_TWO_LASER_DURATION = 2.4;
+const LEVEL4_BOSS_MAX_LASER_WALLS = 3;
+const LEVEL4_BOSS_PART_SPEED = 42;
+const LEVEL4_BOSS_PART_LINK_INTERVAL = 2;
+const LEVEL4_BOSS_PART_LINK_DURATION = 1.7;
+const LEVEL4_BOSS_STAGE_FOUR_BLAST_INTERVAL = 2;
+const LEVEL4_BOSS_STAGE_FOUR_BLAST_SPEED = 135;
 const BOSS_SUPPORT_SPAWN_INTERVAL = 5;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
@@ -418,6 +440,8 @@ const enemyMeta = {
   [LEVEL1_BOSS_KIND]: { name: "Босс", color: "#ff315f", glow: "rgba(255, 49, 95, 0.62)" },
   [LEVEL2_BOSS_KIND]: { name: "Магнит", color: "#ff7a2f", glow: "rgba(255, 122, 47, 0.62)" },
   [LEVEL3_BOSS_KIND]: { name: "Арсенал", color: "#a86cff", glow: "rgba(168, 108, 255, 0.62)" },
+  [LEVEL4_BOSS_KIND]: { name: "Ось", color: "#42d9ff", glow: "rgba(66, 217, 255, 0.62)" },
+  [LEVEL4_BOSS_PART_KIND]: { name: "Осколок оси", color: "#42d9ff", glow: "rgba(66, 217, 255, 0.52)" },
 };
 
 const enemyInfo = {
@@ -445,6 +469,8 @@ const enemyInfo = {
   [LEVEL1_BOSS_KIND]: { text: "Большая цель со стадиями, щитом и залпами.", reward: "Нельзя съесть хуком." },
   [LEVEL2_BOSS_KIND]: { text: "Три стадии: стяжка, рывок и минный хаос.", reward: "Нельзя съесть хуком." },
   [LEVEL3_BOSS_KIND]: { text: "Три стадии: круговые лучи, ракетные залпы и быстрые касты.", reward: "Нельзя съесть хуком." },
+  [LEVEL4_BOSS_KIND]: { text: "Четыре стадии: ракеты, лазерные стены, разделение и финальная ударная волна.", reward: "Нельзя съесть хуком." },
+  [LEVEL4_BOSS_PART_KIND]: { text: "Часть четвертого босса, соединяется лазерными связями.", reward: "Нельзя съесть хуком." },
 };
 
 const campaignLevels = [
@@ -661,6 +687,7 @@ const zigzagProjectiles = [];
 const blastWaves = [];
 const activePulseBombs = [];
 const beamEffects = [];
+const bossLaserWalls = [];
 const enemySeeds = [];
 const homingMissiles = [];
 const enemyHomingMissiles = [];
@@ -885,6 +912,7 @@ function getReplayStateSnapshot() {
     blastWaves,
     activePulseBombs,
     beamEffects,
+    bossLaserWalls,
     enemySeeds,
     homingMissiles,
     enemyHomingMissiles,
@@ -972,6 +1000,7 @@ function applyReplayStateSync(event) {
   replaceArrayContents(blastWaves, state.blastWaves ?? []);
   replaceArrayContents(activePulseBombs, state.activePulseBombs ?? []);
   replaceArrayContents(beamEffects, state.beamEffects ?? []);
+  replaceArrayContents(bossLaserWalls, state.bossLaserWalls ?? []);
   replaceArrayContents(enemySeeds, state.enemySeeds ?? []);
   replaceArrayContents(homingMissiles, state.homingMissiles ?? []);
   replaceArrayContents(enemyHomingMissiles, state.enemyHomingMissiles ?? []);
@@ -1012,6 +1041,7 @@ function startReplay(recording = replayRecorder.getLastRecording() ?? replayReco
   levelSpawnQueue = [];
   spawnMarkers.length = 0;
   enemies.length = 0;
+  bossLaserWalls.length = 0;
   enemySeeds.length = 0;
   levelBossSpawned = true;
   levelCompleted = false;
@@ -1110,6 +1140,7 @@ function applyReplaySpawnMarker(event) {
 function applyReplayEnemySpawn(event) {
   const enemy = getReplayEnemyFromPayload(event.payload);
   if (!enemy) return;
+  if (enemies.some((candidate) => candidate.id === enemy.id)) return;
   for (let index = spawnMarkers.length - 1; index >= 0; index -= 1) {
     const marker = spawnMarkers[index];
     if (marker.kind === enemy.kind && Math.hypot(marker.x - enemy.x, marker.y - enemy.y) < ENEMY_SIZE * 2) {
@@ -1124,6 +1155,7 @@ function applyReplayEnemySpawn(event) {
 function applyReplayBossSpawn(event) {
   const boss = getReplayEnemyFromPayload(event.payload);
   if (!boss) return;
+  if (enemies.some((candidate) => candidate.id === boss.id)) return;
   if (boss.id > enemyId) enemyId = boss.id;
   enemies.push(boss);
 }
@@ -1278,14 +1310,14 @@ function getSpawnInterval() {
 }
 
 function getAutoRosterKinds(level = getCurrentLevel()) {
-  const enemyKinds = Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind));
+  const enemyKinds = Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind) && kind !== LEVEL4_BOSS_PART_KIND);
   const levelIndex = Math.max(0, campaignLevels.indexOf(level));
   const offset = levelIndex % enemyKinds.length;
   return [...enemyKinds.slice(offset), ...enemyKinds.slice(0, offset)];
 }
 
 function getAllNormalEnemyKinds() {
-  return Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind));
+  return Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind) && kind !== LEVEL4_BOSS_PART_KIND);
 }
 
 function getLevelRoster(level = getCurrentLevel()) {
@@ -1354,6 +1386,7 @@ function getFixedLevelBossKind(levelIndex = currentLevelIndex) {
   if (levelIndex === 0) return LEVEL1_BOSS_KIND;
   if (levelIndex === 1) return LEVEL2_BOSS_KIND;
   if (levelIndex === 2) return LEVEL3_BOSS_KIND;
+  if (levelIndex === 3) return LEVEL4_BOSS_KIND;
   return null;
 }
 
@@ -1704,6 +1737,7 @@ function update(dt) {
   updatePlayerDecoy(simDt);
   updateZigzagProjectiles(simDt);
   updatePulseBombs(simDt);
+  updateBossLaserWalls(simDt);
   updateBlastWaves(simDt);
   if (player.dead) {
     updateUi();
@@ -2378,7 +2412,13 @@ function updateBossSupportSpawns(dt) {
 }
 
 function isBossEnemy(enemy) {
-  return enemy?.kind === LEVEL1_BOSS_KIND || enemy?.kind === LEVEL2_BOSS_KIND || enemy?.kind === LEVEL3_BOSS_KIND;
+  return (
+    enemy?.kind === LEVEL1_BOSS_KIND ||
+    enemy?.kind === LEVEL2_BOSS_KIND ||
+    enemy?.kind === LEVEL3_BOSS_KIND ||
+    enemy?.kind === LEVEL4_BOSS_KIND ||
+    enemy?.kind === LEVEL4_BOSS_PART_KIND
+  );
 }
 
 function isBossShieldActive(enemy) {
@@ -2441,6 +2481,8 @@ function updateEnemies(dt) {
     if (isBossEnemy(enemy)) {
       if (enemy.kind === LEVEL2_BOSS_KIND) updateLevel2Boss(enemy, dt);
       else if (enemy.kind === LEVEL3_BOSS_KIND) updateLevel3Boss(enemy, dt);
+      else if (enemy.kind === LEVEL4_BOSS_KIND) updateLevel4Boss(enemy, dt);
+      else if (enemy.kind === LEVEL4_BOSS_PART_KIND) updateLevel4BossPart(enemy, dt);
       else updateLevel1Boss(enemy, dt);
       continue;
     }
@@ -3294,6 +3336,208 @@ function fireLevel3BossMissileVolley(enemy) {
   }
 }
 
+function getLevel4CannonPoint(enemy, cannonIndex, length = enemy.size * 0.75) {
+  const rotation = enemy.bossRotation ?? 0;
+  const angle = rotation + (Math.PI * 2 * cannonIndex) / LEVEL4_BOSS_CANNONS;
+  return {
+    x: enemy.x + Math.cos(angle) * length,
+    y: enemy.y + Math.sin(angle) * length,
+    angle,
+  };
+}
+
+function spawnBossLaserWall(fromX, fromY, angle, duration, options = {}) {
+  const reach = getArenaProjectileReach();
+  bossLaserWalls.push({
+    fromX,
+    fromY,
+    toX: fromX + Math.cos(angle) * reach,
+    toY: fromY + Math.sin(angle) * reach,
+    ttl: duration,
+    life: duration,
+    width: options.width ?? 11,
+    color: options.color ?? "rgba(66, 217, 255, 0.72)",
+    innerColor: options.innerColor ?? "rgba(236, 252, 255, 0.92)",
+    hitPlayer: false,
+  });
+}
+
+function updateBossLaserWalls(dt) {
+  for (let index = bossLaserWalls.length - 1; index >= 0; index -= 1) {
+    const wall = bossLaserWalls[index];
+    if (wall.fromId || wall.toId) {
+      const from = enemies.find((enemy) => enemy.id === wall.fromId);
+      const to = enemies.find((enemy) => enemy.id === wall.toId);
+      if (!from || !to) {
+        bossLaserWalls.splice(index, 1);
+        continue;
+      }
+      wall.fromX = from.x;
+      wall.fromY = from.y;
+      wall.toX = to.x;
+      wall.toY = to.y;
+    }
+
+    wall.ttl -= dt;
+    if (wall.ttl <= 0) {
+      bossLaserWalls.splice(index, 1);
+      continue;
+    }
+
+    if (!wall.hitPlayer) {
+      const hit = getSegmentCircleHit(wall.fromX, wall.fromY, wall.toX, wall.toY, player.x, player.y, player.size * 0.5 + wall.width * 0.5);
+      if (hit) {
+        applyPlayerHit();
+        wall.hitPlayer = true;
+        if (player.dead) return;
+      }
+    }
+  }
+}
+
+function updateLevel4Boss(enemy, dt) {
+  enemy.bossRotation = enemy.bossRotation ?? 0;
+  if (enemy.bossStage === 1) {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.bossMissileTimer -= dt;
+    if (enemy.bossMissileTimer <= 0) {
+      fireEnemyHomingMissile(enemy);
+      enemy.bossMissileTimer += LEVEL4_BOSS_MISSILE_INTERVAL;
+    }
+
+    enemy.bossLaserTimer -= dt;
+    if (enemy.bossLaserTimer <= 0) {
+      const cannon = enemy.bossNextCannon ?? 0;
+      const point = getLevel4CannonPoint(enemy, cannon);
+      spawnBossLaserWall(point.x, point.y, point.angle, LEVEL4_BOSS_LASER_DURATION);
+      enemy.bossNextCannon = (cannon + 1 + Math.floor(replayRandom() * 2)) % LEVEL4_BOSS_CANNONS;
+      enemy.bossLaserTimer += LEVEL4_BOSS_LASER_INTERVAL;
+    }
+    return;
+  }
+
+  if (enemy.bossStage === 2) {
+    enemy.bossRotation += LEVEL4_BOSS_STAGE_TWO_ROTATION_SPEED * dt;
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    enemy.vx = (dx / distance) * LEVEL4_BOSS_STAGE_TWO_SPEED;
+    enemy.vy = (dy / distance) * LEVEL4_BOSS_STAGE_TWO_SPEED;
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+    handleWallBounce(enemy);
+
+    enemy.bossLaserTimer -= dt;
+    const activeWalls = bossLaserWalls.filter((wall) => wall.sourceId === enemy.id).length;
+    if (enemy.bossLaserTimer <= 0 && activeWalls < LEVEL4_BOSS_MAX_LASER_WALLS) {
+      const cannon = enemy.bossNextCannon ?? 0;
+      const point = getLevel4CannonPoint(enemy, cannon);
+      spawnBossLaserWall(point.x, point.y, point.angle, LEVEL4_BOSS_STAGE_TWO_LASER_DURATION, {
+        color: "rgba(94, 238, 255, 0.68)",
+      });
+      bossLaserWalls[bossLaserWalls.length - 1].sourceId = enemy.id;
+      enemy.bossNextCannon = (cannon + 1) % LEVEL4_BOSS_CANNONS;
+      enemy.bossLaserTimer += LEVEL4_BOSS_STAGE_TWO_LASER_INTERVAL;
+    }
+    return;
+  }
+
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.x = ARENA.x + ARENA.width * 0.5;
+  enemy.y = ARENA.y + ARENA.height * 0.5;
+  enemy.bossBlastTimer -= dt;
+  if (enemy.bossBlastTimer <= 0) {
+    spawnBlastWave(enemy.x, enemy.y, {
+      owner: "enemy",
+      radius: 4,
+      maxRadius: getArenaProjectileReach(),
+      expandSpeed: LEVEL4_BOSS_STAGE_FOUR_BLAST_SPEED,
+    });
+    enemy.bossBlastTimer += LEVEL4_BOSS_STAGE_FOUR_BLAST_INTERVAL;
+  }
+}
+
+function updateLevel4BossPart(enemy, dt) {
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
+  enemy.linkTimer -= dt;
+  if (enemy.linkTimer <= 0) {
+    const parts = enemies.filter((candidate) => candidate.kind === LEVEL4_BOSS_PART_KIND && candidate.id !== enemy.id);
+    if (parts.length > 0) {
+      const target = parts[Math.floor(replayRandom() * parts.length)];
+      bossLaserWalls.push({
+        fromId: enemy.id,
+        toId: target.id,
+        fromX: enemy.x,
+        fromY: enemy.y,
+        toX: target.x,
+        toY: target.y,
+        ttl: LEVEL4_BOSS_PART_LINK_DURATION,
+        life: LEVEL4_BOSS_PART_LINK_DURATION,
+        width: 9,
+        color: "rgba(66, 217, 255, 0.58)",
+        innerColor: "rgba(236, 252, 255, 0.92)",
+        hitPlayer: false,
+      });
+    }
+    enemy.linkTimer += LEVEL4_BOSS_PART_LINK_INTERVAL;
+  }
+}
+
+function enterLevel4BossNextStage(enemy) {
+  if (enemy.bossStage === 1) {
+    enemy.bossStage = 2;
+    enemy.hp = LEVEL4_BOSS_STAGE_TWO_HP;
+    enemy.maxHp = LEVEL4_BOSS_STAGE_TWO_HP;
+    enemy.bossLaserTimer = 0.6;
+    enemy.bossNextCannon = 0;
+    spawnImpactBurst(enemy.x, enemy.y, { count: 34, speedMin: 120, speedMax: 420, lifeMin: 0.2, lifeMax: 0.5, sizeMin: 4, sizeMax: 11 });
+    return;
+  }
+
+  if (enemy.bossStage === 2) {
+    const centerX = enemy.x;
+    const centerY = enemy.y;
+    removeEnemy(enemy.id);
+    for (let index = 0; index < 4; index += 1) {
+      const angle = (Math.PI * 2 * index) / 4;
+      const part = createEnemy(
+        LEVEL4_BOSS_PART_KIND,
+        clamp(centerX + Math.cos(angle) * 54, ARENA.x + LEVEL4_BOSS_PART_SIZE, ARENA.x + ARENA.width - LEVEL4_BOSS_PART_SIZE),
+        clamp(centerY + Math.sin(angle) * 54, ARENA.y + LEVEL4_BOSS_PART_SIZE, ARENA.y + ARENA.height - LEVEL4_BOSS_PART_SIZE)
+      );
+      const partHp = Math.floor(LEVEL4_BOSS_STAGE_THREE_HP / 4) + (index < LEVEL4_BOSS_STAGE_THREE_HP % 4 ? 1 : 0);
+      part.bossStage = 3;
+      part.groupId = enemy.id;
+      part.hp = partHp;
+      part.maxHp = partHp;
+      part.vx = Math.cos(angle + randomRange(-0.6, 0.6)) * LEVEL4_BOSS_PART_SPEED;
+      part.vy = Math.sin(angle + randomRange(-0.6, 0.6)) * LEVEL4_BOSS_PART_SPEED;
+      part.linkTimer = LEVEL4_BOSS_PART_LINK_INTERVAL * (0.5 + index * 0.18);
+      enemies.push(part);
+      replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(part, "level4_split"));
+    }
+    spawnImpactBurst(centerX, centerY, { count: 42, speedMin: 140, speedMax: 500, lifeMin: 0.22, lifeMax: 0.54, sizeMin: 5, sizeMax: 13 });
+  }
+}
+
+function spawnLevel4FinalBoss(x = ARENA.x + ARENA.width * 0.5, y = ARENA.y + ARENA.height * 0.5) {
+  const boss = createEnemy(LEVEL4_BOSS_KIND, x, y);
+  boss.bossStage = 4;
+  boss.hp = LEVEL4_BOSS_STAGE_FOUR_HP;
+  boss.maxHp = LEVEL4_BOSS_STAGE_FOUR_HP;
+  boss.bossState = "core";
+  boss.bossBlastTimer = 0.8;
+  boss.vx = 0;
+  boss.vy = 0;
+  enemies.push(boss);
+  replayRecorder.recordEnemyInput("boss_spawn", getEnemyReplayPayload(boss, "level4_final"));
+}
+
 function getCommanderRallyTarget(commander) {
   const allies = enemies
     .filter((enemy) => enemy.id !== commander.id && !enemy.isIllusion && !isBossEnemy(enemy))
@@ -3440,22 +3684,24 @@ function createEnemy(kind, x, y) {
   const isLevel1Boss = kind === LEVEL1_BOSS_KIND;
   const isLevel2Boss = kind === LEVEL2_BOSS_KIND;
   const isLevel3Boss = kind === LEVEL3_BOSS_KIND;
-  const isBoss = isLevel1Boss || isLevel2Boss || isLevel3Boss;
+  const isLevel4Boss = kind === LEVEL4_BOSS_KIND;
+  const isLevel4Part = kind === LEVEL4_BOSS_PART_KIND;
+  const isBoss = isLevel1Boss || isLevel2Boss || isLevel3Boss || isLevel4Boss || isLevel4Part;
   const enemy = {
     id: enemyId += 1,
     x,
     y,
     vx: 0,
     vy: 0,
-    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isLevel3Boss ? LEVEL3_BOSS_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isCharger ? ENEMY_SIZE * 0.92 : isRocketeer ? ENEMY_SIZE * 1.05 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
+    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isLevel3Boss ? LEVEL3_BOSS_SIZE : isLevel4Boss ? LEVEL4_BOSS_SIZE : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isCharger ? ENEMY_SIZE * 0.92 : isRocketeer ? ENEMY_SIZE * 1.05 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
-    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
-    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.85 : isCharger ? ENEMY_SIZE * 1.3 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
-    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isBrute ? ENEMY_SIZE * 1.1 : isCharger ? ENEMY_SIZE * 0.82 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? Math.ceil(LEVEL4_BOSS_STAGE_THREE_HP / 4) : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? Math.ceil(LEVEL4_BOSS_STAGE_THREE_HP / 4) : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.85 : isCharger ? ENEMY_SIZE * 1.3 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.1 : isCharger ? ENEMY_SIZE * 0.82 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
@@ -3533,6 +3779,15 @@ function createEnemy(kind, x, y) {
       enemy.bossVolleyCooldown = 0;
       enemy.bossLaserTimer = LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL;
       enemy.bossRadialAngles = [];
+    } else if (isLevel4Boss) {
+      enemy.bossState = "turret";
+      enemy.bossRotation = -Math.PI * 0.5;
+      enemy.bossMissileTimer = LEVEL4_BOSS_MISSILE_INTERVAL * 0.6;
+      enemy.bossLaserTimer = LEVEL4_BOSS_LASER_INTERVAL * 0.45;
+      enemy.bossNextCannon = 0;
+    } else if (isLevel4Part) {
+      enemy.bossState = "part";
+      enemy.linkTimer = LEVEL4_BOSS_PART_LINK_INTERVAL;
     } else {
       enemy.bossState = "bounce";
       enemy.bossExplosionTimer = LEVEL1_BOSS_EXPLOSION_INTERVAL;
@@ -3597,7 +3852,7 @@ function spawnEnemy(x, y, forcedKind = null) {
 function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
   const boss = createEnemy(kind, x, y);
   const direction = randomDirection();
-  const speed = kind === LEVEL2_BOSS_KIND || kind === LEVEL3_BOSS_KIND ? 0 : LEVEL1_BOSS_BOUNCE_SPEED;
+  const speed = kind === LEVEL2_BOSS_KIND || kind === LEVEL3_BOSS_KIND || kind === LEVEL4_BOSS_KIND ? 0 : LEVEL1_BOSS_BOUNCE_SPEED;
   boss.vx = direction.x * speed;
   boss.vy = direction.y * speed;
   boss.moving = true;
@@ -6466,6 +6721,7 @@ function startDeathSequence() {
   blastWaves.length = 0;
   activePulseBombs.length = 0;
   beamEffects.length = 0;
+  bossLaserWalls.length = 0;
   enemySeeds.length = 0;
   homingMissiles.length = 0;
   enemyHomingMissiles.length = 0;
@@ -6565,6 +6821,7 @@ function resetGame() {
   blastWaves.length = 0;
   activePulseBombs.length = 0;
   beamEffects.length = 0;
+  bossLaserWalls.length = 0;
   enemySeeds.length = 0;
   homingMissiles.length = 0;
   enemyHomingMissiles.length = 0;
@@ -6664,6 +6921,7 @@ function removeEnemy(id) {
 
 function getEnemyXpValue(enemy) {
   if (!enemy || enemy.isIllusion) return 0;
+  if (enemy.kind === LEVEL4_BOSS_PART_KIND) return 0;
   if (isBossEnemy(enemy)) return 8;
   if (enemy.kind === "commander" || enemy.kind === "medic") return 5;
   if (enemy.kind === "charger" || enemy.kind === "rocketeer") return 2;
@@ -6733,8 +6991,18 @@ function killEnemy(enemy, { explode = true } = {}) {
   }
 
   addPlayerXp(getEnemyXpValue(enemy));
+  triggerLevel4BossKillMissile(enemy);
   removeEnemy(enemy.id);
+  if (enemy.kind === LEVEL4_BOSS_PART_KIND && !enemies.some((candidate) => candidate.kind === LEVEL4_BOSS_PART_KIND && candidate.id !== enemy.id)) {
+    spawnLevel4FinalBoss();
+  }
   return true;
+}
+
+function triggerLevel4BossKillMissile(killedEnemy) {
+  if (!killedEnemy || isBossEnemy(killedEnemy)) return;
+  const boss = enemies.find((enemy) => enemy.kind === LEVEL4_BOSS_KIND && enemy.bossStage === 1);
+  if (boss) fireEnemyHomingMissile(boss);
 }
 
 function damageEnemy(enemy, amount = 1) {
@@ -6752,6 +7020,10 @@ function damageEnemy(enemy, amount = 1) {
   spawnEnemyHitBurst(enemy, amount);
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
+    if (enemy.kind === LEVEL4_BOSS_KIND && enemy.bossStage < 4) {
+      enterLevel4BossNextStage(enemy);
+      return false;
+    }
     if (enemy.kind === LEVEL3_BOSS_KIND && enemy.bossStage < 3) {
       enterLevel3BossNextStage(enemy);
       return false;
@@ -7829,6 +8101,8 @@ function drawBoss(enemy) {
   const isBlinking = enemy.bossState === "blink";
   const isLevel2Boss = enemy.kind === LEVEL2_BOSS_KIND;
   const isLevel3Boss = enemy.kind === LEVEL3_BOSS_KIND;
+  const isLevel4Boss = enemy.kind === LEVEL4_BOSS_KIND;
+  const isLevel4Part = enemy.kind === LEVEL4_BOSS_PART_KIND;
   const hitFlash = clamp(enemy.hitFlash || 0, 0, 1);
 
   ctx.save();
@@ -7949,12 +8223,16 @@ function drawBoss(enemy) {
     ctx.stroke();
   }
 
-  ctx.rotate(Math.atan2(enemy.vy, enemy.vx) + worldTime * (isLevel3Boss ? 1.1 : isStageTwo ? 1.4 : 0.75));
+  if (isLevel4Boss || isLevel4Part) {
+    ctx.rotate(enemy.bossRotation ?? Math.atan2(enemy.vy, enemy.vx));
+  } else {
+    ctx.rotate(Math.atan2(enemy.vy, enemy.vx) + worldTime * (isLevel3Boss ? 1.1 : isStageTwo ? 1.4 : 0.75));
+  }
   const gradient = ctx.createRadialGradient(-radius * 0.35, -radius * 0.35, 4, 0, 0, radius * 1.25);
-  gradient.addColorStop(0, isLevel3Boss ? "#f6eaff" : isLevel2Boss ? "#fff0d7" : isBlinking ? "#ffffff" : "#ffd7df");
-  gradient.addColorStop(0.36, isLevel3Boss ? (enemy.bossStage === 3 ? "#7f5cff" : "#a86cff") : isLevel2Boss ? (enemy.bossStage === 3 ? "#ff4f2f" : "#ff8a2f") : isStageTwo ? "#ff315f" : "#ff6f86");
-  gradient.addColorStop(1, isLevel3Boss ? "#27114f" : isLevel2Boss ? "#5a1700" : isStageTwo ? "#4b0016" : "#7b0e2b");
-  ctx.shadowColor = isLevel3Boss ? "rgba(168, 108, 255, 0.65)" : isLevel2Boss ? "rgba(255, 122, 47, 0.65)" : "rgba(255, 49, 95, 0.65)";
+  gradient.addColorStop(0, isLevel4Boss || isLevel4Part ? "#e8fbff" : isLevel3Boss ? "#f6eaff" : isLevel2Boss ? "#fff0d7" : isBlinking ? "#ffffff" : "#ffd7df");
+  gradient.addColorStop(0.36, isLevel4Boss || isLevel4Part ? (enemy.bossStage === 4 ? "#24f0ff" : "#42d9ff") : isLevel3Boss ? (enemy.bossStage === 3 ? "#7f5cff" : "#a86cff") : isLevel2Boss ? (enemy.bossStage === 3 ? "#ff4f2f" : "#ff8a2f") : isStageTwo ? "#ff315f" : "#ff6f86");
+  gradient.addColorStop(1, isLevel4Boss || isLevel4Part ? "#062c40" : isLevel3Boss ? "#27114f" : isLevel2Boss ? "#5a1700" : isStageTwo ? "#4b0016" : "#7b0e2b");
+  ctx.shadowColor = isLevel4Boss || isLevel4Part ? "rgba(66, 217, 255, 0.65)" : isLevel3Boss ? "rgba(168, 108, 255, 0.65)" : isLevel2Boss ? "rgba(255, 122, 47, 0.65)" : "rgba(255, 49, 95, 0.65)";
   ctx.shadowBlur = 28;
   ctx.fillStyle = gradient;
   ctx.beginPath();
@@ -7972,6 +8250,18 @@ function drawBoss(enemy) {
   ctx.strokeStyle = "rgba(255, 244, 248, 0.86)";
   ctx.lineWidth = 3;
   ctx.stroke();
+
+  if (isLevel4Boss) {
+    ctx.strokeStyle = "rgba(228, 252, 255, 0.9)";
+    ctx.lineWidth = 3;
+    for (let index = 0; index < LEVEL4_BOSS_CANNONS; index += 1) {
+      const angle = (Math.PI * 2 * index) / LEVEL4_BOSS_CANNONS;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * radius * 0.42, Math.sin(angle) * radius * 0.42);
+      ctx.lineTo(Math.cos(angle) * radius * 1.35, Math.sin(angle) * radius * 1.35);
+      ctx.stroke();
+    }
+  }
 
   if (hitFlash > 0) {
     ctx.globalCompositeOperation = "screen";
@@ -8955,6 +9245,26 @@ function drawLaserEffects() {
     ctx.beginPath();
     ctx.moveTo(beam.fromX, beam.fromY);
     ctx.lineTo(beam.toX, beam.toY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  for (const wall of bossLaserWalls) {
+    const life = clamp(wall.ttl / wall.life, 0, 1);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = wall.color.replace(/[\d.]+\)$/u, `${0.18 + life * 0.58})`);
+    ctx.lineWidth = getEffectSize(wall.width + (1 - life) * 5);
+    ctx.beginPath();
+    ctx.moveTo(wall.fromX, wall.fromY);
+    ctx.lineTo(wall.toX, wall.toY);
+    ctx.stroke();
+
+    ctx.strokeStyle = wall.innerColor.replace(/[\d.]+\)$/u, `${0.22 + life * 0.62})`);
+    ctx.lineWidth = getEffectSize(Math.max(2, wall.width * 0.28));
+    ctx.beginPath();
+    ctx.moveTo(wall.fromX, wall.fromY);
+    ctx.lineTo(wall.toX, wall.toY);
     ctx.stroke();
     ctx.restore();
   }
