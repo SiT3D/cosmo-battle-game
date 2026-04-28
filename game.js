@@ -162,6 +162,7 @@ const LASER_CHARGE_TIME = 0.5;
 const PLAYER_LASER_CHARGE_TIME = 0.05;
 const SNIPER_CHARGE_TIME = 7;
 const PLAYER_SNIPER_CHARGE_TIME = 0.22;
+const PLAYER_STOLEN_SNIPER_DAMAGE = 3;
 const SPRAY_CHARGE_TIME = 1;
 const PLAYER_SPRAY_CHARGE_TIME = 0.7;
 const PLAYER_MISSILE_SPEED = 232;
@@ -5927,7 +5928,7 @@ function firePlayerSniper(config) {
 
   const hits = findEnemiesOnBeam(player.x, player.y, endX, endY);
   for (const hit of hits) {
-    damageEnemy(hit.enemy, 1);
+    damageEnemy(hit.enemy, PLAYER_STOLEN_SNIPER_DAMAGE);
   }
 
   consumeAbilityCharge(config.slot);
