@@ -30,6 +30,10 @@ const EFFECT_RENDER_SCALE = 0.5;
 const MARKER_RENDER_SCALE = 0.5;
 const MISSILE_RENDER_SCALE = 1 / 3;
 const REPLAY_STATE_SYNC_INTERVAL = 5;
+const REPLAY_PLAYBACK_TIME_SCALE = 1.25;
+const REPLAY_KILL_SLOW_TIME_SCALE = 0.4;
+const REPLAY_KILL_SLOW_LOOKAHEAD = 0.5;
+const REPLAY_TIME_SCALE_TRANSITION = 0.28;
 const WALL_BOUNCE = 0.94;
 const INACTIVE_TIME_SCALE = 1 / 14;
 const TIME_SCALE_TRANSITION = 1.2;
@@ -114,16 +118,19 @@ const LEVEL3_BOSS_STAGE_TWO_VOLLEY_COUNT = 5;
 const LEVEL3_BOSS_STAGE_TWO_MISSILE_SPEED_MULTIPLIER = 0.7;
 const LEVEL3_BOSS_STAGE_THREE_LASER_INTERVAL = 3;
 const LEVEL3_BOSS_STAGE_THREE_LASER_CAST_TIME = 0.5;
-const LEVEL4_BOSS_SIZE = 58;
-const LEVEL4_BOSS_PART_SIZE = 30;
-const LEVEL4_BOSS_STAGE_ONE_HP = 10;
-const LEVEL4_BOSS_STAGE_TWO_HP = 15;
-const LEVEL4_BOSS_STAGE_THREE_HP = 15;
-const LEVEL4_BOSS_STAGE_FOUR_HP = 10;
+const LEVEL4_BOSS_SIZE = 68;
+const LEVEL4_BOSS_PART_SIZE = 36;
+const LEVEL4_BOSS_STAGE_ONE_HP = 13;
+const LEVEL4_BOSS_STAGE_TWO_HP = 20;
+const LEVEL4_BOSS_STAGE_THREE_HP = 60;
+const LEVEL4_BOSS_STAGE_FOUR_HP = 13;
+const LEVEL4_BOSS_PART_HP = 15;
 const LEVEL4_BOSS_CANNONS = 6;
 const LEVEL4_BOSS_MISSILE_INTERVAL = 4.2;
 const LEVEL4_BOSS_LASER_INTERVAL = 5.2;
 const LEVEL4_BOSS_LASER_DURATION = 2.2;
+const LEVEL4_BOSS_LASER_CHARGE_TIME = 1.05;
+const LEVEL4_BOSS_STAGE_ONE_SPEED = 42;
 const LEVEL4_BOSS_STAGE_TWO_SPEED = 64;
 const LEVEL4_BOSS_STAGE_TWO_ROTATION_SPEED = 0.45;
 const LEVEL4_BOSS_STAGE_TWO_LASER_INTERVAL = 0.8;
@@ -1056,11 +1063,32 @@ function startReplay(recording = replayRecorder.getLastRecording() ?? replayReco
   deathResetTimer = 0;
   player.dead = false;
   gameState = "playing";
+  currentTimeScale = REPLAY_PLAYBACK_TIME_SCALE;
   hideCampaignOverlay();
   updateLevelHud();
   replayPlayer.start(recording);
   updateReplayControls();
   return true;
+}
+
+function getReplayCinematicTimeScale() {
+  if (!isReplayPlaybackActive()) return 1;
+
+  const playbackTime = replayPlayer.playbackTime ?? actionTime;
+  const events = replayPlayer.events ?? [];
+  for (let index = replayPlayer.cursor ?? 0; index < events.length; index += 1) {
+    const event = events[index];
+    const eventTime = event?.actionTime;
+    if (!Number.isFinite(eventTime)) continue;
+    const timeUntilEvent = eventTime - playbackTime;
+    if (timeUntilEvent < 0) continue;
+    if (timeUntilEvent > REPLAY_KILL_SLOW_LOOKAHEAD) break;
+    if (event.type === "replay_cinematic" && event.payload?.action === "enemy_kill") {
+      return REPLAY_KILL_SLOW_TIME_SCALE;
+    }
+  }
+
+  return REPLAY_PLAYBACK_TIME_SCALE;
 }
 
 function getReplayEventCount() {
@@ -1694,9 +1722,12 @@ function update(dt) {
   if (startedActive && !simulationWasActive) {
     beginEnemyActionCycle();
   }
-  const targetTimeScale = startedActive ? 1 : INACTIVE_TIME_SCALE;
+  const targetTimeScale = startedActive
+    ? getReplayCinematicTimeScale()
+    : INACTIVE_TIME_SCALE;
+  const timeScaleTransition = isReplayPlaybackActive() ? REPLAY_TIME_SCALE_TRANSITION : TIME_SCALE_TRANSITION;
   currentTimeScale = startedActive
-    ? moveToward(currentTimeScale, targetTimeScale, dt / TIME_SCALE_TRANSITION)
+    ? moveToward(currentTimeScale, targetTimeScale, dt / timeScaleTransition)
     : INACTIVE_TIME_SCALE;
   const simDt = dt * currentTimeScale;
 
@@ -3349,12 +3380,17 @@ function getLevel4CannonPoint(enemy, cannonIndex, length = enemy.size * 0.75) {
 function spawnBossLaserWall(fromX, fromY, angle, duration, options = {}) {
   const reach = getArenaProjectileReach();
   bossLaserWalls.push({
+    sourceId: options.sourceId ?? null,
+    sourceCannon: options.sourceCannon ?? null,
+    angle,
     fromX,
     fromY,
     toX: fromX + Math.cos(angle) * reach,
     toY: fromY + Math.sin(angle) * reach,
-    ttl: duration,
-    life: duration,
+    ttl: duration + (options.chargeTime ?? 0),
+    life: duration + (options.chargeTime ?? 0),
+    activeDuration: duration,
+    chargeTime: options.chargeTime ?? 0,
     width: options.width ?? 11,
     color: options.color ?? "rgba(66, 217, 255, 0.72)",
     innerColor: options.innerColor ?? "rgba(236, 252, 255, 0.92)",
@@ -3376,6 +3412,19 @@ function updateBossLaserWalls(dt) {
       wall.fromY = from.y;
       wall.toX = to.x;
       wall.toY = to.y;
+    } else if (wall.sourceId) {
+      const source = enemies.find((enemy) => enemy.id === wall.sourceId);
+      if (!source) {
+        bossLaserWalls.splice(index, 1);
+        continue;
+      }
+      const point = getLevel4CannonPoint(source, wall.sourceCannon ?? 0);
+      const reach = getArenaProjectileReach();
+      wall.angle = point.angle;
+      wall.fromX = point.x;
+      wall.fromY = point.y;
+      wall.toX = point.x + Math.cos(point.angle) * reach;
+      wall.toY = point.y + Math.sin(point.angle) * reach;
     }
 
     wall.ttl -= dt;
@@ -3383,6 +3432,9 @@ function updateBossLaserWalls(dt) {
       bossLaserWalls.splice(index, 1);
       continue;
     }
+
+    const activeDuration = wall.activeDuration ?? wall.life;
+    if (wall.ttl > activeDuration) continue;
 
     if (!wall.hitPlayer) {
       const hit = getSegmentCircleHit(wall.fromX, wall.fromY, wall.toX, wall.toY, player.x, player.y, player.size * 0.5 + wall.width * 0.5);
@@ -3398,8 +3450,23 @@ function updateBossLaserWalls(dt) {
 function updateLevel4Boss(enemy, dt) {
   enemy.bossRotation = enemy.bossRotation ?? 0;
   if (enemy.bossStage === 1) {
-    enemy.vx = 0;
-    enemy.vy = 0;
+    enemy.bossRotation += LEVEL4_BOSS_STAGE_TWO_ROTATION_SPEED * 0.55 * dt;
+    const target = getEnemyAggroTarget(enemy.x, enemy.y);
+    const dx = target.x - enemy.x;
+    const dy = target.y - enemy.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const desiredRange = getCellSize() * 3.7;
+    const radial = Math.abs(distance - desiredRange) > getCellSize() * 0.35 ? Math.sign(distance - desiredRange) : 0;
+    const orbit = Math.sin(worldTime * 0.9 + enemy.id) >= 0 ? 1 : -1;
+    const dirX = (dx / distance) * radial + (-dy / distance) * orbit * 0.72;
+    const dirY = (dy / distance) * radial + (dx / distance) * orbit * 0.72;
+    const dirLength = Math.hypot(dirX, dirY) || 1;
+    enemy.vx = (dirX / dirLength) * LEVEL4_BOSS_STAGE_ONE_SPEED;
+    enemy.vy = (dirY / dirLength) * LEVEL4_BOSS_STAGE_ONE_SPEED;
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+    handleWallBounce(enemy);
+
     enemy.bossMissileTimer -= dt;
     if (enemy.bossMissileTimer <= 0) {
       fireEnemyHomingMissile(enemy);
@@ -3410,7 +3477,11 @@ function updateLevel4Boss(enemy, dt) {
     if (enemy.bossLaserTimer <= 0) {
       const cannon = enemy.bossNextCannon ?? 0;
       const point = getLevel4CannonPoint(enemy, cannon);
-      spawnBossLaserWall(point.x, point.y, point.angle, LEVEL4_BOSS_LASER_DURATION);
+      spawnBossLaserWall(point.x, point.y, point.angle, LEVEL4_BOSS_LASER_DURATION, {
+        sourceId: enemy.id,
+        sourceCannon: cannon,
+        chargeTime: LEVEL4_BOSS_LASER_CHARGE_TIME,
+      });
       enemy.bossNextCannon = (cannon + 1 + Math.floor(replayRandom() * 2)) % LEVEL4_BOSS_CANNONS;
       enemy.bossLaserTimer += LEVEL4_BOSS_LASER_INTERVAL;
     }
@@ -3436,8 +3507,10 @@ function updateLevel4Boss(enemy, dt) {
       const point = getLevel4CannonPoint(enemy, cannon);
       spawnBossLaserWall(point.x, point.y, point.angle, LEVEL4_BOSS_STAGE_TWO_LASER_DURATION, {
         color: "rgba(94, 238, 255, 0.68)",
+        sourceId: enemy.id,
+        sourceCannon: cannon,
+        chargeTime: LEVEL4_BOSS_LASER_CHARGE_TIME * 0.72,
       });
-      bossLaserWalls[bossLaserWalls.length - 1].sourceId = enemy.id;
       enemy.bossNextCannon = (cannon + 1) % LEVEL4_BOSS_CANNONS;
       enemy.bossLaserTimer += LEVEL4_BOSS_STAGE_TWO_LASER_INTERVAL;
     }
@@ -3510,11 +3583,10 @@ function enterLevel4BossNextStage(enemy) {
         clamp(centerX + Math.cos(angle) * 54, ARENA.x + LEVEL4_BOSS_PART_SIZE, ARENA.x + ARENA.width - LEVEL4_BOSS_PART_SIZE),
         clamp(centerY + Math.sin(angle) * 54, ARENA.y + LEVEL4_BOSS_PART_SIZE, ARENA.y + ARENA.height - LEVEL4_BOSS_PART_SIZE)
       );
-      const partHp = Math.floor(LEVEL4_BOSS_STAGE_THREE_HP / 4) + (index < LEVEL4_BOSS_STAGE_THREE_HP % 4 ? 1 : 0);
       part.bossStage = 3;
       part.groupId = enemy.id;
-      part.hp = partHp;
-      part.maxHp = partHp;
+      part.hp = LEVEL4_BOSS_PART_HP;
+      part.maxHp = LEVEL4_BOSS_PART_HP;
       part.vx = Math.cos(angle + randomRange(-0.6, 0.6)) * LEVEL4_BOSS_PART_SPEED;
       part.vy = Math.sin(angle + randomRange(-0.6, 0.6)) * LEVEL4_BOSS_PART_SPEED;
       part.linkTimer = LEVEL4_BOSS_PART_LINK_INTERVAL * (0.5 + index * 0.18);
@@ -3698,8 +3770,8 @@ function createEnemy(kind, x, y) {
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? Math.ceil(LEVEL4_BOSS_STAGE_THREE_HP / 4) : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
-    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? Math.ceil(LEVEL4_BOSS_STAGE_THREE_HP / 4) : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? LEVEL4_BOSS_PART_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? LEVEL4_BOSS_PART_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
     renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.85 : isCharger ? ENEMY_SIZE * 1.3 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.1 : isCharger ? ENEMY_SIZE * 0.82 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
@@ -6971,6 +7043,8 @@ function addPlayerXp(amount) {
 function killEnemy(enemy, { explode = true } = {}) {
   if (!enemy) return false;
 
+  recordReplayCinematicKill(enemy);
+
   if (explode && enemy.kind === "bomber") {
     spawnBomberBlast(enemy.x, enemy.y);
   }
@@ -6997,6 +7071,18 @@ function killEnemy(enemy, { explode = true } = {}) {
     spawnLevel4FinalBoss();
   }
   return true;
+}
+
+function recordReplayCinematicKill(enemy) {
+  if (!replayRecorder.isRecording() || isReplayPlaybackActive()) return;
+  replayRecorder.record("replay_cinematic", {
+    action: "enemy_kill",
+    enemyId: enemy.id,
+    kind: enemy.kind,
+    x: enemy.x,
+    y: enemy.y,
+    bossStage: enemy.bossStage ?? null,
+  });
 }
 
 function triggerLevel4BossKillMissile(killedEnemy) {
@@ -8256,10 +8342,39 @@ function drawBoss(enemy) {
     ctx.lineWidth = 3;
     for (let index = 0; index < LEVEL4_BOSS_CANNONS; index += 1) {
       const angle = (Math.PI * 2 * index) / LEVEL4_BOSS_CANNONS;
+      const chargingWall = bossLaserWalls.find((wall) => wall.sourceId === enemy.id && wall.sourceCannon === index);
+      const activeDuration = chargingWall?.activeDuration ?? 0;
+      const chargeTime = chargingWall?.chargeTime ?? 0;
+      const isCharging = Boolean(chargingWall && chargeTime > 0 && chargingWall.ttl > activeDuration);
+      const chargeProgress = isCharging
+        ? 1 - clamp((chargingWall.ttl - activeDuration) / chargeTime, 0, 1)
+        : chargingWall
+          ? 1
+          : 0;
       ctx.beginPath();
       ctx.moveTo(Math.cos(angle) * radius * 0.42, Math.sin(angle) * radius * 0.42);
       ctx.lineTo(Math.cos(angle) * radius * 1.35, Math.sin(angle) * radius * 1.35);
       ctx.stroke();
+
+      if (chargeProgress > 0) {
+        const tipX = Math.cos(angle) * radius * 1.42;
+        const tipY = Math.sin(angle) * radius * 1.42;
+        const flicker = 0.65 + pulse * 0.35;
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        ctx.shadowColor = "rgba(108, 245, 255, 0.95)";
+        ctx.shadowBlur = 16 + chargeProgress * 22;
+        ctx.fillStyle = `rgba(164, 250, 255, ${(0.22 + chargeProgress * 0.58) * flicker})`;
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, 5 + chargeProgress * 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(236, 252, 255, ${0.28 + chargeProgress * 0.62})`;
+        ctx.lineWidth = 1.5 + chargeProgress * 2.5;
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, 9 + chargeProgress * 12 + pulse * 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -9250,18 +9365,43 @@ function drawLaserEffects() {
   }
 
   for (const wall of bossLaserWalls) {
-    const life = clamp(wall.ttl / wall.life, 0, 1);
+    const activeDuration = wall.activeDuration ?? wall.life;
+    const chargeTime = wall.chargeTime ?? 0;
+    const isCharging = chargeTime > 0 && wall.ttl > activeDuration;
+    const chargeProgress = isCharging ? 1 - clamp((wall.ttl - activeDuration) / chargeTime, 0, 1) : 1;
+    const life = clamp((isCharging ? activeDuration : wall.ttl) / activeDuration, 0, 1);
     ctx.save();
     ctx.lineCap = "round";
-    ctx.strokeStyle = wall.color.replace(/[\d.]+\)$/u, `${0.18 + life * 0.58})`);
-    ctx.lineWidth = getEffectSize(wall.width + (1 - life) * 5);
+    if (isCharging) {
+      ctx.setLineDash([12, 12]);
+      ctx.strokeStyle = wall.color.replace(/[\d.]+\)$/u, `${0.08 + chargeProgress * 0.28})`);
+      ctx.lineWidth = getEffectSize(2 + chargeProgress * 4);
+      ctx.beginPath();
+      ctx.moveTo(wall.fromX, wall.fromY);
+      ctx.lineTo(wall.toX, wall.toY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.globalCompositeOperation = "screen";
+      ctx.fillStyle = wall.innerColor.replace(/[\d.]+\)$/u, `${0.24 + chargeProgress * 0.58})`);
+      ctx.shadowColor = wall.color;
+      ctx.shadowBlur = getEffectSize(14 + chargeProgress * 18);
+      ctx.beginPath();
+      ctx.arc(wall.fromX, wall.fromY, getEffectSize(5 + chargeProgress * 11), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      continue;
+    }
+
+    ctx.strokeStyle = wall.color.replace(/[\d.]+\)$/u, `${0.22 + life * 0.64})`);
+    ctx.lineWidth = getEffectSize(wall.width + (1 - life) * 7);
     ctx.beginPath();
     ctx.moveTo(wall.fromX, wall.fromY);
     ctx.lineTo(wall.toX, wall.toY);
     ctx.stroke();
 
-    ctx.strokeStyle = wall.innerColor.replace(/[\d.]+\)$/u, `${0.22 + life * 0.62})`);
-    ctx.lineWidth = getEffectSize(Math.max(2, wall.width * 0.28));
+    ctx.strokeStyle = wall.innerColor.replace(/[\d.]+\)$/u, `${0.3 + life * 0.7})`);
+    ctx.lineWidth = getEffectSize(Math.max(2.6, wall.width * 0.34));
     ctx.beginPath();
     ctx.moveTo(wall.fromX, wall.fromY);
     ctx.lineTo(wall.toX, wall.toY);
