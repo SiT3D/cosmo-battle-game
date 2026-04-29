@@ -1108,11 +1108,28 @@ function canStartReplayFromUi() {
   return !isReplayPlaybackActive() && getReplayEventCount() > 1;
 }
 
+function getReplayRecordingByteSize(recording) {
+  if (!recording) return 0;
+  return new TextEncoder().encode(JSON.stringify(recording)).length;
+}
+
+function formatByteSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function updateReplayControls() {
   if (!replayButtonEl) return;
 
   replayButtonEl.disabled = !canStartReplayFromUi();
-  replayButtonEl.textContent = isReplayPlaybackActive() ? "Идет повтор" : "Повтор";
+  if (isReplayPlaybackActive()) {
+    const size = formatByteSize(getReplayRecordingByteSize(replayPlayer.recording));
+    replayButtonEl.textContent = `Идет повтор | ${size}`;
+  } else {
+    replayButtonEl.textContent = "Повтор";
+  }
 }
 
 function getReplayPoint(payload) {
