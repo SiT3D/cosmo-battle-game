@@ -41,6 +41,11 @@ const MOVE_TO_POINT_SPEED = 441;
 const MOVE_STOP_DISTANCE = 10;
 const MOVE_ACCELERATION = 741;
 const MOVE_BRAKE = 956;
+const PLAYER_COAST_TIME = 0.55;
+const PLAYER_COAST_DRAG = 360;
+const PLAYER_COAST_MIN_SPEED = 28;
+const PLAYER_COAST_ENTRY_DISTANCE = 46;
+const PLAYER_COAST_MAX_TURN_ANGLE = Math.PI * 0.42;
 const PLAYER_TURN_RATE = 2.94;
 const PLAYER_TRAJECTORY_STEPS = 42;
 const PLAYER_TRAJECTORY_STEP_TIME = 1 / 30;
@@ -318,6 +323,7 @@ const player = {
   moving: false,
   launched: false,
   restingFor: 0,
+  coastTimer: 0,
   hp: 3,
   maxHp: 3,
   xp: 0,
@@ -1481,6 +1487,10 @@ function isSimulationActive() {
   );
 }
 
+function isPlayerCoasting() {
+  return (player.coastTimer ?? 0) > 0 && Math.hypot(player.vx, player.vy) > PLAYER_COAST_MIN_SPEED;
+}
+
 function randomRange(min, max) {
   return min + replayRandom() * (max - min);
 }
@@ -1738,7 +1748,7 @@ function update(dt) {
   if (startedActive) {
     updatePassiveXp(simDt);
   }
-  if (player.moving) {
+  if (player.moving || isPlayerCoasting()) {
     updatePlayerMotion(simDt);
   }
   updateHook(simDt);
@@ -1822,7 +1832,7 @@ function updatePlayerMotion(dt) {
     const distance = Math.hypot(dx, dy);
 
     if (distance <= MOVE_STOP_DISTANCE) {
-      settlePlayer();
+      settlePlayer({ preserveInertia: true });
       return;
     }
 
@@ -1838,6 +1848,14 @@ function updatePlayerMotion(dt) {
     const targetAngle = Math.atan2(dirY, dirX);
     const currentAngle = player.facingAngle ?? (currentSpeed > 1 ? Math.atan2(player.vy, player.vx) : targetAngle);
     const angleDelta = Math.abs(normalizeAngle(targetAngle - currentAngle));
+    if (
+      distance <= MOVE_STOP_DISTANCE + PLAYER_COAST_ENTRY_DISTANCE &&
+      currentSpeed > PLAYER_COAST_MIN_SPEED &&
+      angleDelta <= PLAYER_COAST_MAX_TURN_ANGLE
+    ) {
+      settlePlayer({ preserveInertia: true });
+      return;
+    }
     const adjustedTargetSpeed = getTurnAdjustedTargetSpeed(targetSpeed, angleDelta);
     const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * dt);
     player.facingAngle = nextAngle;
@@ -1860,14 +1878,14 @@ function updatePlayerMotion(dt) {
 
     const nextDistance = Math.hypot(player.moveTarget.x - player.x, player.moveTarget.y - player.y);
     if (nextDistance <= MOVE_STOP_DISTANCE || (nextDistance > distance && distance <= MOVE_STOP_DISTANCE + step * 1.2)) {
-      settlePlayer();
+      settlePlayer({ preserveInertia: true });
       return;
     }
 
     return;
   }
 
-  settlePlayer();
+  updatePlayerCoast(dt);
 }
 
 function handlePlayerWallSlide() {
@@ -1918,12 +1936,43 @@ function handleWallBounce(entity) {
   }
 }
 
-function settlePlayer() {
-  player.vx = 0;
-  player.vy = 0;
+function updatePlayerCoast(dt) {
+  const speed = Math.hypot(player.vx, player.vy);
+  if ((player.coastTimer ?? 0) <= 0 || speed <= PLAYER_COAST_MIN_SPEED) {
+    settlePlayer();
+    return;
+  }
+
+  player.coastTimer = Math.max(0, player.coastTimer - dt);
+  const nextSpeed = Math.max(0, speed - PLAYER_COAST_DRAG * dt);
+  if (nextSpeed <= PLAYER_COAST_MIN_SPEED) {
+    settlePlayer();
+    return;
+  }
+
+  const dirX = player.vx / speed;
+  const dirY = player.vy / speed;
+  player.vx = dirX * nextSpeed;
+  player.vy = dirY * nextSpeed;
+  player.facingAngle = Math.atan2(dirY, dirX);
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+  handlePlayerWallSlide();
+  updateTrail();
+}
+
+function settlePlayer({ preserveInertia = false } = {}) {
+  const speed = Math.hypot(player.vx, player.vy);
   player.moving = false;
   player.restingFor = 0;
   player.moveTarget = null;
+  if (preserveInertia && speed > PLAYER_COAST_MIN_SPEED) {
+    player.coastTimer = PLAYER_COAST_TIME;
+    return;
+  }
+  player.vx = 0;
+  player.vy = 0;
+  player.coastTimer = 0;
 }
 
 function settleEnemyMotion(enemy) {
@@ -4529,6 +4578,7 @@ function useDashAbility(targetPoint = aimPoint) {
   };
   player.moveTarget = null;
   player.moving = false;
+  player.coastTimer = 0;
   player.launched = true;
   player.hitInvuln = Math.max(player.hitInvuln, 0.18);
   consumeAbilityCharge(selected.slot);
@@ -5185,7 +5235,7 @@ function launchPlayerTowardPoint(point) {
     fromX: player.x,
     fromY: player.y,
   });
-  const wasMoving = player.moving;
+  const wasMoving = player.moving || isPlayerCoasting();
   player.moveTarget = { x: targetX, y: targetY };
   moveMarker = {
     x: targetX,
@@ -5196,6 +5246,7 @@ function launchPlayerTowardPoint(point) {
   player.moving = true;
   player.launched = true;
   player.restingFor = 0;
+  player.coastTimer = 0;
   if (!wasMoving) {
     trail.length = 0;
   }
@@ -5261,6 +5312,7 @@ function updatePlayerTeleport(dt) {
   player.vx = 0;
   player.vy = 0;
   player.moving = false;
+  player.coastTimer = 0;
   player.moveTarget = null;
   player.launched = true;
   moveMarker = null;
@@ -6774,6 +6826,7 @@ function startDeathSequence() {
   player.moving = false;
   player.launched = false;
   player.restingFor = 0;
+  player.coastTimer = 0;
   player.moveTarget = null;
   player.hitInvuln = 0;
   activeHook = null;
@@ -6866,6 +6919,7 @@ function resetGame() {
   player.moving = false;
   player.launched = false;
   player.restingFor = 0;
+  player.coastTimer = 0;
   player.moveTarget = null;
   player.xp = 0;
   player.xpLevel = 1;
@@ -7989,6 +8043,13 @@ function getPredictedPlayerTrajectory() {
     const targetAngle = Math.atan2(dy, dx);
     const currentAngle = state.facingAngle ?? (currentSpeed > 1 ? Math.atan2(state.vy, state.vx) : targetAngle);
     const angleDelta = Math.abs(normalizeAngle(targetAngle - currentAngle));
+    if (
+      distance <= MOVE_STOP_DISTANCE + PLAYER_COAST_ENTRY_DISTANCE &&
+      currentSpeed > PLAYER_COAST_MIN_SPEED &&
+      angleDelta <= PLAYER_COAST_MAX_TURN_ANGLE
+    ) {
+      break;
+    }
     const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * PLAYER_TRAJECTORY_STEP_TIME);
     const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
     const targetSpeed = Math.min(maxSpeed, brakingSpeed);
