@@ -39,6 +39,8 @@ const INACTIVE_TIME_SCALE = 1 / 14;
 const TIME_SCALE_TRANSITION = 1.2;
 const MOVE_TO_POINT_SPEED = 441;
 const MOVE_STOP_DISTANCE = 10;
+const MOVE_FINE_STOP_DISTANCE = 3;
+const MOVE_FINE_COMMAND_TIME = 0.32;
 const MOVE_ACCELERATION = 741;
 const MOVE_BRAKE = 956;
 const PLAYER_COAST_TIME = 0.55;
@@ -324,6 +326,7 @@ const player = {
   launched: false,
   restingFor: 0,
   coastTimer: 0,
+  fineMoveTimer: 0,
   hp: 3,
   maxHp: 3,
   xp: 0,
@@ -1827,11 +1830,13 @@ function update(dt) {
 
 function updatePlayerMotion(dt) {
   if (player.moveTarget) {
+    player.fineMoveTimer = Math.max(0, (player.fineMoveTimer ?? 0) - dt);
+    const stopDistance = player.fineMoveTimer > 0 ? MOVE_FINE_STOP_DISTANCE : MOVE_STOP_DISTANCE;
     const dx = player.moveTarget.x - player.x;
     const dy = player.moveTarget.y - player.y;
     const distance = Math.hypot(dx, dy);
 
-    if (distance <= MOVE_STOP_DISTANCE) {
+    if (distance <= stopDistance) {
       settlePlayer({ preserveInertia: true });
       return;
     }
@@ -1843,12 +1848,13 @@ function updatePlayerMotion(dt) {
     const moveBrake = MOVE_BRAKE * slowMultiplier;
     const moveAcceleration = MOVE_ACCELERATION * slowMultiplier;
     const maxSpeed = MOVE_TO_POINT_SPEED * slowMultiplier;
-    const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
+    const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - stopDistance));
     const targetSpeed = Math.min(maxSpeed, brakingSpeed);
     const targetAngle = Math.atan2(dirY, dirX);
     const currentAngle = player.facingAngle ?? (currentSpeed > 1 ? Math.atan2(player.vy, player.vx) : targetAngle);
     const angleDelta = Math.abs(normalizeAngle(targetAngle - currentAngle));
     if (
+      stopDistance === MOVE_STOP_DISTANCE &&
       distance <= MOVE_STOP_DISTANCE + PLAYER_COAST_ENTRY_DISTANCE &&
       currentSpeed > PLAYER_COAST_MIN_SPEED &&
       angleDelta <= PLAYER_COAST_MAX_TURN_ANGLE
@@ -1877,7 +1883,7 @@ function updatePlayerMotion(dt) {
     updateTrail();
 
     const nextDistance = Math.hypot(player.moveTarget.x - player.x, player.moveTarget.y - player.y);
-    if (nextDistance <= MOVE_STOP_DISTANCE || (nextDistance > distance && distance <= MOVE_STOP_DISTANCE + step * 1.2)) {
+    if (nextDistance <= stopDistance || (nextDistance > distance && distance <= stopDistance + step * 1.2)) {
       settlePlayer({ preserveInertia: true });
       return;
     }
@@ -1944,6 +1950,7 @@ function updatePlayerCoast(dt) {
   }
 
   player.coastTimer = Math.max(0, player.coastTimer - dt);
+  player.fineMoveTimer = 0;
   const nextSpeed = Math.max(0, speed - PLAYER_COAST_DRAG * dt);
   if (nextSpeed <= PLAYER_COAST_MIN_SPEED) {
     settlePlayer();
@@ -1966,6 +1973,7 @@ function settlePlayer({ preserveInertia = false } = {}) {
   player.moving = false;
   player.restingFor = 0;
   player.moveTarget = null;
+  player.fineMoveTimer = 0;
   if (preserveInertia && speed > PLAYER_COAST_MIN_SPEED) {
     player.coastTimer = PLAYER_COAST_TIME;
     return;
@@ -4579,6 +4587,7 @@ function useDashAbility(targetPoint = aimPoint) {
   player.moveTarget = null;
   player.moving = false;
   player.coastTimer = 0;
+  player.fineMoveTimer = 0;
   player.launched = true;
   player.hitInvuln = Math.max(player.hitInvuln, 0.18);
   consumeAbilityCharge(selected.slot);
@@ -5227,7 +5236,7 @@ function launchPlayerTowardPoint(point) {
   const targetX = clamp(point.x, ARENA.x + half, ARENA.x + ARENA.width - half);
   const targetY = clamp(point.y, ARENA.y + half, ARENA.y + ARENA.height - half);
   const distance = Math.hypot(targetX - player.x, targetY - player.y);
-  if (distance <= MOVE_STOP_DISTANCE) return;
+  if (distance <= MOVE_FINE_STOP_DISTANCE) return;
 
   replayRecorder.recordPlayerInput("move_command", {
     x: targetX,
@@ -5247,6 +5256,7 @@ function launchPlayerTowardPoint(point) {
   player.launched = true;
   player.restingFor = 0;
   player.coastTimer = 0;
+  player.fineMoveTimer = distance <= MOVE_STOP_DISTANCE ? MOVE_FINE_COMMAND_TIME : 0;
   if (!wasMoving) {
     trail.length = 0;
   }
@@ -5313,6 +5323,7 @@ function updatePlayerTeleport(dt) {
   player.vy = 0;
   player.moving = false;
   player.coastTimer = 0;
+  player.fineMoveTimer = 0;
   player.moveTarget = null;
   player.launched = true;
   moveMarker = null;
@@ -6827,6 +6838,7 @@ function startDeathSequence() {
   player.launched = false;
   player.restingFor = 0;
   player.coastTimer = 0;
+  player.fineMoveTimer = 0;
   player.moveTarget = null;
   player.hitInvuln = 0;
   activeHook = null;
@@ -6920,6 +6932,7 @@ function resetGame() {
   player.launched = false;
   player.restingFor = 0;
   player.coastTimer = 0;
+  player.fineMoveTimer = 0;
   player.moveTarget = null;
   player.xp = 0;
   player.xpLevel = 1;
@@ -8034,7 +8047,8 @@ function getPredictedPlayerTrajectory() {
     const dx = player.moveTarget.x - state.x;
     const dy = player.moveTarget.y - state.y;
     const distance = Math.hypot(dx, dy);
-    if (distance <= MOVE_STOP_DISTANCE) {
+    const stopDistance = (player.fineMoveTimer ?? 0) > 0 ? MOVE_FINE_STOP_DISTANCE : MOVE_STOP_DISTANCE;
+    if (distance <= stopDistance) {
       points.push({ x: player.moveTarget.x, y: player.moveTarget.y });
       break;
     }
@@ -8044,6 +8058,7 @@ function getPredictedPlayerTrajectory() {
     const currentAngle = state.facingAngle ?? (currentSpeed > 1 ? Math.atan2(state.vy, state.vx) : targetAngle);
     const angleDelta = Math.abs(normalizeAngle(targetAngle - currentAngle));
     if (
+      stopDistance === MOVE_STOP_DISTANCE &&
       distance <= MOVE_STOP_DISTANCE + PLAYER_COAST_ENTRY_DISTANCE &&
       currentSpeed > PLAYER_COAST_MIN_SPEED &&
       angleDelta <= PLAYER_COAST_MAX_TURN_ANGLE
@@ -8051,7 +8066,7 @@ function getPredictedPlayerTrajectory() {
       break;
     }
     const nextAngle = turnAngleToward(currentAngle, targetAngle, PLAYER_TURN_RATE * PLAYER_TRAJECTORY_STEP_TIME);
-    const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - MOVE_STOP_DISTANCE));
+    const brakingSpeed = Math.sqrt(2 * moveBrake * Math.max(0, distance - stopDistance));
     const targetSpeed = Math.min(maxSpeed, brakingSpeed);
     const adjustedTargetSpeed = getTurnAdjustedTargetSpeed(targetSpeed, angleDelta);
     const nextSpeed = currentSpeed < adjustedTargetSpeed
