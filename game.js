@@ -29,7 +29,7 @@ const BOSS_RENDER_SCALE = 0.5;
 const EFFECT_RENDER_SCALE = 0.5;
 const MARKER_RENDER_SCALE = 0.5;
 const MISSILE_RENDER_SCALE = 1 / 3;
-const REPLAY_STATE_SYNC_INTERVAL = 5;
+const REPLAY_STATE_SYNC_INTERVAL = 2;
 const REPLAY_PLAYBACK_TIME_SCALE = 1.25;
 const REPLAY_KILL_SLOW_TIME_SCALE = 1;
 const REPLAY_KILL_SLOW_LOOKAHEAD = 0.5;
@@ -69,7 +69,9 @@ const LEVEL2_BOSS_KIND = "level2_boss";
 const LEVEL3_BOSS_KIND = "level3_boss";
 const LEVEL4_BOSS_KIND = "level4_boss";
 const LEVEL4_BOSS_PART_KIND = "level4_boss_part";
-const BOSS_KINDS = [LEVEL1_BOSS_KIND, LEVEL2_BOSS_KIND, LEVEL3_BOSS_KIND, LEVEL4_BOSS_KIND];
+const LEVEL5_BOSS_KIND = "level5_boss";
+const LEVEL5_REPAIR_CORE_KIND = "level5_repair_core";
+const BOSS_KINDS = [LEVEL1_BOSS_KIND, LEVEL2_BOSS_KIND, LEVEL3_BOSS_KIND, LEVEL4_BOSS_KIND, LEVEL5_BOSS_KIND];
 const LEVEL1_BOSS_PHASE_ONE_HP = 20;
 const LEVEL1_BOSS_PHASE_TWO_HP = 40;
 const LEVEL1_BOSS_LEVEL_ONE_PHASE_TWO_HP = 10;
@@ -148,6 +150,24 @@ const LEVEL4_BOSS_PART_LINK_INTERVAL = 2;
 const LEVEL4_BOSS_PART_LINK_DURATION = 1.7;
 const LEVEL4_BOSS_STAGE_FOUR_BLAST_INTERVAL = 2;
 const LEVEL4_BOSS_STAGE_FOUR_BLAST_SPEED = 135;
+const LEVEL5_BOSS_SIZE = 70;
+const LEVEL5_BOSS_STAGE_ONE_HP = 24;
+const LEVEL5_BOSS_STAGE_TWO_HP = 32;
+const LEVEL5_BOSS_STAGE_THREE_HP = 28;
+const LEVEL5_BOSS_ARMOR_PLATES = 4;
+const LEVEL5_BOSS_OPEN_ARC = Math.PI * 0.62;
+const LEVEL5_BOSS_ROTATION_SPEED = 0.78;
+const LEVEL5_BOSS_CHASE_SPEED = 58;
+const LEVEL5_BOSS_CHASE_ACCELERATION = 240;
+const LEVEL5_BOSS_PRESS_INTERVAL = 4.4;
+const LEVEL5_BOSS_PRESS_CAST_TIME = 1.05;
+const LEVEL5_BOSS_PRESS_DASH_TIME = 0.52;
+const LEVEL5_BOSS_PRESS_SPEED = 720;
+const LEVEL5_BOSS_REPAIR_CORE_HP = 6;
+const LEVEL5_BOSS_REPAIR_CORE_COUNT = 3;
+const LEVEL5_BOSS_REPAIR_HEAL_INTERVAL = 1.1;
+const LEVEL5_BOSS_REPAIR_DAMAGE_REDUCTION = 0.5;
+const LEVEL5_BOSS_REPAIR_RADIUS = 122;
 const BOSS_SUPPORT_SPAWN_INTERVAL = 5;
 const BRUTE_CHASE_SPEED = 97;
 const BRUTE_CHASE_ACCELERATION = 260;
@@ -458,6 +478,8 @@ const enemyMeta = {
   [LEVEL3_BOSS_KIND]: { name: "Арсенал", color: "#a86cff", glow: "rgba(168, 108, 255, 0.62)" },
   [LEVEL4_BOSS_KIND]: { name: "Ось", color: "#42d9ff", glow: "rgba(66, 217, 255, 0.62)" },
   [LEVEL4_BOSS_PART_KIND]: { name: "Осколок оси", color: "#42d9ff", glow: "rgba(66, 217, 255, 0.52)" },
+  [LEVEL5_BOSS_KIND]: { name: "Пресс", color: "#f0c052", glow: "rgba(240, 192, 82, 0.62)" },
+  [LEVEL5_REPAIR_CORE_KIND]: { name: "Ремонтное ядро", color: "#72f0b4", glow: "rgba(114, 240, 180, 0.52)" },
 };
 
 const enemyInfo = {
@@ -487,6 +509,8 @@ const enemyInfo = {
   [LEVEL3_BOSS_KIND]: { text: "Три стадии: круговые лучи, ракетные залпы и быстрые касты.", reward: "Нельзя съесть хуком." },
   [LEVEL4_BOSS_KIND]: { text: "Четыре стадии: ракеты, лазерные стены, разделение и финальная ударная волна.", reward: "Нельзя съесть хуком." },
   [LEVEL4_BOSS_PART_KIND]: { text: "Часть четвертого босса, соединяется лазерными связями.", reward: "Нельзя съесть хуком." },
+  [LEVEL5_BOSS_KIND]: { text: "Три стадии: бронеплиты, пресс-рывки и ремонтные ядра.", reward: "Нельзя съесть хуком." },
+  [LEVEL5_REPAIR_CORE_KIND]: { text: "Поддерживает Пресс и снижает входящий урон по нему.", reward: "Только опыт." },
 };
 
 const campaignLevels = [
@@ -528,7 +552,7 @@ const campaignLevels = [
     minEnemies: 25,
     maxEnemies: 5,
     spawnInterval: [1.55, 2.7],
-    boss: { kind: LEVEL1_BOSS_KIND, triggerRemainingRatio: 0.5 },
+    boss: { kind: LEVEL5_BOSS_KIND, triggerRemainingRatio: 0.5 },
   },
   {
     name: "Дальняя линия",
@@ -1364,14 +1388,14 @@ function getSpawnInterval() {
 }
 
 function getAutoRosterKinds(level = getCurrentLevel()) {
-  const enemyKinds = Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind) && kind !== LEVEL4_BOSS_PART_KIND);
+  const enemyKinds = Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind) && kind !== LEVEL4_BOSS_PART_KIND && kind !== LEVEL5_REPAIR_CORE_KIND);
   const levelIndex = Math.max(0, campaignLevels.indexOf(level));
   const offset = levelIndex % enemyKinds.length;
   return [...enemyKinds.slice(offset), ...enemyKinds.slice(0, offset)];
 }
 
 function getAllNormalEnemyKinds() {
-  return Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind) && kind !== LEVEL4_BOSS_PART_KIND);
+  return Object.keys(enemyMeta).filter((kind) => !BOSS_KINDS.includes(kind) && kind !== LEVEL4_BOSS_PART_KIND && kind !== LEVEL5_REPAIR_CORE_KIND);
 }
 
 function getLevelRoster(level = getCurrentLevel()) {
@@ -1441,6 +1465,7 @@ function getFixedLevelBossKind(levelIndex = currentLevelIndex) {
   if (levelIndex === 1) return LEVEL2_BOSS_KIND;
   if (levelIndex === 2) return LEVEL3_BOSS_KIND;
   if (levelIndex === 3) return LEVEL4_BOSS_KIND;
+  if (levelIndex === 4) return LEVEL5_BOSS_KIND;
   return null;
 }
 
@@ -2522,7 +2547,9 @@ function isBossEnemy(enemy) {
     enemy?.kind === LEVEL2_BOSS_KIND ||
     enemy?.kind === LEVEL3_BOSS_KIND ||
     enemy?.kind === LEVEL4_BOSS_KIND ||
-    enemy?.kind === LEVEL4_BOSS_PART_KIND
+    enemy?.kind === LEVEL4_BOSS_PART_KIND ||
+    enemy?.kind === LEVEL5_BOSS_KIND ||
+    enemy?.kind === LEVEL5_REPAIR_CORE_KIND
   );
 }
 
@@ -2588,6 +2615,8 @@ function updateEnemies(dt) {
       else if (enemy.kind === LEVEL3_BOSS_KIND) updateLevel3Boss(enemy, dt);
       else if (enemy.kind === LEVEL4_BOSS_KIND) updateLevel4Boss(enemy, dt);
       else if (enemy.kind === LEVEL4_BOSS_PART_KIND) updateLevel4BossPart(enemy, dt);
+      else if (enemy.kind === LEVEL5_BOSS_KIND) updateLevel5Boss(enemy, dt);
+      else if (enemy.kind === LEVEL5_REPAIR_CORE_KIND) updateLevel5RepairCore(enemy, dt);
       else updateLevel1Boss(enemy, dt);
       continue;
     }
@@ -3353,6 +3382,164 @@ function enterLevel3BossNextStage(enemy) {
   spawnImpactBurst(enemy.x, enemy.y, { count: 38, speedMin: 150, speedMax: 460, lifeMin: 0.24, lifeMax: 0.58, sizeMin: 5, sizeMax: 13 });
 }
 
+function updateLevel5Boss(enemy, dt) {
+  enemy.bossRotation = (enemy.bossRotation ?? 0) + LEVEL5_BOSS_ROTATION_SPEED * dt * (enemy.bossStage === 2 ? 1.35 : 1);
+
+  if (enemy.bossState === "press_cast") {
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.bossStateTimer -= dt;
+    if (enemy.bossStateTimer <= 0) {
+      const direction = getLevel5BossPressDirection(enemy);
+      enemy.vx = direction.x * LEVEL5_BOSS_PRESS_SPEED;
+      enemy.vy = direction.y * LEVEL5_BOSS_PRESS_SPEED;
+      enemy.bossState = "press_dash";
+      enemy.bossStateTimer = LEVEL5_BOSS_PRESS_DASH_TIME;
+      spawnBossLaserWall(enemy.x, enemy.y, Math.atan2(direction.y, direction.x), 0.9, {
+        color: "rgba(240, 192, 82, 0.54)",
+        innerColor: "rgba(255, 248, 210, 0.86)",
+        width: 14,
+      });
+    }
+    return;
+  }
+
+  if (enemy.bossState === "press_dash") {
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+    handleWallBounce(enemy);
+    enemy.bossStateTimer -= dt;
+    if (enemy.bossStateTimer <= 0) {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.bossState = "chase";
+      enemy.bossPressTimer = enemy.bossStage === 3 ? LEVEL5_BOSS_PRESS_INTERVAL * 0.7 : LEVEL5_BOSS_PRESS_INTERVAL;
+      spawnBlastWave(enemy.x, enemy.y, {
+        owner: "enemy",
+        radius: 8,
+        maxRadius: getCellSize() * 2.1,
+        expandSpeed: LEVEL2_BOSS_MINE_BLAST_SPEED,
+      });
+    }
+    return;
+  }
+
+  updateLevel5BossChase(enemy, dt);
+
+  enemy.bossPressTimer -= dt;
+  if (enemy.bossPressTimer <= 0) {
+    enemy.bossState = "press_cast";
+    enemy.bossStateTimer = LEVEL5_BOSS_PRESS_CAST_TIME;
+    enemy.bossPressAxis = Math.abs(player.x - enemy.x) > Math.abs(player.y - enemy.y) ? "x" : "y";
+    enemy.aimX = player.x;
+    enemy.aimY = player.y;
+  }
+
+  if (enemy.bossStage === 3) {
+    const liveCores = getLevel5RepairCores(enemy);
+    if (liveCores.length === 0 && !enemy.bossRepairDepleted) {
+      enemy.bossRepairDepleted = true;
+      spawnImpactBurst(enemy.x, enemy.y, { count: 28, speedMin: 100, speedMax: 360, lifeMin: 0.18, lifeMax: 0.42, sizeMin: 4, sizeMax: 10 });
+    }
+    enemy.bossRepairTimer -= dt;
+    if (liveCores.length > 0 && enemy.bossRepairTimer <= 0) {
+      enemy.hp = Math.min(enemy.maxHp, enemy.hp + 1);
+      enemy.bossRepairTimer += LEVEL5_BOSS_REPAIR_HEAL_INTERVAL;
+    }
+  }
+}
+
+function updateLevel5BossChase(enemy, dt) {
+  const target = getEnemyAggroTarget(enemy.x, enemy.y);
+  const dx = target.x - enemy.x;
+  const dy = target.y - enemy.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const desiredVx = (dx / distance) * LEVEL5_BOSS_CHASE_SPEED;
+  const desiredVy = (dy / distance) * LEVEL5_BOSS_CHASE_SPEED;
+  enemy.vx = moveToward(enemy.vx, desiredVx, LEVEL5_BOSS_CHASE_ACCELERATION * dt);
+  enemy.vy = moveToward(enemy.vy, desiredVy, LEVEL5_BOSS_CHASE_ACCELERATION * dt);
+  const speed = Math.hypot(enemy.vx, enemy.vy);
+  if (speed > LEVEL5_BOSS_CHASE_SPEED) {
+    enemy.vx = (enemy.vx / speed) * LEVEL5_BOSS_CHASE_SPEED;
+    enemy.vy = (enemy.vy / speed) * LEVEL5_BOSS_CHASE_SPEED;
+  }
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
+}
+
+function getLevel5BossPressDirection(enemy) {
+  if (enemy.bossPressAxis === "x") {
+    return { x: player.x >= enemy.x ? 1 : -1, y: 0 };
+  }
+  return { x: 0, y: player.y >= enemy.y ? 1 : -1 };
+}
+
+function getLevel5RepairCores(enemy) {
+  return enemies.filter((candidate) => candidate.kind === LEVEL5_REPAIR_CORE_KIND && candidate.groupId === enemy.id);
+}
+
+function updateLevel5RepairCore(enemy, dt) {
+  enemy.bossRotation = (enemy.bossRotation ?? 0) + dt * 1.8;
+  const source = enemies.find((candidate) => candidate.id === enemy.groupId);
+  if (!source) {
+    killEnemy(enemy, { explode: false });
+    return;
+  }
+
+  const angle = enemy.orbitAngle + worldTime * 0.8;
+  const targetX = clamp(source.x + Math.cos(angle) * LEVEL5_BOSS_REPAIR_RADIUS, ARENA.x + enemy.size, ARENA.x + ARENA.width - enemy.size);
+  const targetY = clamp(source.y + Math.sin(angle) * LEVEL5_BOSS_REPAIR_RADIUS, ARENA.y + enemy.size, ARENA.y + ARENA.height - enemy.size);
+  enemy.vx = (targetX - enemy.x) * 2.4;
+  enemy.vy = (targetY - enemy.y) * 2.4;
+  enemy.x += enemy.vx * dt;
+  enemy.y += enemy.vy * dt;
+  handleWallBounce(enemy);
+}
+
+function isLevel5BossVulnerable(enemy) {
+  if (enemy.kind !== LEVEL5_BOSS_KIND || enemy.bossStage >= 3) return true;
+  const incomingAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+  const openIndex = Math.floor((worldTime * 0.7 + enemy.id) % LEVEL5_BOSS_ARMOR_PLATES);
+  const openAngle = (enemy.bossRotation ?? 0) + (Math.PI * 2 * openIndex) / LEVEL5_BOSS_ARMOR_PLATES;
+  const delta = Math.abs(normalizeAngle(incomingAngle - openAngle));
+  return delta <= LEVEL5_BOSS_OPEN_ARC * 0.5;
+}
+
+function enterLevel5BossNextStage(enemy) {
+  enemy.bossStage += 1;
+  enemy.hp = enemy.bossStage === 2 ? LEVEL5_BOSS_STAGE_TWO_HP : LEVEL5_BOSS_STAGE_THREE_HP;
+  enemy.maxHp = enemy.hp;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.bossState = "chase";
+  enemy.bossStateTimer = 0;
+  enemy.bossPressTimer = enemy.bossStage === 2 ? 1.0 : 1.4;
+  enemy.bossRepairTimer = LEVEL5_BOSS_REPAIR_HEAL_INTERVAL;
+
+  if (enemy.bossStage === 3) {
+    spawnLevel5RepairCores(enemy);
+  }
+
+  spawnImpactBurst(enemy.x, enemy.y, { count: 42, speedMin: 140, speedMax: 480, lifeMin: 0.24, lifeMax: 0.6, sizeMin: 5, sizeMax: 14 });
+}
+
+function spawnLevel5RepairCores(enemy) {
+  for (let index = 0; index < LEVEL5_BOSS_REPAIR_CORE_COUNT; index += 1) {
+    const angle = (Math.PI * 2 * index) / LEVEL5_BOSS_REPAIR_CORE_COUNT;
+    const core = createEnemy(
+      LEVEL5_REPAIR_CORE_KIND,
+      clamp(enemy.x + Math.cos(angle) * LEVEL5_BOSS_REPAIR_RADIUS, ARENA.x + ENEMY_SIZE, ARENA.x + ARENA.width - ENEMY_SIZE),
+      clamp(enemy.y + Math.sin(angle) * LEVEL5_BOSS_REPAIR_RADIUS, ARENA.y + ENEMY_SIZE, ARENA.y + ARENA.height - ENEMY_SIZE)
+    );
+    core.groupId = enemy.id;
+    core.orbitAngle = angle;
+    core.bossStage = 3;
+    enemies.push(core);
+    replayRecorder.recordEnemyInput("enemy_spawn", getEnemyReplayPayload(core, "level5_repair"));
+  }
+}
+
 function fireEnemyInstantBeam(fromX, fromY, toX, toY, options = {}) {
   const dx = toX - fromX;
   const dy = toY - fromY;
@@ -3832,22 +4019,24 @@ function createEnemy(kind, x, y) {
   const isLevel3Boss = kind === LEVEL3_BOSS_KIND;
   const isLevel4Boss = kind === LEVEL4_BOSS_KIND;
   const isLevel4Part = kind === LEVEL4_BOSS_PART_KIND;
-  const isBoss = isLevel1Boss || isLevel2Boss || isLevel3Boss || isLevel4Boss || isLevel4Part;
+  const isLevel5Boss = kind === LEVEL5_BOSS_KIND;
+  const isLevel5RepairCore = kind === LEVEL5_REPAIR_CORE_KIND;
+  const isBoss = isLevel1Boss || isLevel2Boss || isLevel3Boss || isLevel4Boss || isLevel4Part || isLevel5Boss || isLevel5RepairCore;
   const enemy = {
     id: enemyId += 1,
     x,
     y,
     vx: 0,
     vy: 0,
-    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isLevel3Boss ? LEVEL3_BOSS_SIZE : isLevel4Boss ? LEVEL4_BOSS_SIZE : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.18 : isCharger ? ENEMY_SIZE * 0.92 : isRocketeer ? ENEMY_SIZE * 1.05 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
+    size: isLevel1Boss ? LEVEL1_BOSS_SIZE : isLevel2Boss ? LEVEL2_BOSS_SIZE : isLevel3Boss ? LEVEL3_BOSS_SIZE : isLevel4Boss ? LEVEL4_BOSS_SIZE : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isLevel5Boss ? LEVEL5_BOSS_SIZE : isLevel5RepairCore ? ENEMY_SIZE * 1.25 : isBrute ? ENEMY_SIZE * 1.18 : isCharger ? ENEMY_SIZE * 0.92 : isRocketeer ? ENEMY_SIZE * 1.05 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.72 : ENEMY_SIZE,
     moving: false,
     restingFor: 0,
     power: randomRange(0.7, 1.4),
     kind,
-    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? LEVEL4_BOSS_PART_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
-    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? LEVEL4_BOSS_PART_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
-    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.85 : isCharger ? ENEMY_SIZE * 1.3 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
-    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isBrute ? ENEMY_SIZE * 1.1 : isCharger ? ENEMY_SIZE * 0.82 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    hp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? LEVEL4_BOSS_PART_HP : isLevel5Boss ? LEVEL5_BOSS_STAGE_ONE_HP : isLevel5RepairCore ? LEVEL5_BOSS_REPAIR_CORE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    maxHp: isLevel1Boss ? LEVEL1_BOSS_PHASE_ONE_HP : isLevel2Boss ? LEVEL2_BOSS_PHASE_HP : isLevel3Boss ? LEVEL3_BOSS_STAGE_ONE_HP : isLevel4Boss ? LEVEL4_BOSS_STAGE_ONE_HP : isLevel4Part ? LEVEL4_BOSS_PART_HP : isLevel5Boss ? LEVEL5_BOSS_STAGE_ONE_HP : isLevel5RepairCore ? LEVEL5_BOSS_REPAIR_CORE_HP : isBrute ? BRUTE_CONTACT_HP : isShield ? SHIELD_ENEMY_HP : isCommander ? COMMANDER_HP : isMedic ? MEDIC_HP : isCharger ? CHARGER_HP : isRocketeer ? ROCKETEER_HP : DEFAULT_ENEMY_HP,
+    renderWidth: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isLevel5Boss ? LEVEL5_BOSS_SIZE * 1.2 : isLevel5RepairCore ? ENEMY_SIZE * 1.45 : isBrute ? ENEMY_SIZE * 1.85 : isCharger ? ENEMY_SIZE * 1.3 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
+    renderHeight: isLevel1Boss ? LEVEL1_BOSS_SIZE * 1.12 : isLevel2Boss ? LEVEL2_BOSS_SIZE * 1.16 : isLevel3Boss ? LEVEL3_BOSS_SIZE * 1.18 : isLevel4Boss ? LEVEL4_BOSS_SIZE * 1.18 : isLevel4Part ? LEVEL4_BOSS_PART_SIZE : isLevel5Boss ? LEVEL5_BOSS_SIZE * 1.12 : isLevel5RepairCore ? ENEMY_SIZE * 1.45 : isBrute ? ENEMY_SIZE * 1.1 : isCharger ? ENEMY_SIZE * 0.82 : isRocketeer ? ENEMY_SIZE * 1.12 : isSproutling || isSplitterChild ? ENEMY_SIZE * 0.8 : ENEMY_SIZE,
     ability:
       kind === "shield"
         ? abilities.shield
@@ -3934,6 +4123,16 @@ function createEnemy(kind, x, y) {
     } else if (isLevel4Part) {
       enemy.bossState = "part";
       enemy.linkTimer = LEVEL4_BOSS_PART_LINK_INTERVAL;
+    } else if (isLevel5Boss) {
+      enemy.bossState = "chase";
+      enemy.bossRotation = -Math.PI * 0.25;
+      enemy.bossPressTimer = LEVEL5_BOSS_PRESS_INTERVAL * 0.65;
+      enemy.bossStateTimer = 0;
+      enemy.bossRepairTimer = LEVEL5_BOSS_REPAIR_HEAL_INTERVAL;
+    } else if (isLevel5RepairCore) {
+      enemy.bossState = "repair";
+      enemy.bossRotation = replayRandom() * Math.PI * 2;
+      enemy.orbitAngle = replayRandom() * Math.PI * 2;
     } else {
       enemy.bossState = "bounce";
       enemy.bossExplosionTimer = LEVEL1_BOSS_EXPLOSION_INTERVAL;
@@ -3998,7 +4197,7 @@ function spawnEnemy(x, y, forcedKind = null) {
 function spawnBoss(x, y, kind = LEVEL1_BOSS_KIND) {
   const boss = createEnemy(kind, x, y);
   const direction = randomDirection();
-  const speed = kind === LEVEL2_BOSS_KIND || kind === LEVEL3_BOSS_KIND || kind === LEVEL4_BOSS_KIND ? 0 : LEVEL1_BOSS_BOUNCE_SPEED;
+  const speed = kind === LEVEL2_BOSS_KIND || kind === LEVEL3_BOSS_KIND || kind === LEVEL4_BOSS_KIND || kind === LEVEL5_BOSS_KIND ? 0 : LEVEL1_BOSS_BOUNCE_SPEED;
   boss.vx = direction.x * speed;
   boss.vy = direction.y * speed;
   boss.moving = true;
@@ -7078,6 +7277,7 @@ function removeEnemy(id) {
 function getEnemyXpValue(enemy) {
   if (!enemy || enemy.isIllusion) return 0;
   if (enemy.kind === LEVEL4_BOSS_PART_KIND) return 0;
+  if (enemy.kind === LEVEL5_REPAIR_CORE_KIND) return 1;
   if (isBossEnemy(enemy)) return 8;
   if (enemy.kind === "commander" || enemy.kind === "medic") return 5;
   if (enemy.kind === "charger" || enemy.kind === "rocketeer") return 2;
@@ -7187,9 +7387,23 @@ function damageEnemy(enemy, amount = 1) {
 
   if (isBossShieldActive(enemy)) return false;
 
+  if (enemy.kind === LEVEL5_BOSS_KIND) {
+    if (!isLevel5BossVulnerable(enemy)) {
+      spawnEnemyHitBurst(enemy, 0.25);
+      return false;
+    }
+    if (enemy.bossStage === 3 && getLevel5RepairCores(enemy).length > 0) {
+      amount *= LEVEL5_BOSS_REPAIR_DAMAGE_REDUCTION;
+    }
+  }
+
   spawnEnemyHitBurst(enemy, amount);
   enemy.hp = Math.max(0, (enemy.hp ?? 1) - amount);
   if (enemy.hp <= 0) {
+    if (enemy.kind === LEVEL5_BOSS_KIND && enemy.bossStage < 3) {
+      enterLevel5BossNextStage(enemy);
+      return false;
+    }
     if (enemy.kind === LEVEL4_BOSS_KIND && enemy.bossStage < 4) {
       enterLevel4BossNextStage(enemy);
       return false;
@@ -7202,7 +7416,7 @@ function damageEnemy(enemy, amount = 1) {
       enterLevel2BossNextStage(enemy);
       return false;
     }
-    if (isBossEnemy(enemy) && enemy.bossStage === 1) {
+    if (enemy.kind !== LEVEL5_REPAIR_CORE_KIND && isBossEnemy(enemy) && enemy.bossStage === 1) {
       enterLevel1BossStageTwo(enemy);
       return false;
     }
@@ -8282,6 +8496,8 @@ function drawBoss(enemy) {
   const isLevel3Boss = enemy.kind === LEVEL3_BOSS_KIND;
   const isLevel4Boss = enemy.kind === LEVEL4_BOSS_KIND;
   const isLevel4Part = enemy.kind === LEVEL4_BOSS_PART_KIND;
+  const isLevel5Boss = enemy.kind === LEVEL5_BOSS_KIND;
+  const isLevel5RepairCore = enemy.kind === LEVEL5_REPAIR_CORE_KIND;
   const hitFlash = clamp(enemy.hitFlash || 0, 0, 1);
 
   ctx.save();
@@ -8402,16 +8618,38 @@ function drawBoss(enemy) {
     ctx.stroke();
   }
 
-  if (isLevel4Boss || isLevel4Part) {
+  if (isLevel5Boss && enemy.bossState === "press_cast") {
+    const progress = 1 - clamp(enemy.bossStateTimer / LEVEL5_BOSS_PRESS_CAST_TIME, 0, 1);
+    const direction = getLevel5BossPressDirection(enemy);
+    const angle = Math.atan2(direction.y, direction.x);
+    ctx.strokeStyle = `rgba(255, 222, 126, ${0.28 + progress * 0.46})`;
+    ctx.lineWidth = 4 + progress * 5;
+    ctx.setLineDash([14, 10]);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    ctx.lineTo(Math.cos(angle) * getArenaProjectileReach() * bossWorldScale, Math.sin(angle) * getArenaProjectileReach() * bossWorldScale);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (isLevel5Boss && enemy.bossStage === 3 && getLevel5RepairCores(enemy).length > 0) {
+    ctx.strokeStyle = `rgba(114, 240, 180, ${0.22 + pulse * 0.18})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, LEVEL5_BOSS_REPAIR_RADIUS * bossWorldScale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  if (isLevel4Boss || isLevel4Part || isLevel5Boss || isLevel5RepairCore) {
     ctx.rotate(enemy.bossRotation ?? Math.atan2(enemy.vy, enemy.vx));
   } else {
     ctx.rotate(Math.atan2(enemy.vy, enemy.vx) + worldTime * (isLevel3Boss ? 1.1 : isStageTwo ? 1.4 : 0.75));
   }
   const gradient = ctx.createRadialGradient(-radius * 0.35, -radius * 0.35, 4, 0, 0, radius * 1.25);
-  gradient.addColorStop(0, isLevel4Boss || isLevel4Part ? "#e8fbff" : isLevel3Boss ? "#f6eaff" : isLevel2Boss ? "#fff0d7" : isBlinking ? "#ffffff" : "#ffd7df");
-  gradient.addColorStop(0.36, isLevel4Boss || isLevel4Part ? (enemy.bossStage === 4 ? "#24f0ff" : "#42d9ff") : isLevel3Boss ? (enemy.bossStage === 3 ? "#7f5cff" : "#a86cff") : isLevel2Boss ? (enemy.bossStage === 3 ? "#ff4f2f" : "#ff8a2f") : isStageTwo ? "#ff315f" : "#ff6f86");
-  gradient.addColorStop(1, isLevel4Boss || isLevel4Part ? "#062c40" : isLevel3Boss ? "#27114f" : isLevel2Boss ? "#5a1700" : isStageTwo ? "#4b0016" : "#7b0e2b");
-  ctx.shadowColor = isLevel4Boss || isLevel4Part ? "rgba(66, 217, 255, 0.65)" : isLevel3Boss ? "rgba(168, 108, 255, 0.65)" : isLevel2Boss ? "rgba(255, 122, 47, 0.65)" : "rgba(255, 49, 95, 0.65)";
+  gradient.addColorStop(0, isLevel5RepairCore ? "#eafff5" : isLevel5Boss ? "#fff4cf" : isLevel4Boss || isLevel4Part ? "#e8fbff" : isLevel3Boss ? "#f6eaff" : isLevel2Boss ? "#fff0d7" : isBlinking ? "#ffffff" : "#ffd7df");
+  gradient.addColorStop(0.36, isLevel5RepairCore ? "#72f0b4" : isLevel5Boss ? (enemy.bossStage === 3 ? "#ffdc5f" : "#f0c052") : isLevel4Boss || isLevel4Part ? (enemy.bossStage === 4 ? "#24f0ff" : "#42d9ff") : isLevel3Boss ? (enemy.bossStage === 3 ? "#7f5cff" : "#a86cff") : isLevel2Boss ? (enemy.bossStage === 3 ? "#ff4f2f" : "#ff8a2f") : isStageTwo ? "#ff315f" : "#ff6f86");
+  gradient.addColorStop(1, isLevel5RepairCore ? "#0b4a32" : isLevel5Boss ? "#5c3608" : isLevel4Boss || isLevel4Part ? "#062c40" : isLevel3Boss ? "#27114f" : isLevel2Boss ? "#5a1700" : isStageTwo ? "#4b0016" : "#7b0e2b");
+  ctx.shadowColor = isLevel5RepairCore ? "rgba(114, 240, 180, 0.65)" : isLevel5Boss ? "rgba(240, 192, 82, 0.65)" : isLevel4Boss || isLevel4Part ? "rgba(66, 217, 255, 0.65)" : isLevel3Boss ? "rgba(168, 108, 255, 0.65)" : isLevel2Boss ? "rgba(255, 122, 47, 0.65)" : "rgba(255, 49, 95, 0.65)";
   ctx.shadowBlur = 28;
   ctx.fillStyle = gradient;
   ctx.beginPath();
@@ -8471,6 +8709,36 @@ function drawBoss(enemy) {
     }
   }
 
+  if (isLevel5Boss) {
+    const openIndex = Math.floor((worldTime * 0.7 + enemy.id) % LEVEL5_BOSS_ARMOR_PLATES);
+    for (let index = 0; index < LEVEL5_BOSS_ARMOR_PLATES; index += 1) {
+      const angle = (Math.PI * 2 * index) / LEVEL5_BOSS_ARMOR_PLATES;
+      const isOpen = index === openIndex && enemy.bossStage < 3;
+      ctx.strokeStyle = isOpen ? "rgba(255, 252, 224, 0.28)" : "rgba(255, 235, 174, 0.92)";
+      ctx.lineWidth = isOpen ? 3 : 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 1.22, angle - 0.52, angle + 0.52);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(255, 247, 214, 0.82)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-radius * 0.62, 0);
+    ctx.lineTo(radius * 0.62, 0);
+    ctx.moveTo(0, -radius * 0.62);
+    ctx.lineTo(0, radius * 0.62);
+    ctx.stroke();
+  }
+
+  if (isLevel5RepairCore) {
+    ctx.strokeStyle = `rgba(218, 255, 235, ${0.5 + pulse * 0.3})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 1.18 + pulse * 5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   if (hitFlash > 0) {
     ctx.globalCompositeOperation = "screen";
     ctx.fillStyle = `rgba(255, 250, 226, ${hitFlash * 0.42})`;
@@ -8483,7 +8751,7 @@ function drawBoss(enemy) {
   const hpRatio = clamp(enemy.hp / enemy.maxHp, 0, 1);
   ctx.fillStyle = "rgba(16, 22, 34, 0.82)";
   ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16, 6);
-  ctx.fillStyle = isLevel3Boss ? "rgba(168, 108, 255, 0.96)" : isLevel2Boss ? "rgba(255, 138, 47, 0.96)" : isStageTwo ? "rgba(255, 49, 95, 0.96)" : "rgba(255, 220, 108, 0.96)";
+  ctx.fillStyle = isLevel5RepairCore ? "rgba(114, 240, 180, 0.96)" : isLevel5Boss ? "rgba(240, 192, 82, 0.96)" : isLevel3Boss ? "rgba(168, 108, 255, 0.96)" : isLevel2Boss ? "rgba(255, 138, 47, 0.96)" : isStageTwo ? "rgba(255, 49, 95, 0.96)" : "rgba(255, 220, 108, 0.96)";
   ctx.fillRect(-radius * 1.08, -radius - 18, radius * 2.16 * hpRatio, 6);
   ctx.restore();
 }
