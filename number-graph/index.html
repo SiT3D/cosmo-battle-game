@@ -406,11 +406,12 @@
         <button data-layout="grid" class="active">Сетка</button>
         <button data-layout="circle">Круг</button>
         <button data-layout="spiral">Спираль</button>
+        <button data-layout="spiral6">6 лучей</button>
         <button data-layout="sum">Сумма N</button>
       </div>
       <div class="field">
         <label for="size">Размер</label>
-        <input id="size" type="range" min="8" max="28" value="16">
+        <input id="size" type="range" min="8" max="56" value="16">
       </div>
       <div class="field">
         <label for="numberList">Числа</label>
@@ -430,7 +431,7 @@
       </aside>
       <div class="canvas-wrap">
         <canvas id="canvas"></canvas>
-        <div class="hint">ЛКМ по числу - выбрать и двигать. Shift+ЛКМ добавляет к выбору. Перетащи по пустому месту, чтобы выделить рамкой. Колесо мыши - масштаб.</div>
+        <div class="hint">ЛКМ по числу - выбрать и двигать. Перетащи пустое место, чтобы двигать поле. Shift+перетаскивание по пустому месту - выделение рамкой. Колесо мыши - масштаб.</div>
       </div>
       <aside class="notes">
         <h2>Заметки</h2>
@@ -636,6 +637,23 @@
           node.x = Math.cos(angle) * distance;
           node.y = Math.sin(angle) * distance;
         });
+      } else if (state.layout === "spiral6") {
+        const rays = 6;
+        const step = state.radius * 3.1;
+        state.nodes.forEach((node, index) => {
+          if (index === 0) {
+            node.x = 0;
+            node.y = 0;
+            return;
+          }
+
+          const ray = (index - 1) % rays;
+          const ring = Math.floor((index - 1) / rays) + 1;
+          const angle = -Math.PI / 2 + ray * (Math.PI * 2 / rays);
+          const distance = ring * step;
+          node.x = Math.cos(angle) * distance;
+          node.y = Math.sin(angle) * distance;
+        });
       } else if (state.layout === "sum") {
         const target = count;
         const pairGap = state.radius * 3.4;
@@ -763,9 +781,9 @@
         const savedNodes = new Map((snapshot.nodes || []).map(node => [node.value, node]));
 
         maxInput.value = max;
-        state.radius = Math.max(8, Math.min(28, Number(snapshot.radius) || Number(sizeInput.value)));
+        state.radius = Math.max(8, Math.min(56, Number(snapshot.radius) || Number(sizeInput.value)));
         sizeInput.value = state.radius;
-        state.layout = ["grid", "circle", "spiral", "sum"].includes(snapshot.layout) ? snapshot.layout : "grid";
+        state.layout = ["grid", "circle", "spiral", "spiral6", "sum"].includes(snapshot.layout) ? snapshot.layout : "grid";
         layoutButtons.forEach(item => item.classList.toggle("active", item.dataset.layout === state.layout));
 
         state.nodes = Array.from({ length: max }, (_, index) => {
@@ -790,7 +808,7 @@
         state.camera = {
           x: Number.isFinite(snapshot.camera?.x) ? snapshot.camera.x : state.camera.x,
           y: Number.isFinite(snapshot.camera?.y) ? snapshot.camera.y : state.camera.y,
-          scale: Number.isFinite(snapshot.camera?.scale) ? Math.max(0.25, Math.min(4, snapshot.camera.scale)) : state.camera.scale
+          scale: Number.isFinite(snapshot.camera?.scale) ? Math.max(0.1, Math.min(4, snapshot.camera.scale)) : state.camera.scale
         };
         numberListInput.value = snapshot.numberList || "";
         notes.value = snapshot.notes ?? localStorage.getItem(notesStorageKey) ?? "";
@@ -921,9 +939,17 @@
         return;
       }
 
-      if (!event.shiftKey) state.selected.clear();
-      state.pointer = { mode: "select", start: point };
-      state.marquee = { start: point, current: point };
+      if (event.shiftKey) {
+        state.pointer = { mode: "select", start: point };
+        state.marquee = { start: point, current: point };
+      } else {
+        state.pointer = {
+          mode: "pan",
+          start: point,
+          camera: { ...state.camera }
+        };
+        canvas.classList.add("dragging");
+      }
       updateStats();
       draw();
     });
@@ -939,6 +965,9 @@
           item.node.x = item.x + dx;
           item.node.y = item.y + dy;
         }
+      } else if (state.pointer.mode === "pan") {
+        state.camera.x = state.pointer.camera.x + (point.x - state.pointer.start.x) * state.camera.scale;
+        state.camera.y = state.pointer.camera.y + (point.y - state.pointer.start.y) * state.camera.scale;
       } else {
         state.marquee.current = point;
       }
@@ -973,7 +1002,7 @@
       event.preventDefault();
       const before = screenToWorld(event.clientX, event.clientY);
       const factor = event.deltaY < 0 ? 1.08 : 0.92;
-      state.camera.scale = Math.max(0.25, Math.min(4, state.camera.scale * factor));
+      state.camera.scale = Math.max(0.1, Math.min(4, state.camera.scale * factor));
       const after = screenToWorld(event.clientX, event.clientY);
       state.camera.x += (after.x - before.x) * state.camera.scale;
       state.camera.y += (after.y - before.y) * state.camera.scale;
