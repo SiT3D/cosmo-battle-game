@@ -1,0 +1,1053 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Граф чисел</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #20242c;
+      --muted: #687181;
+      --line: #d9dee7;
+      --accent: #2f6fed;
+      --prime: #e24a3b;
+      --normal: #2c7a5b;
+      --selected: #f1b83b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 1px 8px rgba(22, 28, 38, 0.06);
+      z-index: 2;
+    }
+
+    .field,
+    .segmented,
+    .stat {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+    }
+
+    .field {
+      gap: 8px;
+      padding: 0 10px;
+    }
+
+    label,
+    .stat {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    input[type="number"],
+    input[type="range"] {
+      accent-color: var(--accent);
+    }
+
+    input[type="number"] {
+      width: 90px;
+      border: 0;
+      outline: 0;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      background: transparent;
+    }
+
+    input[type="text"] {
+      width: 210px;
+      border: 0;
+      outline: 0;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      background: transparent;
+    }
+
+    input[type="range"] {
+      width: 116px;
+    }
+
+    button {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 12px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: #aeb8c8;
+      background: #f9fafc;
+    }
+
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .segmented {
+      overflow: hidden;
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .segmented button {
+      min-height: 30px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 10px;
+      background: transparent;
+    }
+
+    .segmented button.active {
+      background: #e8efff;
+      color: #1f56bd;
+    }
+
+    .stat {
+      gap: 7px;
+      padding: 0 10px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      min-height: 0;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 280px 1fr 280px;
+      min-height: 0;
+    }
+
+    .details,
+    .notes {
+      min-height: 0;
+      padding: 14px;
+      background: #fff;
+      overflow: auto;
+    }
+
+    .details {
+      border-right: 1px solid var(--line);
+    }
+
+    .notes {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .details-title,
+    .notes h2 {
+      margin: 0 0 12px;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .details-title {
+      font-size: 18px;
+    }
+
+    .notes h2 {
+      margin-bottom: 0;
+      font-size: 18px;
+    }
+
+    .notes textarea {
+      flex: 1;
+      min-height: 220px;
+      width: 100%;
+      resize: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      line-height: 1.45;
+      outline: none;
+    }
+
+    .notes textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.14);
+    }
+
+    .notes-status {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .detail-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fbfcfe;
+    }
+
+    .detail-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .detail-number {
+      min-width: 0;
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 750;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    .detail-close {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 24px;
+      width: 24px;
+      min-width: 24px;
+      min-height: 24px;
+      height: 24px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 0;
+      color: var(--muted);
+      line-height: 1;
+    }
+
+    .detail-close:hover {
+      color: #9f3128;
+      border-color: #f0c3bd;
+      background: #fff4f2;
+    }
+
+    .detail-row {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 6px;
+      align-items: baseline;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .detail-expression {
+      color: var(--ink);
+      font-weight: 620;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      background:
+        linear-gradient(#e7ebf2 1px, transparent 1px),
+        linear-gradient(90deg, #e7ebf2 1px, transparent 1px),
+        #fbfcfe;
+      background-size: 32px 32px;
+    }
+
+    canvas.dragging {
+      cursor: grabbing;
+    }
+
+    .hint {
+      position: absolute;
+      right: 14px;
+      bottom: 12px;
+      max-width: min(560px, calc(100% - 28px));
+      padding: 8px 10px;
+      border: 1px solid rgba(150, 160, 176, 0.42);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #5f6876;
+      font-size: 13px;
+      line-height: 1.35;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+    }
+
+    @media (max-width: 720px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        min-height: 100vh;
+        height: 100vh;
+      }
+
+      .toolbar {
+        align-items: stretch;
+      }
+
+      .field,
+      .segmented,
+      .stat,
+      button {
+        flex: 1 1 auto;
+      }
+
+      .detail-close {
+        flex: 0 0 24px;
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      input[type="text"] {
+        width: 100%;
+      }
+
+      .hint {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      .details,
+      .notes {
+        max-height: 210px;
+        border-right: 0;
+        border-left: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .notes {
+        border-top: 1px solid var(--line);
+        border-bottom: 0;
+      }
+
+      .notes textarea {
+        min-height: 120px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <div class="toolbar">
+      <div class="field">
+        <label for="maxNumber">До</label>
+        <input id="maxNumber" type="number" min="1" max="2000" value="100">
+      </div>
+      <button class="primary" id="build">Построить</button>
+      <div class="segmented" aria-label="Раскладка">
+        <button data-layout="grid" class="active">Сетка</button>
+        <button data-layout="circle">Круг</button>
+        <button data-layout="spiral">Спираль</button>
+        <button data-layout="sum">Сумма N</button>
+      </div>
+      <div class="field">
+        <label for="size">Размер</label>
+        <input id="size" type="range" min="8" max="28" value="16">
+      </div>
+      <div class="field">
+        <label for="numberList">Числа</label>
+        <input id="numberList" type="text" placeholder="2, 3, 5, 13">
+      </div>
+      <button id="applyNumbers">Выделить</button>
+      <button id="selectPrimes">Выделить простые</button>
+      <button id="clearSelection">Снять</button>
+      <button id="centerView">Центр</button>
+      <div class="stat"><span class="dot" style="background: var(--prime)"></span><span id="primeCount">0 простых</span></div>
+      <div class="stat"><span class="dot" style="background: var(--normal)"></span><span id="selectedCount">0 выбрано</span></div>
+    </div>
+    <div class="workspace">
+      <aside class="details" id="details">
+        <div class="details-title">Разложения</div>
+        <div class="empty">Нажимай на числа, чтобы добавлять записи.</div>
+      </aside>
+      <div class="canvas-wrap">
+        <canvas id="canvas"></canvas>
+        <div class="hint">ЛКМ по числу - выбрать и двигать. Shift+ЛКМ добавляет к выбору. Перетащи по пустому месту, чтобы выделить рамкой. Колесо мыши - масштаб.</div>
+      </div>
+      <aside class="notes">
+        <h2>Заметки</h2>
+        <textarea id="notes" spellcheck="false" placeholder="Пиши заметки здесь..."></textarea>
+        <div class="notes-status" id="notesStatus">Сохраняется автоматически</div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.querySelector("#canvas");
+    const ctx = canvas.getContext("2d");
+    const maxInput = document.querySelector("#maxNumber");
+    const sizeInput = document.querySelector("#size");
+    const numberListInput = document.querySelector("#numberList");
+    const primeCountLabel = document.querySelector("#primeCount");
+    const selectedCountLabel = document.querySelector("#selectedCount");
+    const details = document.querySelector("#details");
+    const notes = document.querySelector("#notes");
+    const notesStatus = document.querySelector("#notesStatus");
+    const layoutButtons = [...document.querySelectorAll("[data-layout]")];
+    const notesStorageKey = "number-graph-notes";
+    const appStorageKey = "number-graph-state-v1";
+    let saveReady = false;
+    let saveTimer = 0;
+    let numberListTimer = 0;
+
+    const state = {
+      nodes: [],
+      selected: new Set(),
+      layout: "grid",
+      radius: Number(sizeInput.value),
+      camera: { x: 0, y: 0, scale: 1 },
+      pointer: null,
+      marquee: null,
+      detailValues: []
+    };
+
+    const colors = {
+      prime: getComputedStyle(document.documentElement).getPropertyValue("--prime").trim(),
+      normal: getComputedStyle(document.documentElement).getPropertyValue("--normal").trim(),
+      selected: getComputedStyle(document.documentElement).getPropertyValue("--selected").trim()
+    };
+
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function isPrime(value) {
+      if (value < 2) return false;
+      if (value === 2) return true;
+      if (value % 2 === 0) return false;
+      for (let divisor = 3; divisor * divisor <= value; divisor += 2) {
+        if (value % divisor === 0) return false;
+      }
+      return true;
+    }
+
+    function factorize(value) {
+      if (value < 2) return [];
+      const factors = [];
+      let rest = value;
+      for (let divisor = 2; divisor * divisor <= rest; divisor += divisor === 2 ? 1 : 2) {
+        while (rest % divisor === 0) {
+          factors.push(divisor);
+          rest /= divisor;
+        }
+      }
+      if (rest > 1) factors.push(rest);
+      return factors;
+    }
+
+    function listPrimes(upTo) {
+      const primes = [];
+      for (let value = 2; value <= upTo; value++) {
+        if (isPrime(value)) primes.push(value);
+      }
+      return primes;
+    }
+
+    function findPrimePair(total) {
+      for (let first = 2; first <= total / 2; first++) {
+        const second = total - first;
+        if (isPrime(first) && isPrime(second)) return [first, second];
+      }
+      return null;
+    }
+
+    function primeSum(value) {
+      if (value < 2) return [];
+      if (isPrime(value)) return [value];
+      const pair = findPrimePair(value);
+      if (pair) return pair;
+      if (value > 4) {
+        const withoutThree = findPrimePair(value - 3);
+        if (withoutThree) return [3, ...withoutThree];
+      }
+
+      const primes = listPrimes(value).reverse();
+      const result = [];
+      let rest = value;
+      while (rest > 0) {
+        const next = primes.find(prime => prime <= rest);
+        if (!next) return [];
+        result.push(next);
+        rest -= next;
+      }
+      return result;
+    }
+
+    function expressionsFor(value) {
+      const product = factorize(value);
+      const sum = primeSum(value);
+      return {
+        product: product.length ? product.join(" × ") : "нет",
+        sum: sum.length ? sum.join(" + ") : "нет"
+      };
+    }
+
+    function renderDetails() {
+      details.innerHTML = "";
+
+      const title = document.createElement("div");
+      title.className = "details-title";
+      title.textContent = "Разложения";
+      details.append(title);
+
+      if (!state.detailValues.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "Нажимай на числа, чтобы добавлять записи.";
+        details.append(empty);
+        return;
+      }
+
+      const list = document.createElement("div");
+      list.className = "detail-list";
+
+      for (const value of state.detailValues) {
+        const expressions = expressionsFor(value);
+        const card = document.createElement("div");
+        card.className = "detail-card";
+        card.innerHTML = `
+          <div class="detail-head">
+            <div class="detail-number">${value}</div>
+            <button class="detail-close" type="button" aria-label="Убрать ${value}" data-remove-detail="${value}">×</button>
+          </div>
+          <div class="detail-row"><span>×</span><span class="detail-expression"></span></div>
+          <div class="detail-row"><span>+</span><span class="detail-expression"></span></div>
+        `;
+        const [product, sum] = card.querySelectorAll(".detail-expression");
+        product.textContent = expressions.product;
+        sum.textContent = expressions.sum;
+        list.append(card);
+      }
+
+      details.append(list);
+    }
+
+    function addDetails(node) {
+      state.detailValues = state.detailValues.filter(value => value !== node.value);
+      state.detailValues.unshift(node.value);
+      renderDetails();
+      saveStateSoon();
+    }
+
+    function buildNodes() {
+      const max = Math.max(1, Math.min(2000, Number(maxInput.value) || 1));
+      maxInput.value = max;
+      state.nodes = Array.from({ length: max }, (_, index) => {
+        const value = index + 1;
+        return { value, x: 0, y: 0, prime: isPrime(value) };
+      });
+      state.selected.clear();
+      state.detailValues = state.detailValues.filter(value => value <= max);
+      renderDetails();
+      applyLayout(true);
+      updateStats();
+      if (numberListInput.value.trim()) applyNumberList();
+      else saveStateSoon();
+    }
+
+    function applyLayout(resetCamera = false) {
+      const gap = state.radius * 3.2;
+      const count = state.nodes.length;
+
+      if (state.layout === "circle") {
+        const ringRadius = Math.max(90, count * state.radius / Math.PI / 1.5);
+        state.nodes.forEach((node, index) => {
+          const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
+          node.x = Math.cos(angle) * ringRadius;
+          node.y = Math.sin(angle) * ringRadius;
+        });
+      } else if (state.layout === "spiral") {
+        state.nodes.forEach((node, index) => {
+          const angle = index * 0.52;
+          const distance = state.radius * 2.2 * Math.sqrt(index);
+          node.x = Math.cos(angle) * distance;
+          node.y = Math.sin(angle) * distance;
+        });
+      } else if (state.layout === "sum") {
+        const target = count;
+        const pairGap = state.radius * 3.4;
+        const half = target / 2;
+
+        state.nodes.forEach((node) => {
+          if (node.value === 1) {
+            node.x = 0;
+            node.y = 0;
+            return;
+          }
+
+          if (node.value === target) {
+            node.x = 0;
+            node.y = -pairGap * 1.45;
+            return;
+          }
+
+          if (node.value === target - 1) {
+            node.x = 0;
+            node.y = 0;
+            return;
+          }
+
+          const pairIndex = Math.min(node.value, target - node.value) - 1;
+          const side = node.value <= target - node.value ? 1 : -1;
+          node.x = side * pairIndex * pairGap;
+          node.y = 0;
+        });
+      } else {
+        const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
+        state.nodes.forEach((node, index) => {
+          const col = index % cols;
+          const row = Math.floor(index / cols);
+          node.x = (col - (cols - 1) / 2) * gap;
+          node.y = (row - (rows - 1) / 2) * gap;
+        });
+      }
+
+      if (resetCamera) centerView();
+      draw();
+    }
+
+    function centerView() {
+      const rect = canvas.getBoundingClientRect();
+      state.camera.x = rect.width / 2;
+      state.camera.y = rect.height / 2;
+      state.camera.scale = 1;
+      draw();
+      saveStateSoon();
+    }
+
+    function screenToWorld(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - state.camera.x) / state.camera.scale,
+        y: (clientY - rect.top - state.camera.y) / state.camera.scale,
+        sx: clientX - rect.left,
+        sy: clientY - rect.top
+      };
+    }
+
+    function worldToScreen(x, y) {
+      return {
+        x: x * state.camera.scale + state.camera.x,
+        y: y * state.camera.scale + state.camera.y
+      };
+    }
+
+    function hitNode(point) {
+      for (let index = state.nodes.length - 1; index >= 0; index--) {
+        const node = state.nodes[index];
+        if (state.layout === "sum" && node.value === 1) continue;
+        const dx = point.x - node.x;
+        const dy = point.y - node.y;
+        if (Math.hypot(dx, dy) <= state.radius + 4 / state.camera.scale) {
+          return node;
+        }
+      }
+      return null;
+    }
+
+    function updateStats() {
+      primeCountLabel.textContent = `${state.nodes.filter(node => node.prime).length} простых`;
+      selectedCountLabel.textContent = `${state.selected.size} выбрано`;
+    }
+
+    function saveStateSoon() {
+      if (!saveReady) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveState, 120);
+    }
+
+    function saveState() {
+      if (!saveReady) return;
+      const snapshot = {
+        max: Number(maxInput.value) || state.nodes.length,
+        radius: state.radius,
+        layout: state.layout,
+        camera: state.camera,
+        selected: [...state.selected],
+        detailValues: state.detailValues,
+        numberList: numberListInput.value,
+        notes: notes.value,
+        nodes: state.nodes.map(node => ({
+          value: node.value,
+          x: node.x,
+          y: node.y
+        }))
+      };
+      localStorage.setItem(appStorageKey, JSON.stringify(snapshot));
+    }
+
+    function restoreState() {
+      const raw = localStorage.getItem(appStorageKey);
+      if (!raw) {
+        notes.value = localStorage.getItem(notesStorageKey) || "";
+        return false;
+      }
+
+      try {
+        const snapshot = JSON.parse(raw);
+        const max = Math.max(1, Math.min(2000, Number(snapshot.max) || 100));
+        const savedNodes = new Map((snapshot.nodes || []).map(node => [node.value, node]));
+
+        maxInput.value = max;
+        state.radius = Math.max(8, Math.min(28, Number(snapshot.radius) || Number(sizeInput.value)));
+        sizeInput.value = state.radius;
+        state.layout = ["grid", "circle", "spiral", "sum"].includes(snapshot.layout) ? snapshot.layout : "grid";
+        layoutButtons.forEach(item => item.classList.toggle("active", item.dataset.layout === state.layout));
+
+        state.nodes = Array.from({ length: max }, (_, index) => {
+          const value = index + 1;
+          const saved = savedNodes.get(value);
+          return {
+            value,
+            x: Number.isFinite(saved?.x) ? saved.x : 0,
+            y: Number.isFinite(saved?.y) ? saved.y : 0,
+            prime: isPrime(value)
+          };
+        });
+
+        if (!savedNodes.size) applyLayout(false);
+
+        state.selected = new Set((snapshot.selected || [])
+          .map(Number)
+          .filter(value => Number.isInteger(value) && value >= 1 && value <= max));
+        state.detailValues = [...new Set((snapshot.detailValues || [])
+          .map(Number)
+          .filter(value => Number.isInteger(value) && value >= 1 && value <= max))];
+        state.camera = {
+          x: Number.isFinite(snapshot.camera?.x) ? snapshot.camera.x : state.camera.x,
+          y: Number.isFinite(snapshot.camera?.y) ? snapshot.camera.y : state.camera.y,
+          scale: Number.isFinite(snapshot.camera?.scale) ? Math.max(0.25, Math.min(4, snapshot.camera.scale)) : state.camera.scale
+        };
+        numberListInput.value = snapshot.numberList || "";
+        notes.value = snapshot.notes ?? localStorage.getItem(notesStorageKey) ?? "";
+        renderDetails();
+        updateStats();
+        draw();
+        return true;
+      } catch (error) {
+        console.warn("Не удалось восстановить сохраненное состояние", error);
+        notes.value = localStorage.getItem(notesStorageKey) || "";
+        return false;
+      }
+    }
+
+    function parseNumberList(text) {
+      const max = state.nodes.length;
+      return [...new Set(text
+        .split(/[,\s;]+/)
+        .map(part => Number(part.trim()))
+        .filter(value => Number.isInteger(value) && value >= 1 && value <= max))];
+    }
+
+    function applyNumberList() {
+      const values = parseNumberList(numberListInput.value);
+      state.selected = new Set(values);
+      state.detailValues = [
+        ...values,
+        ...state.detailValues.filter(value => !values.includes(value))
+      ];
+      renderDetails();
+      updateStats();
+      draw();
+      saveStateSoon();
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      if (state.layout === "sum") {
+        const byValue = new Map(state.nodes.map(node => [node.value, node]));
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(47, 111, 237, 0.22)";
+
+        for (let value = 2; value < state.nodes.length - value; value++) {
+          const left = byValue.get(state.nodes.length - value);
+          const right = byValue.get(value);
+          if (!left || !right) continue;
+          const start = worldToScreen(left.x, left.y);
+          const end = worldToScreen(right.x, right.y);
+          ctx.beginPath();
+          ctx.moveTo(start.x, start.y);
+          ctx.lineTo(end.x, end.y);
+          ctx.stroke();
+        }
+      }
+
+      const drawNode = (node, x = node.x, y = node.y) => {
+        const point = worldToScreen(x, y);
+        const radius = state.radius * state.camera.scale;
+        const selected = state.selected.has(node.value);
+
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = selected ? colors.selected : (node.prime ? colors.prime : colors.normal);
+        ctx.fill();
+        ctx.lineWidth = selected ? 3 : 1;
+        ctx.strokeStyle = selected ? "#8a6414" : "rgba(20, 26, 36, 0.25)";
+        ctx.stroke();
+
+        const fontSize = Math.max(9, Math.min(15, radius * 0.86));
+        ctx.fillStyle = selected ? "#1c1a14" : "#fff";
+        ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(node.value), point.x, point.y);
+      };
+
+      for (const node of state.nodes) {
+        if (state.layout === "sum" && node.value === 1) continue;
+        drawNode(node);
+      }
+
+      if (state.layout === "sum" && state.nodes.length % 2 === 0) {
+        const half = state.nodes.length / 2;
+        const node = state.nodes[half - 1];
+        if (node) drawNode(node, -Math.abs(node.x), node.y);
+      }
+
+      if (state.marquee) {
+        const { start, current } = state.marquee;
+        const x = Math.min(start.sx, current.sx);
+        const y = Math.min(start.sy, current.sy);
+        const width = Math.abs(current.sx - start.sx);
+        const height = Math.abs(current.sy - start.sy);
+        ctx.fillStyle = "rgba(47, 111, 237, 0.12)";
+        ctx.strokeStyle = "rgba(47, 111, 237, 0.75)";
+        ctx.lineWidth = 1;
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeRect(x, y, width, height);
+      }
+    }
+
+    canvas.addEventListener("pointerdown", (event) => {
+      canvas.setPointerCapture(event.pointerId);
+      const point = screenToWorld(event.clientX, event.clientY);
+      const node = hitNode(point);
+
+      if (node) {
+        addDetails(node);
+
+        if (event.shiftKey) {
+          if (state.selected.has(node.value)) state.selected.delete(node.value);
+          else state.selected.add(node.value);
+        } else if (!state.selected.has(node.value)) {
+          state.selected.clear();
+          state.selected.add(node.value);
+        }
+
+        const movingNodes = state.nodes
+          .filter(item => state.selected.has(item.value))
+          .map(item => ({ node: item, x: item.x, y: item.y }));
+
+        state.pointer = { mode: "move", start: point, movingNodes };
+        canvas.classList.add("dragging");
+        updateStats();
+        draw();
+        return;
+      }
+
+      if (!event.shiftKey) state.selected.clear();
+      state.pointer = { mode: "select", start: point };
+      state.marquee = { start: point, current: point };
+      updateStats();
+      draw();
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!state.pointer) return;
+      const point = screenToWorld(event.clientX, event.clientY);
+
+      if (state.pointer.mode === "move") {
+        const dx = point.x - state.pointer.start.x;
+        const dy = point.y - state.pointer.start.y;
+        for (const item of state.pointer.movingNodes) {
+          item.node.x = item.x + dx;
+          item.node.y = item.y + dy;
+        }
+      } else {
+        state.marquee.current = point;
+      }
+
+      draw();
+    });
+
+    canvas.addEventListener("pointerup", (event) => {
+      if (state.pointer?.mode === "select" && state.marquee) {
+        const { start, current } = state.marquee;
+        const left = Math.min(start.x, current.x);
+        const right = Math.max(start.x, current.x);
+        const top = Math.min(start.y, current.y);
+        const bottom = Math.max(start.y, current.y);
+
+        for (const node of state.nodes) {
+          if (node.x >= left && node.x <= right && node.y >= top && node.y <= bottom) {
+            state.selected.add(node.value);
+          }
+        }
+      }
+
+      state.pointer = null;
+      state.marquee = null;
+      canvas.classList.remove("dragging");
+      updateStats();
+      draw();
+      saveStateSoon();
+    });
+
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const before = screenToWorld(event.clientX, event.clientY);
+      const factor = event.deltaY < 0 ? 1.08 : 0.92;
+      state.camera.scale = Math.max(0.25, Math.min(4, state.camera.scale * factor));
+      const after = screenToWorld(event.clientX, event.clientY);
+      state.camera.x += (after.x - before.x) * state.camera.scale;
+      state.camera.y += (after.y - before.y) * state.camera.scale;
+      draw();
+      saveStateSoon();
+    }, { passive: false });
+
+    document.querySelector("#build").addEventListener("click", buildNodes);
+    document.querySelector("#applyNumbers").addEventListener("click", applyNumberList);
+    document.querySelector("#clearSelection").addEventListener("click", () => {
+      state.selected.clear();
+      updateStats();
+      draw();
+      saveStateSoon();
+    });
+    document.querySelector("#selectPrimes").addEventListener("click", () => {
+      state.selected = new Set(state.nodes.filter(node => node.prime).map(node => node.value));
+      updateStats();
+      draw();
+      saveStateSoon();
+    });
+    document.querySelector("#centerView").addEventListener("click", centerView);
+
+    details.addEventListener("click", (event) => {
+      const removeButton = event.target.closest("[data-remove-detail]");
+      if (!removeButton) return;
+      const value = Number(removeButton.dataset.removeDetail);
+      state.detailValues = state.detailValues.filter(item => item !== value);
+      renderDetails();
+      saveStateSoon();
+    });
+
+    sizeInput.addEventListener("input", () => {
+      state.radius = Number(sizeInput.value);
+      draw();
+      saveStateSoon();
+    });
+
+    numberListInput.addEventListener("input", () => {
+      clearTimeout(numberListTimer);
+      numberListTimer = setTimeout(applyNumberList, 250);
+    });
+
+    numberListInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      clearTimeout(numberListTimer);
+      applyNumberList();
+    });
+
+    layoutButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        state.layout = button.dataset.layout;
+        layoutButtons.forEach(item => item.classList.toggle("active", item === button));
+        applyLayout(true);
+        saveStateSoon();
+      });
+    });
+
+    notes.addEventListener("input", () => {
+      localStorage.setItem(notesStorageKey, notes.value);
+      saveStateSoon();
+      notesStatus.textContent = "Сохранено";
+      clearTimeout(notes.saveTimer);
+      notes.saveTimer = setTimeout(() => {
+        notesStatus.textContent = "Сохраняется автоматически";
+      }, 1000);
+    });
+
+    window.addEventListener("resize", resize);
+    resize();
+    if (!restoreState()) buildNodes();
+    saveReady = true;
+    saveState();
+  </script>
+</body>
+</html>
