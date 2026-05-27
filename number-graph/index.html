@@ -73,8 +73,15 @@
     }
 
     input[type="number"],
-    input[type="range"] {
+    input[type="range"],
+    input[type="checkbox"] {
       accent-color: var(--accent);
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
     }
 
     input[type="number"] {
@@ -293,6 +300,36 @@
       overflow-wrap: anywhere;
     }
 
+    .law-block {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .law-title {
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 750;
+    }
+
+    .law-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+      gap: 5px;
+    }
+
+    .law-item {
+      padding: 5px 6px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfe;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
     .empty {
       color: var(--muted);
       font-size: 14px;
@@ -399,14 +436,23 @@
     <div class="toolbar">
       <div class="field">
         <label for="maxNumber">До</label>
-        <input id="maxNumber" type="number" min="1" max="2000" value="100">
+        <input id="maxNumber" type="number" min="1" max="10000" value="100">
       </div>
       <button class="primary" id="build">Построить</button>
       <div class="segmented" aria-label="Раскладка">
         <button data-layout="grid" class="active">Сетка</button>
         <button data-layout="circle">Круг</button>
         <button data-layout="spiral">Спираль</button>
+        <button data-layout="spiral4">4 луча</button>
+        <button data-layout="spiral5">5 лучей</button>
         <button data-layout="spiral6">6 лучей</button>
+        <button data-layout="spiral36">36 лучей</button>
+        <button data-layout="triangle">Треугольник</button>
+        <button data-layout="primeTurns30">Поворот 30</button>
+        <button data-layout="primeTurns60">Поворот 60</button>
+        <button data-layout="primeTurns">Поворот 90</button>
+        <button data-layout="primeTurns120">Поворот 120</button>
+        <button data-layout="primeTurns180">Поворот 180</button>
         <button data-layout="sum">Сумма N</button>
       </div>
       <div class="field">
@@ -417,6 +463,10 @@
         <label for="numberList">Числа</label>
         <input id="numberList" type="text" placeholder="2, 3, 5, 13">
       </div>
+      <label class="field" for="includeNumberSum">
+        <input id="includeNumberSum" type="checkbox">
+        <span>+ сумма</span>
+      </label>
       <button id="applyNumbers">Выделить</button>
       <button id="selectPrimes">Выделить простые</button>
       <button id="clearSelection">Снять</button>
@@ -447,6 +497,7 @@
     const maxInput = document.querySelector("#maxNumber");
     const sizeInput = document.querySelector("#size");
     const numberListInput = document.querySelector("#numberList");
+    const includeNumberSum = document.querySelector("#includeNumberSum");
     const primeCountLabel = document.querySelector("#primeCount");
     const selectedCountLabel = document.querySelector("#selectedCount");
     const details = document.querySelector("#details");
@@ -556,6 +607,104 @@
       };
     }
 
+    function activeRayCount() {
+      if (state.layout === "spiral4") return 4;
+      if (state.layout === "spiral5") return 5;
+      if (state.layout === "spiral6") return 6;
+      return 0;
+    }
+
+    function raySumResult(labels, rays) {
+      const total = labels.reduce((sum, label) => sum + label, 0);
+      const result = (total + labels.length - 2) % rays;
+      return result + 1;
+    }
+
+    function buildPairLaws(rays) {
+      const laws = [];
+      for (let first = 1; first <= rays; first++) {
+        for (let second = first; second <= rays; second++) {
+          laws.push(`${first}+${second}->${raySumResult([first, second], rays)}`);
+        }
+      }
+      return laws;
+    }
+
+    function buildTripleLaws(rays) {
+      const laws = [];
+      for (let first = 1; first <= rays; first++) {
+        for (let second = first; second <= rays; second++) {
+          for (let third = second; third <= rays; third++) {
+            laws.push(`${first}+${second}+${third}->${raySumResult([first, second, third], rays)}`);
+          }
+        }
+      }
+      return laws;
+    }
+
+    function buildTupleLaws(rays, length) {
+      const laws = [];
+      const current = [];
+
+      function walk(start) {
+        if (current.length === length) {
+          laws.push(`${current.join("+")}->${raySumResult(current, rays)}`);
+          return;
+        }
+
+        for (let ray = start; ray <= rays; ray++) {
+          current.push(ray);
+          walk(ray);
+          current.pop();
+        }
+      }
+
+      walk(1);
+      return laws;
+    }
+
+    function appendLawSection(parent, title, laws) {
+      const section = document.createElement("div");
+      section.className = "law-block";
+
+      const heading = document.createElement("div");
+      heading.className = "law-title";
+      heading.textContent = title;
+      section.append(heading);
+
+      const grid = document.createElement("div");
+      grid.className = "law-grid";
+      for (const law of laws) {
+        const item = document.createElement("div");
+        item.className = "law-item";
+        item.textContent = law;
+        grid.append(item);
+      }
+      section.append(grid);
+      parent.append(section);
+    }
+
+    function appendRayLaws() {
+      const rays = 6;
+      const block = document.createElement("div");
+      block.className = "law-block";
+
+      const title = document.createElement("div");
+      title.className = "law-title";
+      title.textContent = `Законы лучей (${rays} лучей)`;
+      block.append(title);
+
+      const note = document.createElement("div");
+      note.className = "empty";
+      note.textContent = "Слева количество слагаемых-лучей: от пары до 6 слагаемых. Справа луч, куда попадает сумма.";
+      block.append(note);
+      details.append(block);
+
+      for (let length = 2; length <= 6; length++) {
+        appendLawSection(details, `${length} слагаемых`, buildTupleLaws(rays, length));
+      }
+    }
+
     function renderDetails() {
       details.innerHTML = "";
 
@@ -569,6 +718,7 @@
         empty.className = "empty";
         empty.textContent = "Нажимай на числа, чтобы добавлять записи.";
         details.append(empty);
+        appendRayLaws();
         return;
       }
 
@@ -594,6 +744,7 @@
       }
 
       details.append(list);
+      appendRayLaws();
     }
 
     function addDetails(node) {
@@ -604,7 +755,7 @@
     }
 
     function buildNodes() {
-      const max = Math.max(1, Math.min(2000, Number(maxInput.value) || 1));
+      const max = Math.max(1, Math.min(10000, Number(maxInput.value) || 1));
       maxInput.value = max;
       state.nodes = Array.from({ length: max }, (_, index) => {
         const value = index + 1;
@@ -617,6 +768,46 @@
       updateStats();
       if (numberListInput.value.trim()) applyNumberList();
       else saveStateSoon();
+    }
+
+    function applyPrimeTurnLayout(degrees) {
+      const gap = state.radius * 3.1;
+      const turn = degrees * Math.PI / 180;
+      let angle = 0;
+      let x = 0;
+      let y = 0;
+
+      state.nodes.forEach((node, index) => {
+        if (index > 0) {
+          x += Math.cos(angle);
+          y += Math.sin(angle);
+        }
+
+        node.x = x * gap;
+        node.y = y * gap;
+
+        if (node.prime) {
+          angle += turn;
+        }
+      });
+    }
+
+    function applyRayLayout(rays) {
+      const step = state.radius * 3.1;
+      state.nodes.forEach((node, index) => {
+        if (index === 0) {
+          node.x = 0;
+          node.y = 0;
+          return;
+        }
+
+        const ray = (index - 1) % rays;
+        const ring = Math.floor((index - 1) / rays) + 1;
+        const angle = -Math.PI / 2 + ray * (Math.PI * 2 / rays);
+        const distance = ring * step;
+        node.x = Math.cos(angle) * distance;
+        node.y = Math.sin(angle) * distance;
+      });
     }
 
     function applyLayout(resetCamera = false) {
@@ -637,23 +828,44 @@
           node.x = Math.cos(angle) * distance;
           node.y = Math.sin(angle) * distance;
         });
+      } else if (state.layout === "spiral4") {
+        applyRayLayout(4);
+      } else if (state.layout === "spiral5") {
+        applyRayLayout(5);
       } else if (state.layout === "spiral6") {
-        const rays = 6;
-        const step = state.radius * 3.1;
-        state.nodes.forEach((node, index) => {
-          if (index === 0) {
-            node.x = 0;
-            node.y = 0;
-            return;
-          }
+        applyRayLayout(6);
+      } else if (state.layout === "spiral36") {
+        applyRayLayout(36);
+      } else if (state.layout === "triangle") {
+        const gap = state.radius * 3.1;
+        let row = 1;
+        let start = 0;
 
-          const ray = (index - 1) % rays;
-          const ring = Math.floor((index - 1) / rays) + 1;
-          const angle = -Math.PI / 2 + ray * (Math.PI * 2 / rays);
-          const distance = ring * step;
-          node.x = Math.cos(angle) * distance;
-          node.y = Math.sin(angle) * distance;
+        while (start < count) {
+          const rowCount = Math.min(row, count - start);
+          for (let offset = 0; offset < rowCount; offset++) {
+            const node = state.nodes[start + offset];
+            node.x = (offset - (rowCount - 1) / 2) * gap;
+            node.y = (row - 1) * gap;
+          }
+          start += rowCount;
+          row++;
+        }
+
+        const height = (row - 2) * gap;
+        state.nodes.forEach(node => {
+          node.y -= height / 2;
         });
+      } else if (state.layout === "primeTurns") {
+        applyPrimeTurnLayout(90);
+      } else if (state.layout === "primeTurns30") {
+        applyPrimeTurnLayout(30);
+      } else if (state.layout === "primeTurns60") {
+        applyPrimeTurnLayout(60);
+      } else if (state.layout === "primeTurns120") {
+        applyPrimeTurnLayout(120);
+      } else if (state.layout === "primeTurns180") {
+        applyPrimeTurnLayout(180);
       } else if (state.layout === "sum") {
         const target = count;
         const pairGap = state.radius * 3.4;
@@ -758,6 +970,7 @@
         selected: [...state.selected],
         detailValues: state.detailValues,
         numberList: numberListInput.value,
+        includeNumberSum: includeNumberSum.checked,
         notes: notes.value,
         nodes: state.nodes.map(node => ({
           value: node.value,
@@ -777,13 +990,13 @@
 
       try {
         const snapshot = JSON.parse(raw);
-        const max = Math.max(1, Math.min(2000, Number(snapshot.max) || 100));
+        const max = Math.max(1, Math.min(10000, Number(snapshot.max) || 100));
         const savedNodes = new Map((snapshot.nodes || []).map(node => [node.value, node]));
 
         maxInput.value = max;
         state.radius = Math.max(8, Math.min(56, Number(snapshot.radius) || Number(sizeInput.value)));
         sizeInput.value = state.radius;
-        state.layout = ["grid", "circle", "spiral", "spiral6", "sum"].includes(snapshot.layout) ? snapshot.layout : "grid";
+        state.layout = ["grid", "circle", "spiral", "spiral4", "spiral5", "spiral6", "spiral36", "triangle", "primeTurns30", "primeTurns60", "primeTurns", "primeTurns120", "primeTurns180", "sum"].includes(snapshot.layout) ? snapshot.layout : "grid";
         layoutButtons.forEach(item => item.classList.toggle("active", item.dataset.layout === state.layout));
 
         state.nodes = Array.from({ length: max }, (_, index) => {
@@ -808,9 +1021,10 @@
         state.camera = {
           x: Number.isFinite(snapshot.camera?.x) ? snapshot.camera.x : state.camera.x,
           y: Number.isFinite(snapshot.camera?.y) ? snapshot.camera.y : state.camera.y,
-          scale: Number.isFinite(snapshot.camera?.scale) ? Math.max(0.1, Math.min(4, snapshot.camera.scale)) : state.camera.scale
+          scale: Number.isFinite(snapshot.camera?.scale) ? Math.max(0.01, Math.min(4, snapshot.camera.scale)) : state.camera.scale
         };
         numberListInput.value = snapshot.numberList || "";
+        includeNumberSum.checked = Boolean(snapshot.includeNumberSum);
         notes.value = snapshot.notes ?? localStorage.getItem(notesStorageKey) ?? "";
         renderDetails();
         updateStats();
@@ -833,10 +1047,18 @@
 
     function applyNumberList() {
       const values = parseNumberList(numberListInput.value);
-      state.selected = new Set(values);
+      const selectedValues = [...values];
+      const sum = values.reduce((total, value) => total + value, 0);
+
+      if (includeNumberSum.checked && sum >= 1 && sum <= state.nodes.length) {
+        selectedValues.push(sum);
+      }
+
+      const uniqueValues = [...new Set(selectedValues)];
+      state.selected = new Set(uniqueValues);
       state.detailValues = [
-        ...values,
-        ...state.detailValues.filter(value => !values.includes(value))
+        ...uniqueValues,
+        ...state.detailValues.filter(value => !uniqueValues.includes(value))
       ];
       renderDetails();
       updateStats();
@@ -870,7 +1092,10 @@
         const point = worldToScreen(x, y);
         const radius = state.radius * state.camera.scale;
         const selected = state.selected.has(node.value);
+        const dimmed = state.selected.size > 0 && !selected;
 
+        ctx.save();
+        ctx.globalAlpha = dimmed ? 0.05 : 1;
         ctx.beginPath();
         ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = selected ? colors.selected : (node.prime ? colors.prime : colors.normal);
@@ -885,6 +1110,7 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(String(node.value), point.x, point.y);
+        ctx.restore();
       };
 
       for (const node of state.nodes) {
@@ -1002,7 +1228,7 @@
       event.preventDefault();
       const before = screenToWorld(event.clientX, event.clientY);
       const factor = event.deltaY < 0 ? 1.08 : 0.92;
-      state.camera.scale = Math.max(0.1, Math.min(4, state.camera.scale * factor));
+      state.camera.scale = Math.max(0.01, Math.min(4, state.camera.scale * factor));
       const after = screenToWorld(event.clientX, event.clientY);
       state.camera.x += (after.x - before.x) * state.camera.scale;
       state.camera.y += (after.y - before.y) * state.camera.scale;
@@ -1053,11 +1279,14 @@
       applyNumberList();
     });
 
+    includeNumberSum.addEventListener("change", applyNumberList);
+
     layoutButtons.forEach(button => {
       button.addEventListener("click", () => {
         state.layout = button.dataset.layout;
         layoutButtons.forEach(item => item.classList.toggle("active", item === button));
         applyLayout(true);
+        renderDetails();
         saveStateSoon();
       });
     });
