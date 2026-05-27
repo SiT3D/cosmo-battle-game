@@ -2694,10 +2694,7 @@
           ctx.fillStyle = percentMismatch
             ? "rgba(255, 239, 237, 0.94)"
             : (percentMatch ? "rgba(231, 239, 255, 0.94)" : "rgba(255, 255, 255, 0.86)");
-          // ctx.fillRect(point.x - labelWidth / 2, labelY - labelFontSize + 1, labelWidth, labelFontSize + 5);
-          // ctx.fillStyle = disabled ? "#687181" : (percentMismatch ? "#c24132" : (percentMatch ? "#1d4ed8" : "#3f4652"));
           ctx.textBaseline = "middle";
-          // ctx.fillText(label, point.x, labelY);
         }
         ctx.restore();
       };
