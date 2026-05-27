@@ -468,6 +468,24 @@
         <span>+ сумма</span>
       </label>
       <button id="applyNumbers">Выделить</button>
+      <div class="field">
+        <label for="rayCalcInput">Луч</label>
+        <input id="rayCalcInput" type="text" placeholder="1+1+1">
+      </div>
+      <button id="rayCalcButton">=</button>
+      <div class="stat"><span>-></span><span id="rayCalcResult">-</span></div>
+      <div class="field">
+        <label for="reverseRayTarget">Обратно</label>
+        <input id="reverseRayTarget" type="number" min="1" max="6" value="1">
+      </div>
+      <div class="field">
+        <label for="reverseRayMax">до</label>
+        <input id="reverseRayMax" type="number" min="2" max="20" value="6">
+      </div>
+      <div class="field">
+        <label for="reverseRayNumbers">Ряд</label>
+        <input id="reverseRayNumbers" type="text" placeholder="2, 8, 14">
+      </div>
       <button id="selectPrimes">Выделить простые</button>
       <button id="clearSelection">Снять</button>
       <button id="centerView">Центр</button>
@@ -498,6 +516,11 @@
     const sizeInput = document.querySelector("#size");
     const numberListInput = document.querySelector("#numberList");
     const includeNumberSum = document.querySelector("#includeNumberSum");
+    const rayCalcInput = document.querySelector("#rayCalcInput");
+    const rayCalcResult = document.querySelector("#rayCalcResult");
+    const reverseRayTarget = document.querySelector("#reverseRayTarget");
+    const reverseRayMax = document.querySelector("#reverseRayMax");
+    const reverseRayNumbers = document.querySelector("#reverseRayNumbers");
     const primeCountLabel = document.querySelector("#primeCount");
     const selectedCountLabel = document.querySelector("#selectedCount");
     const details = document.querySelector("#details");
@@ -620,6 +643,49 @@
       return result + 1;
     }
 
+    function numberToRay(value) {
+      return ((value - 2) % 6 + 6) % 6 + 1;
+    }
+
+    function availableRayCounts() {
+      const values = parseNumberList(reverseRayNumbers.value);
+      if (!values.length) return null;
+
+      const counts = new Map();
+      for (const value of values) {
+        const ray = numberToRay(value);
+        counts.set(ray, (counts.get(ray) || 0) + 1);
+      }
+      return counts;
+    }
+
+    function hasAvailableRays(labels, counts) {
+      if (!counts) return true;
+
+      const needed = new Map();
+      for (const label of labels) {
+        needed.set(label, (needed.get(label) || 0) + 1);
+      }
+
+      for (const [ray, count] of needed) {
+        if ((counts.get(ray) || 0) < count) return false;
+      }
+      return true;
+    }
+
+    function parseRayCalc(text) {
+      return text
+        .split(/[,+\s;]+/)
+        .map(part => Number(part.trim()))
+        .filter(value => Number.isInteger(value) && value >= 1 && value <= 6);
+    }
+
+    function updateRayCalc() {
+      const values = parseRayCalc(rayCalcInput.value);
+      rayCalcResult.textContent = values.length ? String(raySumResult(values, 6)) : "-";
+      saveStateSoon();
+    }
+
     function buildPairLaws(rays) {
       const laws = [];
       for (let first = 1; first <= rays; first++) {
@@ -661,6 +727,36 @@
 
       walk(1);
       return laws;
+    }
+
+    function buildReverseLaws(target, maxLength, counts) {
+      const rays = 6;
+      const lawsByLength = [];
+
+      for (let length = 2; length <= maxLength; length++) {
+        const laws = [];
+        const current = [];
+
+        function walk(start) {
+          if (current.length === length) {
+            if (raySumResult(current, rays) === target && hasAvailableRays(current, counts)) {
+              laws.push(`${current.join("+")}->${target}`);
+            }
+            return;
+          }
+
+          for (let ray = start; ray <= rays; ray++) {
+            current.push(ray);
+            walk(ray);
+            current.pop();
+          }
+        }
+
+        walk(1);
+        lawsByLength.push({ length, laws });
+      }
+
+      return lawsByLength;
     }
 
     function appendLawSection(parent, title, laws) {
@@ -705,6 +801,40 @@
       }
     }
 
+    function appendReverseRayLaws() {
+      const target = Math.max(1, Math.min(6, Number(reverseRayTarget.value) || 1));
+      const maxLength = Math.max(2, Math.min(20, Number(reverseRayMax.value) || 6));
+      reverseRayTarget.value = target;
+      reverseRayMax.value = maxLength;
+
+      const block = document.createElement("div");
+      block.className = "law-block";
+
+      const title = document.createElement("div");
+      title.className = "law-title";
+      title.textContent = `Обратный расчет -> ${target}`;
+      block.append(title);
+
+      const note = document.createElement("div");
+      note.className = "empty";
+      const counts = availableRayCounts();
+      if (counts) {
+        const summary = [...counts.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([ray, count]) => `${ray}:${count}`)
+          .join(", ");
+        note.textContent = `Фильтр по полю "Ряд" включен. Доступные лучи: ${summary}.`;
+      } else {
+        note.textContent = `Все сочетания лучей 1-6 без учета порядка, от 2 до ${maxLength} слагаемых.`;
+      }
+      block.append(note);
+      details.append(block);
+
+      for (const group of buildReverseLaws(target, maxLength, counts)) {
+        appendLawSection(details, `${group.length} слагаемых`, group.laws.length ? group.laws : ["нет"]);
+      }
+    }
+
     function renderDetails() {
       details.innerHTML = "";
 
@@ -718,6 +848,7 @@
         empty.className = "empty";
         empty.textContent = "Нажимай на числа, чтобы добавлять записи.";
         details.append(empty);
+        appendReverseRayLaws();
         appendRayLaws();
         return;
       }
@@ -744,6 +875,7 @@
       }
 
       details.append(list);
+      appendReverseRayLaws();
       appendRayLaws();
     }
 
@@ -971,6 +1103,10 @@
         detailValues: state.detailValues,
         numberList: numberListInput.value,
         includeNumberSum: includeNumberSum.checked,
+        rayCalc: rayCalcInput.value,
+        reverseRayTarget: reverseRayTarget.value,
+        reverseRayMax: reverseRayMax.value,
+        reverseRayNumbers: reverseRayNumbers.value,
         notes: notes.value,
         nodes: state.nodes.map(node => ({
           value: node.value,
@@ -1025,6 +1161,11 @@
         };
         numberListInput.value = snapshot.numberList || "";
         includeNumberSum.checked = Boolean(snapshot.includeNumberSum);
+        rayCalcInput.value = snapshot.rayCalc || "";
+        reverseRayTarget.value = snapshot.reverseRayTarget || "1";
+        reverseRayMax.value = snapshot.reverseRayMax || "6";
+        reverseRayNumbers.value = snapshot.reverseRayNumbers || "";
+        updateRayCalc();
         notes.value = snapshot.notes ?? localStorage.getItem(notesStorageKey) ?? "";
         renderDetails();
         updateStats();
@@ -1280,6 +1421,14 @@
     });
 
     includeNumberSum.addEventListener("change", applyNumberList);
+    rayCalcInput.addEventListener("input", updateRayCalc);
+    document.querySelector("#rayCalcButton").addEventListener("click", updateRayCalc);
+    [reverseRayTarget, reverseRayMax, reverseRayNumbers].forEach(input => {
+      input.addEventListener("input", () => {
+        renderDetails();
+        saveStateSoon();
+      });
+    });
 
     layoutButtons.forEach(button => {
       button.addEventListener("click", () => {
