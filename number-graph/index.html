@@ -234,6 +234,58 @@
       font-size: 12px;
     }
 
+    .generator {
+      display: grid;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .generator h2 {
+      margin: 0;
+    }
+
+    .generator-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .generator label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .generator input,
+    .generator select,
+    .generator textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .generator textarea {
+      min-height: 96px;
+      resize: vertical;
+      line-height: 1.35;
+    }
+
+    .generator-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .generator-actions button {
+      flex: 1;
+    }
+
     .detail-list {
       display: grid;
       gap: 8px;
@@ -494,6 +546,8 @@
         <label for="reverseSumTarget">Сумма</label>
         <input id="reverseSumTarget" type="number" min="1" placeholder="111">
       </div>
+      <button id="runReverseCalc">Расчет</button>
+      <button id="bruteforceCheck">Брутфорс</button>
       <button id="selectPrimes">Выделить простые</button>
       <button id="clearSelection">Снять</button>
       <button id="centerView">Центр</button>
@@ -513,6 +567,41 @@
         <h2>Заметки</h2>
         <textarea id="notes" spellcheck="false" placeholder="Пиши заметки здесь..."></textarea>
         <div class="notes-status" id="notesStatus">Сохраняется автоматически</div>
+        <section class="generator">
+          <h2>Тестовые данные</h2>
+          <label>
+            Тип
+            <select id="testType">
+              <option value="large">Крупные числа</option>
+              <option value="smallHard">Мелкие сложные</option>
+              <option value="balanced">Равномерно по лучам</option>
+              <option value="sameRay">Один луч</option>
+              <option value="knownSolution">С известным ответом</option>
+            </select>
+          </label>
+          <div class="generator-row">
+            <label>
+              Кол-во
+              <input id="testCount" type="number" min="3" max="120" value="30">
+            </label>
+            <label>
+              Ответ из
+              <input id="testPick" type="number" min="2" max="40" value="6">
+            </label>
+          </div>
+          <div class="generator-actions">
+            <button id="generateTestData" type="button">Генерировать</button>
+            <button id="useTestData" type="button">Вставить</button>
+          </div>
+          <label>
+            Сумма
+            <input id="generatedSum" type="number">
+          </label>
+          <label>
+            Ряд
+            <textarea id="generatedRow" spellcheck="false"></textarea>
+          </label>
+        </section>
       </aside>
     </div>
   </main>
@@ -535,6 +624,11 @@
     const details = document.querySelector("#details");
     const notes = document.querySelector("#notes");
     const notesStatus = document.querySelector("#notesStatus");
+    const testType = document.querySelector("#testType");
+    const testCount = document.querySelector("#testCount");
+    const testPick = document.querySelector("#testPick");
+    const generatedRow = document.querySelector("#generatedRow");
+    const generatedSum = document.querySelector("#generatedSum");
     const layoutButtons = [...document.querySelectorAll("[data-layout]")];
     const notesStorageKey = "number-graph-notes";
     const appStorageKey = "number-graph-state-v1";
@@ -1156,7 +1250,23 @@
     }
 
     function buildNumberSumMatches(targetRay, targetSum, reverseGroups, stats, budget) {
+      const rawValues = parseRawNumberList(reverseRayNumbers.value);
+      stats.rawValueCount = rawValues.length;
+      stats.filteredValueCount = rawValues.filter(value => value <= targetSum).length;
+      stats.parsedValuesPreview = rawValues.slice(0, 12);
       const groups = rayGroupsFromRow();
+      stats.rayValueCounts = Object.fromEntries(
+        Array.from({ length: 6 }, (_, index) => {
+          const ray = index + 1;
+          return [ray, (groups.get(ray) || []).length];
+        })
+      );
+      stats.rayValuePreview = Object.fromEntries(
+        Array.from({ length: 6 }, (_, index) => {
+          const ray = index + 1;
+          return [ray, (groups.get(ray) || []).slice(0, 8)];
+        })
+      );
       const matchesByLength = [];
 
       for (const group of reverseGroups) {
@@ -1194,6 +1304,166 @@
       }
 
       return matchesByLength;
+    }
+
+    function runBruteforceCheck() {
+      const startTime = performance.now();
+      const budget = createCalcBudget(60000);
+      const targetSum = Number(reverseSumTarget.value);
+      const maxLength = Math.max(2, Math.min(40, Number(reverseRayMax.value) || 6));
+      const rawValues = parseRawNumberList(reverseRayNumbers.value);
+      const values = rawValues
+        .filter(value => value <= targetSum)
+        .sort((a, b) => a - b);
+      const stats = {
+        operationChecks: 0,
+        walks: 0,
+        branches: 0,
+        candidates: 0,
+        matches: 0,
+        prunes: 0,
+        lengths: 0
+      };
+      const matchesByLength = [];
+
+      if (!Number.isInteger(targetSum) || targetSum <= 0) {
+        console.log("[bruteforce-check]", {
+          error: "Введите положительную сумму",
+          targetSum: reverseSumTarget.value
+        });
+        return;
+      }
+
+      function searchLength(length) {
+        const matches = [];
+        const current = [];
+
+        function walk(start, slots, sum) {
+          if (!checkCalcBudget(budget, stats)) return;
+          stats.walks++;
+
+          if (slots === 0) {
+            stats.candidates++;
+            if (sum === targetSum) {
+              matches.push([...current]);
+              stats.matches++;
+            }
+            return;
+          }
+
+          if (values.length - start < slots || sum > targetSum) {
+            stats.prunes++;
+            return;
+          }
+
+          const lastStart = values.length - slots;
+          for (let index = start; index <= lastStart && !budget.aborted; index++) {
+            stats.branches++;
+            const nextSum = sum + values[index];
+            if (nextSum > targetSum) {
+              stats.prunes++;
+              break;
+            }
+            current.push(values[index]);
+            walk(index + 1, slots - 1, nextSum);
+            current.pop();
+          }
+        }
+
+        walk(0, length, 0);
+        return matches;
+      }
+
+      for (let length = 2; length <= maxLength && !budget.aborted; length++) {
+        stats.lengths++;
+        const matches = searchLength(length);
+        matchesByLength.push({ length, count: matches.length });
+      }
+
+      const totalMs = performance.now() - startTime;
+      console.log("[bruteforce-check]", {
+        totalMs: Number(totalMs.toFixed(2)),
+        aborted: budget.aborted,
+        targetSum,
+        maxLength,
+        rawValueCount: rawValues.length,
+        filteredValueCount: values.length,
+        valueCount: values.length,
+        parsedValuesPreview: values.slice(0, 12),
+        stats,
+        matchesByLength
+      });
+
+      if (budget.aborted) {
+        alert("Брутфорс остановлен: превышен лимит 60 секунд. Смотри частичный лог в консоли.");
+      }
+    }
+
+    function randomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function uniqueSorted(values) {
+      return [...new Set(values)].sort((a, b) => a - b);
+    }
+
+    function generateNumberForRay(ray, minBase, maxBase) {
+      return 2 + (ray - 1) + 6 * randomInt(minBase, maxBase);
+    }
+
+    function generateTestData() {
+      const type = testType.value;
+      const count = Math.max(3, Math.min(120, Number(testCount.value) || 30));
+      const pick = Math.max(2, Math.min(40, Number(testPick.value) || 6));
+      const values = [];
+
+      if (type === "smallHard") {
+        while (values.length < count) values.push(randomInt(1, 600));
+      } else if (type === "balanced") {
+        let ray = 1;
+        while (values.length < count) {
+          values.push(generateNumberForRay(ray, 0, 120));
+          ray = ray % 6 + 1;
+        }
+      } else if (type === "sameRay") {
+        const ray = randomInt(1, 6);
+        while (values.length < count) values.push(generateNumberForRay(ray, 0, 200));
+      } else if (type === "knownSolution") {
+        while (values.length < count) values.push(randomInt(10, 9000));
+      } else {
+        while (values.length < count) values.push(randomInt(10000000, 900000000));
+      }
+
+      const row = uniqueSorted(values);
+      while (row.length < count) row.push(row[row.length - 1] + randomInt(1, 99));
+      const normalizedRow = uniqueSorted(row).slice(0, count);
+      const picked = [];
+      const available = [...normalizedRow];
+      const pickCount = Math.min(pick, available.length);
+
+      for (let index = 0; index < pickCount; index++) {
+        const selectedIndex = randomInt(0, available.length - 1);
+        picked.push(available[selectedIndex]);
+        available.splice(selectedIndex, 1);
+      }
+
+      generatedRow.value = normalizedRow.join(", ");
+      generatedSum.value = picked.reduce((sum, value) => sum + value, 0);
+      console.log("[test-data]", {
+        type,
+        count: normalizedRow.length,
+        pickCount,
+        sum: Number(generatedSum.value),
+        picked: picked.sort((a, b) => a - b),
+        rowPreview: normalizedRow.slice(0, 12)
+      });
+    }
+
+    function useTestData() {
+      reverseRayNumbers.value = generatedRow.value;
+      reverseSumTarget.value = generatedSum.value;
+      updateReverseTargetFromSum();
+      saveStateSoon();
     }
 
     function appendLawSection(parent, title, laws) {
@@ -1405,8 +1675,7 @@
         empty.className = "empty";
         empty.textContent = "Нажимай на числа, чтобы добавлять записи.";
         details.append(empty);
-        appendReverseRayLaws();
-        appendRayLaws();
+        // appendRayLaws();
         return;
       }
 
@@ -1432,8 +1701,7 @@
       }
 
       details.append(list);
-      appendReverseRayLaws();
-      appendRayLaws();
+      // appendRayLaws();
     }
 
     function addDetails(node) {
@@ -1982,10 +2250,17 @@
     includeNumberSum.addEventListener("change", applyNumberList);
     rayCalcInput.addEventListener("input", updateRayCalc);
     document.querySelector("#rayCalcButton").addEventListener("click", updateRayCalc);
+    document.querySelector("#bruteforceCheck").addEventListener("click", runBruteforceCheck);
+    document.querySelector("#runReverseCalc").addEventListener("click", () => {
+      renderDetails();
+      appendReverseRayLaws();
+      saveStateSoon();
+    });
+    document.querySelector("#generateTestData").addEventListener("click", generateTestData);
+    document.querySelector("#useTestData").addEventListener("click", useTestData);
     [reverseRayMax, reverseRayNumbers, reverseSumTarget].forEach(input => {
       input.addEventListener("input", () => {
         updateReverseTargetFromSum();
-        renderDetails();
         saveStateSoon();
       });
     });
