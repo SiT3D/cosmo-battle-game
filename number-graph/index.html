@@ -644,6 +644,7 @@
       camera: { x: 0, y: 0, scale: 1 },
       pointer: null,
       marquee: null,
+      hoverNodeValue: null,
       detailValues: [],
       comboFocus: null,
       disabledValues: new Set()
@@ -922,42 +923,42 @@
           visibleConnectionCount.set(second, (visibleConnectionCount.get(second) || 0) + 1);
         }
       }
+      focus.visibleConnectionCount = visibleConnectionCount;
 
       const centerX = origin.x;
       const centerY = origin.y;
-      const laneGap = Math.max(state.radius * 3.35, 56);
       const columnGap = Math.max(state.radius * 5.4, 92);
       const pullLength = Math.max(state.radius * 11, 220);
 
       const positions = new Map([[focus.target, {
-        x: centerX - pullLength + 4.65 * columnGap,
+        x: centerX,
         y: centerY,
         fixed: true
       }]]);
-
       const orderedParticipants = [...participants].sort((a, b) => {
-        const byConnections = (visibleConnectionCount.get(a.value) || 0) - (visibleConnectionCount.get(b.value) || 0);
+        const byConnections = (visibleConnectionCount.get(b.value) || 0) - (visibleConnectionCount.get(a.value) || 0);
         return byConnections || a.value - b.value;
       });
-      const maxConnections = Math.max(1, ...orderedParticipants.map(node => visibleConnectionCount.get(node.value) || 0));
-      const leftColumnSize = Math.max(1, Math.ceil(orderedParticipants.length * 0.34));
-      const leftStartY = -(leftColumnSize - 1) * laneGap / 2;
+      const participantConnectionCounts = orderedParticipants.map(node => visibleConnectionCount.get(node.value) || 0);
+      const minConnections = Math.min(...participantConnectionCounts);
+      const maxConnections = Math.max(...participantConnectionCounts);
+      const baseRadius = Math.max(state.radius * 10, 220);
 
       orderedParticipants.forEach((node, index) => {
+        const angle = (Math.PI * 2 * index) / orderedParticipants.length;
         const connections = visibleConnectionCount.get(node.value) || 0;
-        const weakSide = index < leftColumnSize;
-        const strength = connections / maxConnections;
-        const column = weakSide ? 0 : Math.min(2, 1 + Math.floor(strength * 2));
-        const columnItems = weakSide
-          ? leftColumnSize
-          : orderedParticipants.length - leftColumnSize;
-        const rowIndex = weakSide ? index : index - leftColumnSize;
-        const rowOffset = (rowIndex - (columnItems - 1) / 2) * laneGap;
-        const drift = weakSide ? 0 : (column - 1) * columnGap * 0.34;
+
+        const connectionRatio = maxConnections > minConnections
+                ? (connections - minConnections) / (maxConnections - minConnections)
+                : 0;
+
+        const radius = baseRadius - connectionRatio * state.radius * 6;
+
         positions.set(node.value, {
-          x: centerX - pullLength + column * columnGap + drift,
-          y: centerY + (weakSide ? leftStartY + index * laneGap : rowOffset),
-          fixed: weakSide
+          x: centerX + Math.cos(angle) * radius,
+          y: centerY + Math.sin(angle) * radius,
+          anchorX: centerX + Math.cos(angle) * radius,
+          anchorY: centerY + Math.sin(angle) * radius
         });
       });
 
@@ -1002,8 +1003,8 @@
           let dx = b.x - a.x;
           let dy = b.y - a.y;
           let distance = Math.hypot(dx, dy) || 1;
-          const desired = isTargetEdge ? ideal * 3.2 : ideal * 1.15;
-          const force = (distance - desired) * (isTargetEdge ? 0.0025 : 0.011) * edge.weight;
+          const desired = isTargetEdge ? ideal * 1.8 : ideal * 1.15;
+          const force = (distance - desired) * (isTargetEdge ? 0.006 : 0.011) * edge.weight;
           dx /= distance;
           dy /= distance;
           if (!a.fixed) {
@@ -1019,6 +1020,13 @@
         for (const [value, position] of positions) {
           if (position.fixed) continue;
           const force = forces.get(value);
+          if (Number.isFinite(position.anchorX)) {
+            force.x += (position.anchorX - position.x) * 0.018;
+          }
+          if (Number.isFinite(position.anchorY)) {
+            force.y += (position.anchorY - position.y) * 0.018;
+          }
+
           position.x += Math.max(-14, Math.min(14, force.x));
           position.y += Math.max(-14, Math.min(14, force.y));
         }
@@ -2390,9 +2398,195 @@
       saveStateSoon();
     }
 
+    function formatCoordinateValue(value) {
+      const rounded = Math.round(value * 10) / 10;
+      if (Math.abs(rounded) < 0.05) return "0";
+      return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    }
+
+    function formatCoordinatePercent(value) {
+      return `${Math.round(value)}%`;
+    }
+
+    function getComboCoordinateSystem() {
+      if (!state.comboFocus) return null;
+      const byValue = new Map(state.nodes.map(node => [node.value, node]));
+      const nodes = [...state.comboFocus.involvedValues]
+        .map(value => byValue.get(value))
+        .filter(Boolean);
+      if (!nodes.length) return null;
+
+      const minX = Math.min(...nodes.map(node => node.x));
+      const maxX = Math.max(...nodes.map(node => node.x));
+      const minY = Math.min(...nodes.map(node => node.y));
+      const maxY = Math.max(...nodes.map(node => node.y));
+      const unit = 32;
+      const linkCounts = getComboLinkCounts();
+      const coordinates = new Map(nodes.map(node => [
+        node.value,
+        {
+          x: Math.max(0, (node.x - minX) / unit),
+          y: Math.max(0, (maxY - node.y) / unit),
+          links: linkCounts.get(node.value) || 0
+        }
+      ]));
+      const targetCoordinate = coordinates.get(state.comboFocus.target);
+      const yRange = Math.max(1, (maxY - minY) / unit);
+
+      for (const coordinate of coordinates.values()) {
+        coordinate.xPercent = targetCoordinate?.x > 0
+          ? coordinate.x / targetCoordinate.x * 100
+          : 0;
+        const yDeviation = targetCoordinate
+          ? Math.abs(coordinate.y - targetCoordinate.y)
+          : Math.abs(coordinate.y);
+        coordinate.yDeviationPercent = yDeviation / yRange * 100;
+        coordinate.totalPercent = Math.max(0, Math.min(100, (coordinate.xPercent + coordinate.yDeviationPercent) / 2));
+      }
+
+      return {
+        origin: { x: minX, y: maxY },
+        bounds: { minX, maxX, minY, maxY },
+        unit,
+        coordinates
+      };
+    }
+
+    function getComboLinkCounts() {
+      const counts = new Map();
+      if (!state.comboFocus) return counts;
+
+      for (const [key] of state.comboFocus.edgeWeights.entries()) {
+        const [firstValue, secondValue] = key.split("+").map(Number);
+        const isTargetEdge = firstValue === state.comboFocus.target || secondValue === state.comboFocus.target;
+        if (isTargetEdge) continue;
+        counts.set(firstValue, (counts.get(firstValue) || 0) + 1);
+        counts.set(secondValue, (counts.get(secondValue) || 0) + 1);
+      }
+
+      return counts;
+    }
+
+    function getComboNodeEdgeLengths(nodeValue) {
+      if (!state.comboFocus) return [];
+      const byValue = new Map(state.nodes.map(node => [node.value, node]));
+      const node = byValue.get(nodeValue);
+      if (!node) return [];
+
+      return [...state.comboFocus.edgeWeights.keys()]
+        .map(key => key.split("+").map(Number))
+        .filter(([firstValue, secondValue]) => {
+          const isTargetEdge = firstValue === state.comboFocus.target || secondValue === state.comboFocus.target;
+          return !isTargetEdge && (firstValue === nodeValue || secondValue === nodeValue);
+        })
+        .map(([firstValue, secondValue]) => {
+          const neighborValue = firstValue === nodeValue ? secondValue : firstValue;
+          const neighbor = byValue.get(neighborValue);
+          if (!neighbor) return null;
+          return {
+            neighborValue,
+            length: Math.hypot(neighbor.x - node.x, neighbor.y - node.y) / 32
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.length - b.length || a.neighborValue - b.neighborValue);
+    }
+
+    function drawComboCoordinateSystem(system) {
+      const padding = system.unit * 0.8;
+      const origin = worldToScreen(system.origin.x, system.origin.y);
+      const xStart = worldToScreen(system.bounds.minX - padding, system.origin.y);
+      const xEnd = worldToScreen(system.bounds.maxX + padding, system.origin.y);
+      const yStart = worldToScreen(system.origin.x, system.bounds.maxY + padding);
+      const yEnd = worldToScreen(system.origin.x, system.bounds.minY - padding);
+      const tick = Math.max(4, 5 * state.camera.scale);
+
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(47, 111, 237, 0.38)";
+      ctx.fillStyle = "rgba(47, 111, 237, 0.72)";
+      ctx.font = "600 11px Inter, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.beginPath();
+      ctx.moveTo(xStart.x, xStart.y);
+      ctx.lineTo(xEnd.x, xEnd.y);
+      ctx.moveTo(yStart.x, yStart.y);
+      ctx.lineTo(yEnd.x, yEnd.y);
+      ctx.stroke();
+
+      const firstXTick = Math.floor((system.bounds.minX - padding - system.origin.x) / system.unit);
+      const lastXTick = Math.ceil((system.bounds.maxX + padding - system.origin.x) / system.unit);
+      for (let index = firstXTick; index <= lastXTick; index++) {
+        const point = worldToScreen(system.origin.x + index * system.unit, system.origin.y);
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y - tick);
+        ctx.lineTo(point.x, point.y + tick);
+        ctx.stroke();
+      }
+
+      const firstYTick = Math.floor((system.origin.y - system.bounds.maxY - padding) / system.unit);
+      const lastYTick = Math.ceil((system.origin.y - system.bounds.minY + padding) / system.unit);
+      for (let index = firstYTick; index <= lastYTick; index++) {
+        const point = worldToScreen(system.origin.x, system.origin.y - index * system.unit);
+        ctx.beginPath();
+        ctx.moveTo(point.x - tick, point.y);
+        ctx.lineTo(point.x + tick, point.y);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawHoverEdgeLengths() {
+      if (!state.comboFocus || !Number.isInteger(state.hoverNodeValue)) return;
+      const node = state.nodes.find(item => item.value === state.hoverNodeValue);
+      if (!node) return;
+      const edgeLengths = getComboNodeEdgeLengths(node.value);
+      const point = worldToScreen(node.x, node.y);
+      const radius = state.radius * state.camera.scale;
+      const lines = edgeLengths.length
+        ? edgeLengths.map(edge => `${edge.neighborValue}: ${formatCoordinateValue(edge.length)}`)
+        : ["нет связей"];
+
+      ctx.save();
+      ctx.font = "600 12px Inter, system-ui, sans-serif";
+      const title = `связи ${node.value}`;
+      const textLines = [title, ...lines];
+      const paddingX = 9;
+      const paddingY = 7;
+      const lineHeight = 17;
+      const width = Math.max(...textLines.map(line => ctx.measureText(line).width)) + paddingX * 2;
+      const height = textLines.length * lineHeight + paddingY * 2;
+      const rect = canvas.getBoundingClientRect();
+      let x = point.x + radius + 12;
+      let y = point.y - height / 2;
+
+      if (x + width > rect.width - 8) x = point.x - radius - width - 12;
+      y = Math.max(8, Math.min(rect.height - height - 8, y));
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+      ctx.strokeStyle = "rgba(93, 105, 122, 0.24)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x, y, width, height, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      textLines.forEach((line, index) => {
+        ctx.fillStyle = index === 0 ? "#20242c" : "#4f5968";
+        ctx.fillText(line, x + paddingX, y + paddingY + lineHeight * index + lineHeight / 2);
+      });
+      ctx.restore();
+    }
+
     function draw() {
       const rect = canvas.getBoundingClientRect();
       ctx.clearRect(0, 0, rect.width, rect.height);
+      const comboCoordinateSystem = state.comboFocus ? getComboCoordinateSystem() : null;
 
       if (state.layout === "sum") {
         const byValue = new Map(state.nodes.map(node => [node.value, node]));
@@ -2435,15 +2629,34 @@
         ctx.restore();
       }
 
+      if (comboCoordinateSystem) {
+        drawComboCoordinateSystem(comboCoordinateSystem);
+      }
+
       const drawNode = (node, x = node.x, y = node.y) => {
         const point = worldToScreen(x, y);
         const radius = state.radius * state.camera.scale;
         const selected = state.selected.has(node.value);
         const disabled = state.disabledValues.has(node.value);
         const dimmed = state.selected.size > 0 && !selected && !disabled;
+        const localCoordinate = comboCoordinateSystem?.coordinates.get(node.value);
+        const percentDifference = localCoordinate
+          ? Math.abs(localCoordinate.xPercent - localCoordinate.totalPercent)
+          : Infinity;
+        const percentMatch = percentDifference <= 5;
+        const percentMismatch = percentDifference > 10;
 
         ctx.save();
         ctx.globalAlpha = dimmed ? 0.05 : 1;
+        if ((percentMatch || percentMismatch) && !disabled) {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, radius + Math.max(5, radius * 0.16), 0, Math.PI * 2);
+          ctx.fillStyle = percentMismatch ? "rgba(226, 74, 59, 0.14)" : "rgba(47, 111, 237, 0.14)";
+          ctx.fill();
+          ctx.lineWidth = Math.max(2, radius * 0.08);
+          ctx.strokeStyle = percentMismatch ? "rgba(226, 74, 59, 0.78)" : "rgba(47, 111, 237, 0.72)";
+          ctx.stroke();
+        }
         ctx.beginPath();
         ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = disabled ? "#c6ccd6" : (selected ? colors.selected : (node.prime ? colors.prime : colors.normal));
@@ -2467,6 +2680,25 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(String(node.value), point.x, point.y);
+
+        if (localCoordinate) {
+          const label = [
+            formatCoordinatePercent(localCoordinate.xPercent),
+            formatCoordinatePercent(localCoordinate.totalPercent)
+          ].join(";");
+          const labelFontSize = Math.max(10, Math.min(12, 11 * state.camera.scale));
+          const labelY = point.y + radius + labelFontSize + 4;
+
+          ctx.font = `600 ${labelFontSize}px Inter, system-ui, sans-serif`;
+          const labelWidth = ctx.measureText(label).width + 10;
+          ctx.fillStyle = percentMismatch
+            ? "rgba(255, 239, 237, 0.94)"
+            : (percentMatch ? "rgba(231, 239, 255, 0.94)" : "rgba(255, 255, 255, 0.86)");
+          // ctx.fillRect(point.x - labelWidth / 2, labelY - labelFontSize + 1, labelWidth, labelFontSize + 5);
+          // ctx.fillStyle = disabled ? "#687181" : (percentMismatch ? "#c24132" : (percentMatch ? "#1d4ed8" : "#3f4652"));
+          ctx.textBaseline = "middle";
+          // ctx.fillText(label, point.x, labelY);
+        }
         ctx.restore();
       };
 
@@ -2480,6 +2712,8 @@
         const node = state.nodes[half - 1];
         if (node) drawNode(node, -Math.abs(node.x), node.y);
       }
+
+      drawHoverEdgeLengths();
 
       if (state.marquee) {
         const { start, current } = state.marquee;
@@ -2524,6 +2758,7 @@
     canvas.addEventListener("pointerdown", (event) => {
       const point = screenToWorld(event.clientX, event.clientY);
       const node = hitNode(point);
+      state.hoverNodeValue = null;
 
       if ((event.ctrlKey || event.button === 1) && node) {
         event.preventDefault();
@@ -2578,8 +2813,16 @@
     });
 
     canvas.addEventListener("pointermove", (event) => {
-      if (!state.pointer) return;
       const point = screenToWorld(event.clientX, event.clientY);
+      if (!state.pointer) {
+        const node = hitNode(point);
+        const nextHoverValue = node?.value || null;
+        if (state.hoverNodeValue !== nextHoverValue) {
+          state.hoverNodeValue = nextHoverValue;
+          draw();
+        }
+        return;
+      }
 
       if (state.pointer.mode === "move") {
         const dx = point.x - state.pointer.start.x;
@@ -2595,6 +2838,12 @@
         state.marquee.current = point;
       }
 
+      draw();
+    });
+
+    canvas.addEventListener("pointerleave", () => {
+      if (state.hoverNodeValue === null) return;
+      state.hoverNodeValue = null;
       draw();
     });
 
