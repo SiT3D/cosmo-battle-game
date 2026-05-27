@@ -990,17 +990,206 @@
       return matches;
     }
 
+    function subsetSumsByCount(values, maxCount, maxSum, stats, budget) {
+      const groups = Array.from({ length: maxCount + 1 }, () => new Map());
+      const current = [];
+
+      function addSubset(count, sum) {
+        let bucket = groups[count].get(sum);
+        if (!bucket) {
+          bucket = [];
+          groups[count].set(sum, bucket);
+        }
+        bucket.push([...current]);
+      }
+
+      function walk(index, count, sum) {
+        if (!checkCalcBudget(budget, stats)) return;
+        stats.mitmWalks++;
+
+        if (sum > maxSum || count > maxCount) {
+          stats.mitmPrunes++;
+          return;
+        }
+
+        if (index === values.length) {
+          addSubset(count, sum);
+          stats.mitmSubsets++;
+          return;
+        }
+
+        walk(index + 1, count, sum);
+
+        current.push(values[index]);
+        walk(index + 1, count + 1, sum + values[index]);
+        current.pop();
+      }
+
+      walk(0, 0, 0);
+      return groups;
+    }
+
+    function findNumberSetsForLengthMitm(leftGroups, rightGroups, length, targetSum, stats, budget) {
+      const matches = [];
+
+      for (let leftCount = 0; leftCount <= length && !budget.aborted; leftCount++) {
+        const rightCount = length - leftCount;
+        const leftMap = leftGroups[leftCount];
+        const rightMap = rightGroups[rightCount];
+        if (!leftMap || !rightMap) continue;
+
+        for (const [leftSum, leftSets] of leftMap.entries()) {
+          if (!checkCalcBudget(budget, stats)) break;
+          stats.mitmLookups++;
+          const rightSets = rightMap.get(targetSum - leftSum);
+          if (!rightSets) continue;
+
+          for (const leftSet of leftSets) {
+            for (const rightSet of rightSets) {
+              stats.mitmCandidates++;
+              const numbers = [...leftSet, ...rightSet].sort((a, b) => a - b);
+              matches.push(numbers);
+              stats.subsetMatches++;
+            }
+          }
+        }
+      }
+
+      return matches;
+    }
+
+    function buildRayProfiles(length, targetRay, stats, budget) {
+      const profiles = [];
+      const current = Array(6).fill(0);
+
+      function walk(ray, remaining, weightedSum) {
+        if (!checkCalcBudget(budget, stats)) return;
+        if (ray === 6) {
+          current[5] = remaining;
+          stats.profileGenerated++;
+          const total = weightedSum + remaining * 6;
+          if (((total + length - 2) % 6) + 1 === targetRay) {
+            profiles.push([...current]);
+            stats.profileFormulaPass++;
+          } else {
+            stats.profileFormulaReject++;
+          }
+          current[5] = 0;
+          return;
+        }
+
+        for (let count = 0; count <= remaining && !budget.aborted; count++) {
+          current[ray - 1] = count;
+          walk(ray + 1, remaining - count, weightedSum + count * ray);
+        }
+        current[ray - 1] = 0;
+      }
+
+      walk(1, length, 0);
+      return profiles;
+    }
+
+    function minMaxForProfile(profile, groups) {
+      let min = 0;
+      let max = 0;
+
+      for (let index = 0; index < profile.length; index++) {
+        const count = profile[index];
+        if (!count) continue;
+
+        const values = groups.get(index + 1) || [];
+        if (values.length < count) return null;
+
+        for (let i = 0; i < count; i++) min += values[i];
+        for (let i = values.length - count; i < values.length; i++) max += values[i];
+      }
+
+      return { min, max };
+    }
+
+    function combineProfileChoices(profile, groups, targetSum, stats, budget) {
+      const choicesByRay = [];
+
+      for (let index = 0; index < profile.length; index++) {
+        const count = profile[index];
+        if (!count) continue;
+
+        const values = groups.get(index + 1) || [];
+        const choices = chooseValueSets(values, count, targetSum, stats);
+        if (!choices.length) return [];
+        choicesByRay.push(choices);
+      }
+
+      const matches = [];
+      const current = [];
+      let currentSum = 0;
+
+      function walk(index) {
+        if (!checkCalcBudget(budget, stats)) return;
+        stats.profileCombineWalks++;
+
+        if (index === choicesByRay.length) {
+          stats.profileCandidates++;
+          if (currentSum === targetSum) {
+            matches.push(current.flat().sort((a, b) => a - b));
+            stats.profileMatches++;
+          }
+          return;
+        }
+
+        for (const choice of choicesByRay[index]) {
+          stats.profileCombineBranches++;
+          if (currentSum + choice.sum > targetSum) {
+            stats.profileCombinePrunes++;
+            continue;
+          }
+          current.push(choice.values);
+          currentSum += choice.sum;
+          walk(index + 1);
+          currentSum -= choice.sum;
+          current.pop();
+        }
+      }
+
+      walk(0);
+      return matches;
+    }
+
     function buildNumberSumMatches(targetRay, targetSum, reverseGroups, stats, budget) {
-      const values = parseRawNumberList(reverseRayNumbers.value)
-        .filter(value => value <= targetSum)
-        .sort((a, b) => a - b);
+      const groups = rayGroupsFromRow();
       const matchesByLength = [];
 
       for (const group of reverseGroups) {
         if (budget.aborted) break;
         stats.lengthChecks++;
-        const numberSets = findNumberSetsForLength(values, group.length, targetSum, stats, budget);
-        const matches = numberSets.map(numbers => `${numbers.join(" + ")} = ${targetSum}`);
+        const matches = [];
+        const profiles = buildRayProfiles(group.length, targetRay, stats, budget);
+
+        for (const profile of profiles) {
+          if (budget.aborted) break;
+          stats.profileChecked++;
+
+          const bounds = minMaxForProfile(profile, groups);
+          if (!bounds) {
+            stats.profileMissingNumbers++;
+            continue;
+          }
+          if (bounds.min > targetSum) {
+            stats.profileMinReject++;
+            continue;
+          }
+          if (bounds.max < targetSum) {
+            stats.profileMaxReject++;
+            continue;
+          }
+
+          stats.profileSearches++;
+          const numberSets = combineProfileChoices(profile, groups, targetSum, stats, budget);
+          for (const numbers of numberSets) {
+            matches.push(`${numbers.join(" + ")} = ${targetSum}`);
+          }
+        }
+
         matchesByLength.push({ length: group.length, matches });
       }
 
@@ -1139,6 +1328,24 @@
         subsetPrunes: 0,
         subsetMemoHits: 0,
         subsetMemoDrops: 0,
+        mitmWalks: 0,
+        mitmSubsets: 0,
+        mitmPrunes: 0,
+        mitmLookups: 0,
+        mitmCandidates: 0,
+        profileGenerated: 0,
+        profileFormulaPass: 0,
+        profileFormulaReject: 0,
+        profileChecked: 0,
+        profileMissingNumbers: 0,
+        profileMinReject: 0,
+        profileMaxReject: 0,
+        profileSearches: 0,
+        profileCombineWalks: 0,
+        profileCombineBranches: 0,
+        profileCombinePrunes: 0,
+        profileCandidates: 0,
+        profileMatches: 0,
         rayFormulaChecks: 0,
         rayNeedChecks: 0,
         missingRaySkips: 0,
