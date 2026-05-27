@@ -317,9 +317,11 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
       gap: 5px;
+      min-width: 0;
     }
 
     .law-item {
+      min-width: 0;
       padding: 5px 6px;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -327,7 +329,9 @@
       color: var(--ink);
       font-size: 12px;
       line-height: 1.2;
-      white-space: nowrap;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .empty {
@@ -476,15 +480,19 @@
       <div class="stat"><span>-></span><span id="rayCalcResult">-</span></div>
       <div class="field">
         <label for="reverseRayTarget">Обратно</label>
-        <input id="reverseRayTarget" type="number" min="1" max="6" value="1">
+        <input id="reverseRayTarget" type="number" min="1" max="6" value="1" disabled>
       </div>
       <div class="field">
         <label for="reverseRayMax">до</label>
-        <input id="reverseRayMax" type="number" min="2" max="20" value="6">
+        <input id="reverseRayMax" type="number" min="2" max="40" value="6">
       </div>
       <div class="field">
         <label for="reverseRayNumbers">Ряд</label>
         <input id="reverseRayNumbers" type="text" placeholder="2, 8, 14">
+      </div>
+      <div class="field">
+        <label for="reverseSumTarget">Сумма</label>
+        <input id="reverseSumTarget" type="number" min="1" placeholder="111">
       </div>
       <button id="selectPrimes">Выделить простые</button>
       <button id="clearSelection">Снять</button>
@@ -521,6 +529,7 @@
     const reverseRayTarget = document.querySelector("#reverseRayTarget");
     const reverseRayMax = document.querySelector("#reverseRayMax");
     const reverseRayNumbers = document.querySelector("#reverseRayNumbers");
+    const reverseSumTarget = document.querySelector("#reverseSumTarget");
     const primeCountLabel = document.querySelector("#primeCount");
     const selectedCountLabel = document.querySelector("#selectedCount");
     const details = document.querySelector("#details");
@@ -647,8 +656,15 @@
       return ((value - 2) % 6 + 6) % 6 + 1;
     }
 
+    function parseRawNumberList(text) {
+      return [...new Set(text
+        .split(/[,\s;]+/)
+        .map(part => Number(part.trim()))
+        .filter(value => Number.isInteger(value) && value > 0))];
+    }
+
     function availableRayCounts() {
-      const values = parseNumberList(reverseRayNumbers.value);
+      const values = parseRawNumberList(reverseRayNumbers.value);
       if (!values.length) return null;
 
       const counts = new Map();
@@ -684,6 +700,11 @@
       const values = parseRayCalc(rayCalcInput.value);
       rayCalcResult.textContent = values.length ? String(raySumResult(values, 6)) : "-";
       saveStateSoon();
+    }
+
+    function updateReverseTargetFromSum() {
+      const sumTarget = Number(reverseSumTarget.value);
+      reverseRayTarget.value = Number.isInteger(sumTarget) && sumTarget > 0 ? numberToRay(sumTarget) : 1;
     }
 
     function buildPairLaws(rays) {
@@ -729,15 +750,31 @@
       return laws;
     }
 
-    function buildReverseLaws(target, maxLength, counts) {
+    function createCalcBudget(ms) {
+      return {
+        deadline: performance.now() + ms,
+        aborted: false
+      };
+    }
+
+    function checkCalcBudget(budget, stats) {
+      stats.operationChecks++;
+      if ((stats.operationChecks & 4095) !== 0) return !budget.aborted;
+      if (performance.now() <= budget.deadline) return true;
+      budget.aborted = true;
+      return false;
+    }
+
+    function buildReverseLaws(target, maxLength, counts, budget, stats) {
       const rays = 6;
       const lawsByLength = [];
 
-      for (let length = 2; length <= maxLength; length++) {
+      for (let length = 2; length <= maxLength && !budget.aborted; length++) {
         const laws = [];
         const current = [];
 
         function walk(start) {
+          if (!checkCalcBudget(budget, stats)) return;
           if (current.length === length) {
             if (raySumResult(current, rays) === target && hasAvailableRays(current, counts)) {
               laws.push(`${current.join("+")}->${target}`);
@@ -745,7 +782,7 @@
             return;
           }
 
-          for (let ray = start; ray <= rays; ray++) {
+          for (let ray = start; ray <= rays && !budget.aborted; ray++) {
             current.push(ray);
             walk(ray);
             current.pop();
@@ -757,6 +794,217 @@
       }
 
       return lawsByLength;
+    }
+
+    function rayGroupsFromRow() {
+      const groups = new Map();
+      for (const value of parseRawNumberList(reverseRayNumbers.value)) {
+        const ray = numberToRay(value);
+        if (!groups.has(ray)) groups.set(ray, []);
+        groups.get(ray).push(value);
+      }
+
+      for (const values of groups.values()) {
+        values.sort((a, b) => a - b);
+      }
+      return groups;
+    }
+
+    function chooseValueSets(values, count, maxSum, stats) {
+      const result = [];
+      const current = [];
+      let currentSum = 0;
+
+      function walk(start) {
+        stats.valueSetWalks++;
+        if (current.length === count) {
+          stats.valueSetCandidates++;
+          result.push({ values: [...current], sum: currentSum });
+          return;
+        }
+
+        for (let index = start; index < values.length; index++) {
+          stats.valueSetBranches++;
+          const value = values[index];
+          if (currentSum + value > maxSum) {
+            stats.valueSetPrunes++;
+            break;
+          }
+          current.push(value);
+          currentSum += value;
+          walk(index + 1);
+          currentSum -= value;
+          current.pop();
+        }
+      }
+
+      walk(0);
+      return result;
+    }
+
+    function rayNeeds(labels) {
+      const needs = new Map();
+      for (const ray of labels) {
+        needs.set(ray, (needs.get(ray) || 0) + 1);
+      }
+      return [...needs.entries()].sort((a, b) => a[0] - b[0]);
+    }
+
+    function numbersForRayLaw(labels, groups, targetSum, choiceCache, stats) {
+      const needs = rayNeeds(labels);
+      const byRayChoices = [];
+
+      for (const [ray, count] of needs) {
+        stats.rayNeedChecks++;
+        const values = groups.get(ray) || [];
+        if (values.length < count) {
+          stats.missingRaySkips++;
+          return [];
+        }
+
+        const cacheKey = `${ray}:${count}:${targetSum}`;
+        let choices = choiceCache.get(cacheKey);
+        if (!choices) {
+          stats.choiceCacheMisses++;
+          choices = chooseValueSets(values, count, targetSum, stats);
+          choiceCache.set(cacheKey, choices);
+        } else {
+          stats.choiceCacheHits++;
+        }
+        if (!choices.length) {
+          stats.emptyChoiceSkips++;
+          return [];
+        }
+        byRayChoices.push({ ray, choices });
+      }
+
+      const matches = [];
+      const current = [];
+      let currentSum = 0;
+
+      function walk(index) {
+        stats.finalWalks++;
+        if (index === byRayChoices.length) {
+          stats.finalCandidates++;
+          if (currentSum === targetSum) {
+            matches.push(current.flat().sort((a, b) => a - b));
+            stats.finalMatches++;
+          }
+          return;
+        }
+
+        for (const choice of byRayChoices[index].choices) {
+          stats.finalBranches++;
+          if (currentSum + choice.sum > targetSum) {
+            stats.finalPrunes++;
+            continue;
+          }
+          current.push(choice.values);
+          currentSum += choice.sum;
+          walk(index + 1);
+          currentSum -= choice.sum;
+          current.pop();
+        }
+      }
+
+      walk(0);
+      return matches;
+    }
+
+    function findNumberSetsForLength(values, length, targetSum, stats, budget) {
+      const matches = [];
+      const current = [];
+      const dead = new Set();
+      const maxDeadStates = 200000;
+      const prefix = [0];
+
+      for (const value of values) {
+        prefix.push(prefix[prefix.length - 1] + value);
+      }
+
+      function rangeSum(start, end) {
+        return prefix[end] - prefix[start];
+      }
+
+      function rememberDead(key) {
+        if (dead.size >= maxDeadStates) {
+          stats.subsetMemoDrops++;
+          return;
+        }
+        dead.add(key);
+      }
+
+      function walk(start, slots, remaining) {
+        if (!checkCalcBudget(budget, stats)) return 0;
+        stats.subsetWalks++;
+
+        if (slots === 0) {
+          stats.subsetCandidates++;
+          if (remaining === 0) {
+            matches.push([...current]);
+            stats.subsetMatches++;
+            return 1;
+          }
+          return 0;
+        }
+
+        if (values.length - start < slots) {
+          stats.subsetPrunes++;
+          return 0;
+        }
+
+        const key = `${start}:${slots}:${remaining}`;
+        if (dead.has(key)) {
+          stats.subsetMemoHits++;
+          return 0;
+        }
+
+        const minPossible = rangeSum(start, start + slots);
+        const maxPossible = rangeSum(values.length - slots, values.length);
+        if (minPossible > remaining || maxPossible < remaining) {
+          stats.subsetPrunes++;
+          rememberDead(key);
+          return 0;
+        }
+
+        let found = 0;
+        const lastStart = values.length - slots;
+        for (let index = start; index <= lastStart && !budget.aborted; index++) {
+          stats.subsetBranches++;
+          const value = values[index];
+          if (value > remaining) {
+            stats.subsetPrunes++;
+            break;
+          }
+
+          current.push(value);
+          found += walk(index + 1, slots - 1, remaining - value);
+          current.pop();
+        }
+
+        if (!found) rememberDead(key);
+        return found;
+      }
+
+      walk(0, length, targetSum);
+      return matches;
+    }
+
+    function buildNumberSumMatches(targetRay, targetSum, reverseGroups, stats, budget) {
+      const values = parseRawNumberList(reverseRayNumbers.value)
+        .filter(value => value <= targetSum)
+        .sort((a, b) => a - b);
+      const matchesByLength = [];
+
+      for (const group of reverseGroups) {
+        if (budget.aborted) break;
+        stats.lengthChecks++;
+        const numberSets = findNumberSetsForLength(values, group.length, targetSum, stats, budget);
+        const matches = numberSets.map(numbers => `${numbers.join(" + ")} = ${targetSum}`);
+        matchesByLength.push({ length: group.length, matches });
+      }
+
+      return matchesByLength;
     }
 
     function appendLawSection(parent, title, laws) {
@@ -802,8 +1050,11 @@
     }
 
     function appendReverseRayLaws() {
+      const totalStart = performance.now();
+      const budget = createCalcBudget(30000);
+      updateReverseTargetFromSum();
       const target = Math.max(1, Math.min(6, Number(reverseRayTarget.value) || 1));
-      const maxLength = Math.max(2, Math.min(20, Number(reverseRayMax.value) || 6));
+      const maxLength = Math.max(2, Math.min(40, Number(reverseRayMax.value) || 6));
       reverseRayTarget.value = target;
       reverseRayMax.value = maxLength;
 
@@ -830,9 +1081,108 @@
       block.append(note);
       details.append(block);
 
-      for (const group of buildReverseLaws(target, maxLength, counts)) {
-        appendLawSection(details, `${group.length} слагаемых`, group.laws.length ? group.laws : ["нет"]);
+      const rayStart = performance.now();
+      const rayStats = { operationChecks: 0 };
+      const reverseGroups = buildReverseLaws(target, maxLength, counts, budget, rayStats);
+      const rayMs = performance.now() - rayStart;
+      let rayFormulaCount = 0;
+
+      const showRayFormulaSections = false;
+      for (const group of reverseGroups) {
+        rayFormulaCount += group.laws.length;
+        if (showRayFormulaSections) {
+          appendLawSection(details, `${group.length} слагаемых`, group.laws.length ? group.laws : ["нет"]);
+        }
       }
+
+      const sumTarget = Number(reverseSumTarget.value);
+      let finalMs = 0;
+      let finalCount = 0;
+      if (!Number.isInteger(sumTarget) || sumTarget <= 0 || !counts) {
+        console.log("[reverse-calculator]", {
+          totalMs: Number((performance.now() - totalStart).toFixed(2)),
+          rayMs: Number(rayMs.toFixed(2)),
+          finalMs,
+          rayFormulaCount,
+          finalCount,
+          aborted: budget.aborted,
+          rayStats,
+          targetRay: target,
+          maxLength,
+          sumTarget: null
+        });
+        return;
+      }
+
+      const sumBlock = document.createElement("div");
+      sumBlock.className = "law-block";
+
+      const sumTitle = document.createElement("div");
+      sumTitle.className = "law-title";
+      sumTitle.textContent = `Подбор чисел на сумму ${sumTarget}`;
+      sumBlock.append(sumTitle);
+
+      const sumNote = document.createElement("div");
+      sumNote.className = "empty";
+      sumNote.textContent = "Берутся только числа из поля \"Ряд\" и только с лучей, разрешенных найденными формулами.";
+      sumBlock.append(sumNote);
+      details.append(sumBlock);
+
+      const finalStart = performance.now();
+      const finalStats = {
+        operationChecks: 0,
+        lengthChecks: 0,
+        subsetWalks: 0,
+        subsetBranches: 0,
+        subsetCandidates: 0,
+        subsetMatches: 0,
+        subsetPrunes: 0,
+        subsetMemoHits: 0,
+        subsetMemoDrops: 0,
+        rayFormulaChecks: 0,
+        rayNeedChecks: 0,
+        missingRaySkips: 0,
+        emptyChoiceSkips: 0,
+        choiceCacheHits: 0,
+        choiceCacheMisses: 0,
+        valueSetWalks: 0,
+        valueSetBranches: 0,
+        valueSetCandidates: 0,
+        valueSetPrunes: 0,
+        finalWalks: 0,
+        finalBranches: 0,
+        finalCandidates: 0,
+        finalPrunes: 0,
+        finalMatches: 0
+      };
+      const numberMatches = buildNumberSumMatches(target, sumTarget, reverseGroups, finalStats, budget);
+      finalMs = performance.now() - finalStart;
+
+      for (const group of numberMatches) {
+        finalCount += group.matches.length;
+        appendLawSection(details, `${group.length} чисел`, group.matches.length ? group.matches : ["нет"]);
+      }
+
+      if (budget.aborted) {
+        appendLawSection(details, "Расчет остановлен", ["Превышен лимит 30 секунд. Результат неполный."]);
+        setTimeout(() => {
+          alert("Расчет остановлен: превышен лимит 30 секунд. Результат неполный.");
+        }, 0);
+      }
+
+      console.log("[reverse-calculator]", {
+        totalMs: Number((performance.now() - totalStart).toFixed(2)),
+        rayMs: Number(rayMs.toFixed(2)),
+        finalMs: Number(finalMs.toFixed(2)),
+        rayFormulaCount,
+        finalCount,
+        aborted: budget.aborted,
+        rayStats,
+        finalStats,
+        targetRay: target,
+        maxLength,
+        sumTarget
+      });
     }
 
     function renderDetails() {
@@ -1107,6 +1457,7 @@
         reverseRayTarget: reverseRayTarget.value,
         reverseRayMax: reverseRayMax.value,
         reverseRayNumbers: reverseRayNumbers.value,
+        reverseSumTarget: reverseSumTarget.value,
         notes: notes.value,
         nodes: state.nodes.map(node => ({
           value: node.value,
@@ -1162,9 +1513,10 @@
         numberListInput.value = snapshot.numberList || "";
         includeNumberSum.checked = Boolean(snapshot.includeNumberSum);
         rayCalcInput.value = snapshot.rayCalc || "";
-        reverseRayTarget.value = snapshot.reverseRayTarget || "1";
         reverseRayMax.value = snapshot.reverseRayMax || "6";
         reverseRayNumbers.value = snapshot.reverseRayNumbers || "";
+        reverseSumTarget.value = snapshot.reverseSumTarget || "";
+        updateReverseTargetFromSum();
         updateRayCalc();
         notes.value = snapshot.notes ?? localStorage.getItem(notesStorageKey) ?? "";
         renderDetails();
@@ -1423,8 +1775,9 @@
     includeNumberSum.addEventListener("change", applyNumberList);
     rayCalcInput.addEventListener("input", updateRayCalc);
     document.querySelector("#rayCalcButton").addEventListener("click", updateRayCalc);
-    [reverseRayTarget, reverseRayMax, reverseRayNumbers].forEach(input => {
+    [reverseRayMax, reverseRayNumbers, reverseSumTarget].forEach(input => {
       input.addEventListener("input", () => {
+        updateReverseTargetFromSum();
         renderDetails();
         saveStateSoon();
       });
