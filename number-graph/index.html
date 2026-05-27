@@ -561,7 +561,7 @@
       </aside>
       <div class="canvas-wrap">
         <canvas id="canvas"></canvas>
-        <div class="hint">ЛКМ по числу - выбрать и двигать. Перетащи пустое место, чтобы двигать поле. Shift+перетаскивание по пустому месту - выделение рамкой. Колесо мыши - масштаб.</div>
+        <div class="hint">ЛКМ по числу - выбрать и двигать. ПКМ по числу - собрать суммы. Ctrl+ЛКМ или средняя кнопка по числу - отключить/вернуть число из сумм. Двойной клик по полю - снять выделение. Колесо мыши - масштаб.</div>
       </div>
       <aside class="notes">
         <h2>Заметки</h2>
@@ -644,7 +644,9 @@
       camera: { x: 0, y: 0, scale: 1 },
       pointer: null,
       marquee: null,
-      detailValues: []
+      detailValues: [],
+      comboFocus: null,
+      disabledValues: new Set()
     };
 
     const colors = {
@@ -652,6 +654,65 @@
       normal: getComputedStyle(document.documentElement).getPropertyValue("--normal").trim(),
       selected: getComputedStyle(document.documentElement).getPropertyValue("--selected").trim()
     };
+
+    let layoutAnimation = null;
+
+    function cancelLayoutAnimation() {
+      if (!layoutAnimation) return;
+      cancelAnimationFrame(layoutAnimation.frame);
+      layoutAnimation = null;
+    }
+
+    function easeOutCubic(value) {
+      return 1 - Math.pow(1 - value, 3);
+    }
+
+    function animateNodesTo(positions, duration = 420, onComplete = null) {
+      cancelLayoutAnimation();
+      const targets = [...positions.entries()]
+        .map(([value, position]) => {
+          const node = state.nodes.find(item => item.value === value);
+          return node ? {
+            node,
+            fromX: node.x,
+            fromY: node.y,
+            toX: position.x,
+            toY: position.y
+          } : null;
+        })
+        .filter(Boolean);
+
+      if (!targets.length) {
+        draw();
+        if (onComplete) onComplete();
+        return;
+      }
+
+      const startedAt = performance.now();
+      layoutAnimation = { frame: 0 };
+
+      function tick(now) {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = easeOutCubic(progress);
+
+        for (const target of targets) {
+          target.node.x = target.fromX + (target.toX - target.fromX) * eased;
+          target.node.y = target.fromY + (target.toY - target.fromY) * eased;
+        }
+
+        draw();
+
+        if (progress < 1) {
+          layoutAnimation.frame = requestAnimationFrame(tick);
+          return;
+        }
+
+        layoutAnimation = null;
+        if (onComplete) onComplete();
+      }
+
+      layoutAnimation.frame = requestAnimationFrame(tick);
+    }
 
     function resize() {
       const rect = canvas.getBoundingClientRect();
@@ -731,6 +792,247 @@
         product: product.length ? product.join(" × ") : "нет",
         sum: sum.length ? sum.join(" + ") : "нет"
       };
+    }
+
+    function combinationKey(values) {
+      return values.join("+");
+    }
+
+    function findSumCombinations(target, maxMatches = 3000, disabledValues = new Set()) {
+      const matches = [];
+      const current = [];
+      let aborted = false;
+
+      function walk(next, remaining) {
+        if (matches.length >= maxMatches) {
+          aborted = true;
+          return;
+        }
+
+        if (remaining === 0) {
+          if (current.length >= 2) matches.push([...current]);
+          return;
+        }
+
+        for (let value = next; value < target && value <= remaining; value++) {
+          if (disabledValues.has(value)) continue;
+          current.push(value);
+          walk(value + 1, remaining - value);
+          current.pop();
+          if (aborted) return;
+        }
+      }
+
+      walk(1, target);
+      return { matches, aborted };
+    }
+
+    function makeComboFocus(targetNode) {
+      const target = targetNode.value;
+      const { matches, aborted } = findSumCombinations(target, 3000, state.disabledValues);
+      const involvedValues = new Set([target]);
+      const edgeWeights = new Map();
+
+      for (const combo of matches) {
+        for (const value of combo) {
+          involvedValues.add(value);
+          const targetEdge = [value, target].sort((a, b) => a - b);
+          const targetKey = combinationKey(targetEdge);
+          edgeWeights.set(targetKey, (edgeWeights.get(targetKey) || 0) + 1.4);
+        }
+
+        for (let index = 0; index < combo.length - 1; index++) {
+          const edge = [combo[index], combo[index + 1]];
+          const key = combinationKey(edge);
+          edgeWeights.set(key, (edgeWeights.get(key) || 0) + 1);
+        }
+      }
+
+      return {
+        target,
+        combinations: matches,
+        aborted,
+        involvedValues,
+        edgeWeights
+      };
+    }
+
+    function refreshCombinationLayout() {
+      if (!state.comboFocus) return false;
+      const targetNode = state.nodes.find(node => node.value === state.comboFocus.target);
+      if (!targetNode) return false;
+      applyCombinationLayout(targetNode);
+      return true;
+    }
+
+    function toggleDisabledValue(node) {
+      if (!node || state.comboFocus?.target === node.value) return;
+
+      if (state.disabledValues.has(node.value)) {
+        state.disabledValues.delete(node.value);
+      } else {
+        state.disabledValues.add(node.value);
+      }
+
+      if (!refreshCombinationLayout()) {
+        state.selected.delete(node.value);
+        updateStats();
+        renderDetails();
+        draw();
+        saveStateSoon();
+      }
+    }
+
+    function applyCombinationLayout(targetNode) {
+      const previousFocus = state.comboFocus?.target === targetNode.value ? state.comboFocus : null;
+      const origin = previousFocus?.origin || {
+        x: Number.isFinite(targetNode.x) ? targetNode.x : 0,
+        y: Number.isFinite(targetNode.y) ? targetNode.y : 0
+      };
+      state.disabledValues.delete(targetNode.value);
+      const focus = makeComboFocus(targetNode);
+      focus.origin = origin;
+      state.comboFocus = focus;
+
+      if (!focus.combinations.length) {
+        state.selected = new Set([targetNode.value]);
+        addDetails(targetNode);
+        renderDetails();
+        draw();
+        saveStateSoon();
+        return;
+      }
+
+      const byValue = new Map(state.nodes.map(node => [node.value, node]));
+      const participants = [...focus.involvedValues]
+        .filter(value => value !== focus.target)
+        .sort((a, b) => a - b)
+        .map(value => byValue.get(value))
+        .filter(Boolean);
+      const connectionCount = new Map(participants.map(node => [node.value, 0]));
+      const visibleConnectionCount = new Map(participants.map(node => [node.value, 0]));
+      for (const combo of focus.combinations) {
+        for (const value of combo) {
+          connectionCount.set(value, (connectionCount.get(value) || 0) + 1);
+        }
+        for (let index = 0; index < combo.length - 1; index++) {
+          const first = combo[index];
+          const second = combo[index + 1];
+          visibleConnectionCount.set(first, (visibleConnectionCount.get(first) || 0) + 1);
+          visibleConnectionCount.set(second, (visibleConnectionCount.get(second) || 0) + 1);
+        }
+      }
+
+      const centerX = origin.x;
+      const centerY = origin.y;
+      const laneGap = Math.max(state.radius * 3.35, 56);
+      const columnGap = Math.max(state.radius * 5.4, 92);
+      const pullLength = Math.max(state.radius * 11, 220);
+
+      const positions = new Map([[focus.target, {
+        x: centerX - pullLength + 4.65 * columnGap,
+        y: centerY,
+        fixed: true
+      }]]);
+
+      const orderedParticipants = [...participants].sort((a, b) => {
+        const byConnections = (visibleConnectionCount.get(a.value) || 0) - (visibleConnectionCount.get(b.value) || 0);
+        return byConnections || a.value - b.value;
+      });
+      const maxConnections = Math.max(1, ...orderedParticipants.map(node => visibleConnectionCount.get(node.value) || 0));
+      const leftColumnSize = Math.max(1, Math.ceil(orderedParticipants.length * 0.34));
+      const leftStartY = -(leftColumnSize - 1) * laneGap / 2;
+
+      orderedParticipants.forEach((node, index) => {
+        const connections = visibleConnectionCount.get(node.value) || 0;
+        const weakSide = index < leftColumnSize;
+        const strength = connections / maxConnections;
+        const column = weakSide ? 0 : Math.min(2, 1 + Math.floor(strength * 2));
+        const columnItems = weakSide
+          ? leftColumnSize
+          : orderedParticipants.length - leftColumnSize;
+        const rowIndex = weakSide ? index : index - leftColumnSize;
+        const rowOffset = (rowIndex - (columnItems - 1) / 2) * laneGap;
+        const drift = weakSide ? 0 : (column - 1) * columnGap * 0.34;
+        positions.set(node.value, {
+          x: centerX - pullLength + column * columnGap + drift,
+          y: centerY + (weakSide ? leftStartY + index * laneGap : rowOffset),
+          fixed: weakSide
+        });
+      });
+
+      const edges = [...focus.edgeWeights.entries()].map(([key, weight]) => {
+        const [a, b] = key.split("+").map(Number);
+        return { a, b, weight };
+      });
+      const ideal = Math.max(state.radius * 4.4, 72);
+
+      for (let step = 0; step < 170; step++) {
+        const forces = new Map([...positions.keys()].map(value => [value, { x: 0, y: 0 }]));
+
+        for (let i = 0; i < orderedParticipants.length; i++) {
+          for (let j = i + 1; j < orderedParticipants.length; j++) {
+            const first = orderedParticipants[i].value;
+            const second = orderedParticipants[j].value;
+            const a = positions.get(first);
+            const b = positions.get(second);
+            if (!a || !b) continue;
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            let distance = Math.hypot(dx, dy) || 1;
+            const force = Math.min(2.8, (ideal * ideal) / (distance * distance)) * 0.2;
+            dx /= distance;
+            dy /= distance;
+            if (!a.fixed) {
+              forces.get(first).x += dx * force;
+              forces.get(first).y += dy * force;
+            }
+            if (!b.fixed) {
+              forces.get(second).x -= dx * force;
+              forces.get(second).y -= dy * force;
+            }
+          }
+        }
+
+        for (const edge of edges) {
+          const a = positions.get(edge.a);
+          const b = positions.get(edge.b);
+          if (!a || !b) continue;
+          const isTargetEdge = edge.a === focus.target || edge.b === focus.target;
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          let distance = Math.hypot(dx, dy) || 1;
+          const desired = isTargetEdge ? ideal * 3.2 : ideal * 1.15;
+          const force = (distance - desired) * (isTargetEdge ? 0.0025 : 0.011) * edge.weight;
+          dx /= distance;
+          dy /= distance;
+          if (!a.fixed) {
+            forces.get(edge.a).x += dx * force;
+            forces.get(edge.a).y += dy * force;
+          }
+          if (!b.fixed) {
+            forces.get(edge.b).x -= dx * force;
+            forces.get(edge.b).y -= dy * force;
+          }
+        }
+
+        for (const [value, position] of positions) {
+          if (position.fixed) continue;
+          const force = forces.get(value);
+          position.x += Math.max(-14, Math.min(14, force.x));
+          position.y += Math.max(-14, Math.min(14, force.y));
+        }
+      }
+
+      state.selected = new Set(focus.involvedValues);
+      state.detailValues = [
+        focus.target,
+        ...participants.map(node => node.value),
+        ...state.detailValues.filter(value => !focus.involvedValues.has(value))
+      ];
+      renderDetails();
+      updateStats();
+      animateNodesTo(positions, 440, saveStateSoon);
     }
 
     function activeRayCount() {
@@ -1673,6 +1975,33 @@
       title.textContent = "Разложения";
       details.append(title);
 
+      if (state.comboFocus) {
+        const comboBlock = document.createElement("div");
+        comboBlock.className = "law-block";
+
+        const comboTitle = document.createElement("div");
+        comboTitle.className = "law-title";
+        comboTitle.textContent = `Суммы для ${state.comboFocus.target}`;
+        comboBlock.append(comboTitle);
+
+        const comboNote = document.createElement("div");
+        comboNote.className = "empty";
+        const disabledCount = state.disabledValues.size;
+        comboNote.textContent = state.comboFocus.aborted
+          ? `Показаны первые ${state.comboFocus.combinations.length} комбинаций. Расчет остановлен по лимиту.`
+          : `Найдено комбинаций: ${state.comboFocus.combinations.length}. Отключено: ${disabledCount}.`;
+        comboBlock.append(comboNote);
+        details.append(comboBlock);
+
+        appendLawSection(
+          details,
+          "Комбинации",
+          state.comboFocus.combinations.length
+            ? state.comboFocus.combinations.map(combo => `${combo.join(" + ")} = ${state.comboFocus.target}`)
+            : ["нет"]
+        );
+      }
+
       if (!state.detailValues.length) {
         const empty = document.createElement("div");
         empty.className = "empty";
@@ -1722,6 +2051,8 @@
         return { value, x: 0, y: 0, prime: isPrime(value) };
       });
       state.selected.clear();
+      state.disabledValues.clear();
+      state.comboFocus = null;
       state.detailValues = state.detailValues.filter(value => value <= max);
       renderDetails();
       applyLayout(true);
@@ -1771,6 +2102,8 @@
     }
 
     function applyLayout(resetCamera = false) {
+      cancelLayoutAnimation();
+      state.comboFocus = null;
       const gap = state.radius * 3.2;
       const count = state.nodes.length;
 
@@ -1899,7 +2232,7 @@
     function hitNode(point) {
       for (let index = state.nodes.length - 1; index >= 0; index--) {
         const node = state.nodes[index];
-        if (state.layout === "sum" && node.value === 1) continue;
+        if (state.layout === "sum" && !state.comboFocus && node.value === 1) continue;
         const dx = point.x - node.x;
         const dy = point.y - node.y;
         if (Math.hypot(dx, dy) <= state.radius + 4 / state.camera.scale) {
@@ -1937,6 +2270,9 @@
         reverseRayNumbers: reverseRayNumbers.value,
         reverseSumTarget: reverseSumTarget.value,
         notes: notes.value,
+        comboTarget: state.comboFocus?.target || null,
+        comboOrigin: state.comboFocus?.origin || null,
+        disabledValues: [...state.disabledValues],
         nodes: state.nodes.map(node => ({
           value: node.value,
           x: node.x,
@@ -1980,6 +2316,9 @@
         state.selected = new Set((snapshot.selected || [])
           .map(Number)
           .filter(value => Number.isInteger(value) && value >= 1 && value <= max));
+        state.disabledValues = new Set((snapshot.disabledValues || [])
+          .map(Number)
+          .filter(value => Number.isInteger(value) && value >= 1 && value <= max));
         state.detailValues = [...new Set((snapshot.detailValues || [])
           .map(Number)
           .filter(value => Number.isInteger(value) && value >= 1 && value <= max))];
@@ -1997,6 +2336,19 @@
         updateReverseTargetFromSum();
         updateRayCalc();
         notes.value = snapshot.notes ?? localStorage.getItem(notesStorageKey) ?? "";
+        const comboTarget = Number(snapshot.comboTarget);
+        if (Number.isInteger(comboTarget) && comboTarget >= 1 && comboTarget <= max) {
+          const comboNode = state.nodes.find(node => node.value === comboTarget);
+          if (comboNode) {
+            state.comboFocus = makeComboFocus(comboNode);
+            if (Number.isFinite(snapshot.comboOrigin?.x) && Number.isFinite(snapshot.comboOrigin?.y)) {
+              state.comboFocus.origin = {
+                x: snapshot.comboOrigin.x,
+                y: snapshot.comboOrigin.y
+              };
+            }
+          }
+        }
         renderDetails();
         updateStats();
         draw();
@@ -2027,6 +2379,7 @@
 
       const uniqueValues = [...new Set(selectedValues)];
       state.selected = new Set(uniqueValues);
+      state.comboFocus = null;
       state.detailValues = [
         ...uniqueValues,
         ...state.detailValues.filter(value => !uniqueValues.includes(value))
@@ -2059,24 +2412,57 @@
         }
       }
 
+      if (state.comboFocus) {
+        const byValue = new Map(state.nodes.map(node => [node.value, node]));
+        ctx.save();
+        ctx.lineCap = "round";
+        for (const [key, weight] of state.comboFocus.edgeWeights.entries()) {
+          const [firstValue, secondValue] = key.split("+").map(Number);
+          const isTargetEdge = firstValue === state.comboFocus.target || secondValue === state.comboFocus.target;
+          if (isTargetEdge) continue;
+          const first = byValue.get(firstValue);
+          const second = byValue.get(secondValue);
+          if (!first || !second) continue;
+          const start = worldToScreen(first.x, first.y);
+          const end = worldToScreen(second.x, second.y);
+          ctx.beginPath();
+          ctx.moveTo(start.x, start.y);
+          ctx.lineTo(end.x, end.y);
+          ctx.lineWidth = Math.max(1, Math.min(5, weight * state.camera.scale));
+          ctx.strokeStyle = "rgba(93, 105, 122, 0.34)";
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       const drawNode = (node, x = node.x, y = node.y) => {
         const point = worldToScreen(x, y);
         const radius = state.radius * state.camera.scale;
         const selected = state.selected.has(node.value);
-        const dimmed = state.selected.size > 0 && !selected;
+        const disabled = state.disabledValues.has(node.value);
+        const dimmed = state.selected.size > 0 && !selected && !disabled;
 
         ctx.save();
         ctx.globalAlpha = dimmed ? 0.05 : 1;
         ctx.beginPath();
         ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = selected ? colors.selected : (node.prime ? colors.prime : colors.normal);
+        ctx.fillStyle = disabled ? "#c6ccd6" : (selected ? colors.selected : (node.prime ? colors.prime : colors.normal));
         ctx.fill();
         ctx.lineWidth = selected ? 3 : 1;
-        ctx.strokeStyle = selected ? "#8a6414" : "rgba(20, 26, 36, 0.25)";
+        ctx.strokeStyle = disabled ? "#707987" : (selected ? "#8a6414" : "rgba(20, 26, 36, 0.25)");
         ctx.stroke();
 
+        if (disabled) {
+          ctx.beginPath();
+          ctx.moveTo(point.x - radius * 0.62, point.y + radius * 0.62);
+          ctx.lineTo(point.x + radius * 0.62, point.y - radius * 0.62);
+          ctx.lineWidth = Math.max(2, radius * 0.16);
+          ctx.strokeStyle = "rgba(68, 76, 88, 0.9)";
+          ctx.stroke();
+        }
+
         const fontSize = Math.max(9, Math.min(15, radius * 0.86));
-        ctx.fillStyle = selected ? "#1c1a14" : "#fff";
+        ctx.fillStyle = disabled ? "#3f4652" : (selected ? "#1c1a14" : "#fff");
         ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -2085,11 +2471,11 @@
       };
 
       for (const node of state.nodes) {
-        if (state.layout === "sum" && node.value === 1) continue;
+        if (state.layout === "sum" && !state.comboFocus && node.value === 1) continue;
         drawNode(node);
       }
 
-      if (state.layout === "sum" && state.nodes.length % 2 === 0) {
+      if (state.layout === "sum" && !state.comboFocus && state.nodes.length % 2 === 0) {
         const half = state.nodes.length / 2;
         const node = state.nodes[half - 1];
         if (node) drawNode(node, -Math.abs(node.x), node.y);
@@ -2109,10 +2495,50 @@
       }
     }
 
+    canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const pendingValue = state.contextMenuNodeValue;
+      state.contextMenuNodeValue = null;
+      const node = Number.isInteger(pendingValue)
+        ? state.nodes.find(item => item.value === pendingValue)
+        : hitNode(screenToWorld(event.clientX, event.clientY));
+      if (node) applyCombinationLayout(node);
+    });
+
+    canvas.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      cancelLayoutAnimation();
+      state.selected.clear();
+      state.comboFocus = null;
+      updateStats();
+      renderDetails();
+      draw();
+      saveStateSoon();
+    });
+
+    canvas.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+    });
+
     canvas.addEventListener("pointerdown", (event) => {
-      canvas.setPointerCapture(event.pointerId);
       const point = screenToWorld(event.clientX, event.clientY);
       const node = hitNode(point);
+
+      if ((event.ctrlKey || event.button === 1) && node) {
+        event.preventDefault();
+        toggleDisabledValue(node);
+        return;
+      }
+
+      if (event.button === 2) {
+        event.preventDefault();
+        state.contextMenuNodeValue = node?.value || null;
+        return;
+      }
+
+      cancelLayoutAnimation();
+      canvas.setPointerCapture(event.pointerId);
 
       if (node) {
         addDetails(node);
@@ -2210,14 +2636,20 @@
     document.querySelector("#build").addEventListener("click", buildNodes);
     document.querySelector("#applyNumbers").addEventListener("click", applyNumberList);
     document.querySelector("#clearSelection").addEventListener("click", () => {
+      cancelLayoutAnimation();
       state.selected.clear();
+      state.comboFocus = null;
       updateStats();
+      renderDetails();
       draw();
       saveStateSoon();
     });
     document.querySelector("#selectPrimes").addEventListener("click", () => {
+      cancelLayoutAnimation();
       state.selected = new Set(state.nodes.filter(node => node.prime).map(node => node.value));
+      state.comboFocus = null;
       updateStats();
+      renderDetails();
       draw();
       saveStateSoon();
     });
