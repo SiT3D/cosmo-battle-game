@@ -853,7 +853,8 @@
 
     function checkCalcBudget(budget, stats) {
       stats.operationChecks++;
-      if ((stats.operationChecks & 4095) !== 0) return !budget.aborted;
+      const interval = budget.checkInterval || 4096;
+      if (stats.operationChecks % interval !== 0) return !budget.aborted;
       if (performance.now() <= budget.deadline) return true;
       budget.aborted = true;
       return false;
@@ -1309,6 +1310,7 @@
     function runBruteforceCheck() {
       const startTime = performance.now();
       const budget = createCalcBudget(60000);
+      budget.checkInterval = 128;
       const targetSum = Number(reverseSumTarget.value);
       const maxLength = Math.max(2, Math.min(40, Number(reverseRayMax.value) || 6));
       const rawValues = parseRawNumberList(reverseRayNumbers.value);
@@ -1358,6 +1360,7 @@
 
           const lastStart = values.length - slots;
           for (let index = start; index <= lastStart && !budget.aborted; index++) {
+            if (!checkCalcBudget(budget, stats)) break;
             stats.branches++;
             const nextSum = sum + values[index];
             if (nextSum > targetSum) {
